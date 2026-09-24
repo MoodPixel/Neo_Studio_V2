@@ -19,6 +19,7 @@ from uuid import uuid4
 from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 
 from neo_app.image.preview_finish_dispatch import normalize_preview_finish_params
+from neo_app.admin.models.artifact_compatibility import upscale_compatibility_payload
 
 from .constants import EXTENSION_ID, QUEUE_ENDPOINT, SUPPORTED_COMFY_BACKENDS, SEEDVR2_DIT_DEFAULT, SEEDVR2_VAE_DEFAULT, SEEDVR2_ENGINE_ID
 from .metadata import build_image_upscale_extension_usage, build_image_upscale_metadata
@@ -441,6 +442,13 @@ def _build_model_catalog(root_dir: Path, provider: Any, profile: dict[str, Any])
         }
 
     info = _object_info(provider)
+    # Conventional models come only from the selected server. Do not scan
+    # unrelated local Comfy installs to populate a remote profile's dropdown.
+    upscalers = _dedupe_names(_query_comfy_model_folders(provider, ["upscale_models"]))
+    upscale_catalog_source = "comfy_models_endpoint_upscale" if upscalers else ""
+    if not upscalers:
+        upscalers = _dedupe_names(_node_choices(info, "UpscaleModelLoader", "model_name"))
+        upscale_catalog_source = "comfy_upscale_loader_choices" if upscalers else ""
     node_declared_seed_names: list[str] = []
     node_declared_codeformer_names: list[str] = []
     seed_names: list[str] = []
@@ -541,6 +549,9 @@ def _build_model_catalog(root_dir: Path, provider: Any, profile: dict[str, Any])
 
     return {
         "ok": True,
+        "provider_id": provider_id,
+        "upscalers": upscalers,
+        **upscale_compatibility_payload(upscalers, info, provider_id=provider_id),
         "seedvr2_dit_models": seed_dit,
         "seedvr2_vae_models": seed_vae,
         "codeformer_models": codeformer,
@@ -560,7 +571,7 @@ def _build_model_catalog(root_dir: Path, provider: Any, profile: dict[str, Any])
             "object_info_available": bool(info),
             "real_catalog_policy": "dropdowns_use_comfy_models_endpoint_filesystem_scan_profile_runtime_or_codeformer_connected_backend_fallback",
         },
-        "sources": sorted(set(sources)),
+        "sources": sorted(set(sources + ([upscale_catalog_source] if upscale_catalog_source else []))),
         "roots_checked": [str(item) for item in roots],
         "warnings": warnings,
     }
@@ -1295,7 +1306,10 @@ def create_image_upscale_api_router(
                     "comfy_source_image_name": comfy_name,
                     "compile_notes": notes,
                     "source_dimensions": {"width": normalized.get("source_width", normalized.get("seedvr2_source_width", 0)), "height": normalized.get("source_height", normalized.get("seedvr2_source_height", 0))},
-                    "computed_output_dimensions": {"width": normalized.get("seedvr2_output_width", 0), "height": normalized.get("seedvr2_output_height", 0)},
+                    "computed_output_dimensions": {
+                        "width": normalized.get("seedvr2_output_width", 0) if normalized.get("upscale_engine") == SEEDVR2_ENGINE_ID else normalized.get("_neo_upscale_requested_width", 0),
+                        "height": normalized.get("seedvr2_output_height", 0) if normalized.get("upscale_engine") == SEEDVR2_ENGINE_ID else normalized.get("_neo_upscale_requested_height", 0),
+                    },
                     "source_transparency": {
                         "format": normalized.get("seedvr2_source_format", ""),
                         "image_mode": normalized.get("seedvr2_source_image_mode", ""),

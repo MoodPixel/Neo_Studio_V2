@@ -49,6 +49,7 @@ from neo_app.providers.comfy_workflows.res4lyf_sampler import (
 )
 from neo_app.providers.comfy_workflows.qwen_gguf import compile_qwen_gguf_txt2img
 from neo_app.providers.comfy_workflows.qwen_native import compile_qwen_native_txt2img
+from neo_app.providers.comfy_workflows.qwen_image_21 import compile_qwen_image_21_edit, compile_qwen_image_21_masked, compile_qwen_image_21_txt2img
 from neo_app.providers.comfy_workflows.qwen_aio import compile_qwen_native_edit, compile_qwen_rapid_aio_checkpoint
 from neo_app.providers.comfy_workflows.qwen_stitch_handoff import record_qwen_stitch_comfy_handoff
 from neo_app.image.qwen_stitch_contract import extract_qwen_stitch_payload
@@ -68,7 +69,7 @@ from neo_app.image.flux1_krea_contract import (
     is_flux1_krea_variant,
     resolve_flux1_variant,
 )
-from neo_app.image.krea2_contract import check_krea2_compatibility, resolve_krea2_variant
+from neo_app.image.krea2_contract import KREA2_OSTRIS_EDIT_RUNTIME_NODE_CLASSES, check_krea2_compatibility, normalize_krea2_edit_engine, resolve_krea2_variant
 from neo_app.image.krea2_anypaint_capabilities import DISCOVERY_NODE_CLASSES as KREA2_ANYPAINT_DISCOVERY_NODE_CLASSES, inspect_krea2_anypaint_capabilities
 from neo_app.image.krea2_anypaint_runtime import (
     finalize_krea2_anypaint_runtime_diagnostics,
@@ -770,6 +771,7 @@ class ComfyProvider(BaseProvider):
         # the installed Comfy backend can reproduce Neo's Qwen-native graph.
         # Omitting these classes previously made live nodes look unavailable and
         # caused CFGNorm / FluxKontext parity stages to be silently skipped.
+        qwen21_runtime_nodes = ["TextEncodeQwenImage21", "QwenImage21Cache", "EmptyLatentImage"]
         qwen_native_parity_nodes = [
             "CFGNorm",
             "FluxKontextImageScale",
@@ -803,6 +805,7 @@ class ComfyProvider(BaseProvider):
             node_name: self._node_input_names(info, node_name)
             for node_name in [
                 *qwen_edit_nodes,
+                *qwen21_runtime_nodes,
                 *qwen_native_parity_nodes,
                 *stitch_nodes,
                 *context_latent_nodes,
@@ -810,6 +813,7 @@ class ComfyProvider(BaseProvider):
                 *res4lyf_sampler_nodes,
                 *vae_utils_decode_nodes,
                 *scene_director_runtime_nodes,
+                *KREA2_OSTRIS_EDIT_RUNTIME_NODE_CLASSES,
                 *object_info_scope,
             ]
             if isinstance(info.get(node_name), dict)
@@ -1800,6 +1804,7 @@ class ComfyProvider(BaseProvider):
         profile = patch.get("route_profile") if isinstance(patch.get("route_profile"), dict) else {}
         refine_samplers = nodes_of_class("KSampler")
         upscale_nodes = nodes_of_class("ImageUpscaleWithModel", "ImageScaleBy", "ImageScale", "LatentUpscale", "UltimateSDUpscale")
+        channel_normalization_nodes = nodes_of_class("SplitImageWithAlpha")
         encode_nodes = nodes_of_class("VAEEncode")
         decode_nodes = nodes_of_class("VAEDecode", "VAEDecodeTiled", "VAEUtils_VAEDecodeTiled")
         proof = {
@@ -1812,6 +1817,8 @@ class ComfyProvider(BaseProvider):
             "profile_id": str(patch.get("profile_id") or profile.get("profile_id") or ""),
             "base_sampler_node_id": str(patch.get("sampler_node_id") or ""),
             "upscale_node_ids": upscale_nodes,
+            "channel_normalization_node_ids": channel_normalization_nodes,
+            "qwen21_highres_image_bridge": deepcopy(patch.get("qwen21_highres_image_bridge") or {}),
             "vae_encode_node_ids": encode_nodes,
             "refine_sampler_node_id": refine_samplers[-1] if refine_samplers else "",
             "final_decode_node_id": decode_nodes[-1] if decode_nodes else "",
@@ -2417,12 +2424,15 @@ class ComfyProvider(BaseProvider):
             or (job.family == "flux2_klein" and job.mode in {"txt2img", "img2img", "edit", "inpaint", "outpaint"})
             or (job.family in {"krea2", "krea2_turbo"} and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "qwen_image" and job.mode in {"txt2img", "img2img", "edit", "inpaint", "outpaint"})
+            or (job.family == "qwen_image_21" and job.mode in {"txt2img", "img2img", "edit", "inpaint", "outpaint"})
             or (job.family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and job.mode in {"img2img", "edit", "inpaint", "outpaint"})
             or (job.family == "z_image" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "z_image_turbo" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint"})
             or (job.family == "hidream" and job.mode == "txt2img")
         ):
             result.warnings.append("Diffusion-model loader compile is enabled for declared Flux, Krea 2 RAW/Turbo, Qwen Image, ZImage base/Turbo txt2img/img2img/inpaint/outpaint, and HiDream txt2img routes. Wan/Hunyuan remain provider-gated until confirmed image workflows exist.")
+        if job.loader == "gguf" and job.family == "qwen_image_21" and job.mode not in {"txt2img", "img2img", "edit"}:
+            result.warnings.append("Q21-3 GGUF currently supports txt2img and unified img2img/edit only; masked workflows remain gated to Q21-4.")
         if job.loader == "checkpoint_aio" and not (job.family == "qwen_rapid_aio" and job.mode in {"txt2img", "img2img", "inpaint", "outpaint", "edit"}):
             result.warnings.append("Checkpoint AIO loader compile is currently enabled only for Qwen Rapid AIO routes; Qwen Image Edit uses Safetensors / Components or GGUF.")
         if job.family == "flux2_klein" and job.loader in {"diffusion_model", "gguf"}:
@@ -2509,12 +2519,17 @@ class ComfyProvider(BaseProvider):
 
     @staticmethod
     def _extra_source_image_value(params: dict[str, Any], lane: int) -> str:
-        if lane == 2:
-            keys = ("source_image_2", "source_image_2_path", "source_image__2", "reference_image_2", "source_image_2_url", "source_image__2_name", "reference_image_2_name")
-        elif lane == 3:
-            keys = ("source_image_3", "source_image_3_path", "source_image__3", "composition_image", "source_image_3_url", "source_image__3_name", "composition_image_name", "reference_image_3_name")
-        else:
+        if lane < 2 or lane > 10:
             return ""
+        keys = [
+            f"source_image_{lane}", f"source_image_{lane}_path", f"reference_image_{lane}",
+            f"source_image_{lane}_url", f"source_image_{lane}_name", f"reference_image_{lane}_name",
+        ]
+        if lane == 2:
+            keys.extend(("source_image__2", "source_image__2_name"))
+        elif lane == 3:
+            keys.extend(("source_image__3", "composition_image", "source_image__3_name", "composition_image_name"))
+        keys = tuple(keys)
         for key in keys:
             value = params.get(key)
             if isinstance(value, dict):
@@ -4216,6 +4231,25 @@ class ComfyProvider(BaseProvider):
             )
             return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(self._apply_non_checkpoint_extension_patches(compiled, job, route), job, route), job, route)
 
+        if route.compiler_id == "comfy.qwen_image_21":
+            compiler = compile_qwen_image_21_masked if job.mode in {"inpaint", "outpaint"} else (compile_qwen_image_21_edit if job.mode in {"img2img", "image_to_image", "edit"} else compile_qwen_image_21_txt2img)
+            compiled = compiler(
+                provider_id=self.manifest.provider_id,
+                base_url=self.base_url,
+                job=job,
+                validation=validation,
+                route=route,
+                capabilities=self.feature_capability_payload(),
+                backend_capabilities=self.discover_backend_capabilities(),
+            )
+            # Q21-5A: Qwen Image 2.1 publishes valid LoRA/High-Res graph anchors,
+            # but the provider route previously returned before the shared
+            # non-checkpoint extension hook ran. That made UI High-Res intent a
+            # no-op even when the payload reached the provider. Apply the same
+            # route-gated extension pipeline used by the other native component
+            # families before latent replay/capture hooks finalize the graph.
+            compiled = self._apply_non_checkpoint_extension_patches(compiled, job, route)
+            return self._apply_comfy_latent_capture_hook(self._apply_comfy_latent_branch_restore_hook(compiled, job, route), job, route)
         if route.compiler_id == "comfy.qwen_native":
             compiled = compile_qwen_native_txt2img(
                 provider_id=self.manifest.provider_id,
@@ -4786,24 +4820,42 @@ class ComfyProvider(BaseProvider):
                 except Exception as exc:  # noqa: BLE001
                     record_generation_error(run_id=run_id, message="Failed to upload source image to Comfy input.", exc=exc, payload={"source_image": source_image})
                     raise
+            krea2_edit_engine = normalize_krea2_edit_engine(params.get("krea2_edit_engine") or params.get("edit_engine") or "native")
             krea2_identity_stack_active = (
                 runtime_job.family in {"krea2", "krea2_turbo"}
                 and runtime_job.loader in {"diffusion_model", "gguf"}
                 and runtime_job.mode in {"img2img", "edit", "inpaint", "outpaint"}
-                and str(params.get("krea2_edit_engine") or params.get("edit_engine") or "").strip().lower().replace("-", "_") in {"identity_edit", "krea2_identity_edit", "identity"}
+                and krea2_edit_engine == "identity_edit"
             )
-            extra_source_stack_active = (
+            krea2_ostris_stack_active = (
+                runtime_job.family in {"krea2", "krea2_turbo"}
+                and runtime_job.loader in {"diffusion_model", "gguf"}
+                and runtime_job.mode in {"img2img", "edit", "inpaint", "outpaint"}
+                and krea2_edit_engine == "ostris_edit"
+            )
+            qwen21_reference_stack_active = (
+                runtime_job.family == "qwen_image_21" and runtime_job.loader == "diffusion_model" and runtime_job.mode in {"img2img", "edit", "inpaint", "outpaint"}
+            )
+            extra_source_stack_active = qwen21_reference_stack_active or (
                 runtime_job.family in {"qwen_image_edit_2509", "qwen_image_edit_2511"} and runtime_job.loader in {"diffusion_model", "gguf"} and runtime_job.mode in {"img2img", "edit"}
             ) or (
                 runtime_job.family in {"qwen_rapid_aio"} and runtime_job.loader == "gguf" and runtime_job.mode == "img2img"
             ) or (
                 runtime_job.family == "flux" and runtime_job.loader == "gguf" and runtime_job.mode in {"img2img", "inpaint", "outpaint"}
-            ) or krea2_identity_stack_active
+            ) or krea2_identity_stack_active or krea2_ostris_stack_active
             if extra_source_stack_active:
-                if krea2_identity_stack_active:
+                if qwen21_reference_stack_active:
+                    stack_label = "qwen21_reference_image_handoff"
+                    family_label = "Qwen Image 2.1"
+                    source_lanes = tuple(range(2, 11))
+                elif krea2_identity_stack_active:
                     stack_label = "krea2_identity_reference_handoff"
                     family_label = "Krea 2 Identity Edit"
                     source_lanes = (2,)
+                elif krea2_ostris_stack_active:
+                    stack_label = "krea2_ostris_reference_handoff"
+                    family_label = "Krea 2 Ostris Edit"
+                    source_lanes = (2, 3)
                 else:
                     stack_label = "qwen_reference_image_handoff" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else "flux_reference_image_handoff"
                     family_label = "Qwen" if runtime_job.family in {"qwen_image", "qwen_rapid_aio", "qwen_image_edit_2509", "qwen_image_edit_2511"} else "Flux"

@@ -21,6 +21,7 @@ applies_to:
   - qwen_rapid_aio
   - qwen_image_edit
   - qwen_image_edit_2509
+  - qwen_image_21
   - z_image
   - z_image_turbo
   - hidream
@@ -40,8 +41,8 @@ tags:
   - sampler
   - scheduler
 priority: 115
-version: 9
-updated: 2026-08-21
+version: 10
+updated: 2026-09-23
 ---
 
 # Image Parameters
@@ -102,8 +103,11 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 | **Flux Guidance** | Flux-family model-guidance control. | It is independent from sampler CFG. If both controls are exposed, Neo preserves both explicit values instead of forcing CFG to a family default. |
 | **Krea 2 Qwen3-VL-4B Text Encoder** | Selects Krea 2's single Qwen3-VL-4B conditioning model. | Krea 2 requires the specialized `CLIPLoader(type=krea2)` path. For Krea 2 GGUF, keep this encoder as native/safetensors in M16. |
 | **Krea 2 VAE** | Selects the VAE/AE used by Krea 2. | `qwen_image_vae.safetensors` remains the recommended/default architecture match. A different VAE/AE is treated as an **experimental override**: Neo shows an inline warning but does not block generation, and ComfyUI owns runtime compatibility validation. |
-| **Krea 2 Edit Engine** | Chooses the existing Neo source/mask/canvas adapter or the opt-in Krea 2 Identity Edit v1.2 graph in image modes. | Keep **Neo Native Adapter** for existing behavior. Identity Edit requires the current `comfyui-krea2edit` nodes and a selected Identity Edit LoRA. |
-| **Identity Edit LoRA / Strength** | Selects and weights the dedicated model-only Krea 2 editing LoRA. | Required only when Identity Edit is enabled. The recommended v1.2 weight starts around strength `1.0`. |
+| **Krea 2 Edit Engine** | Chooses **Neo Native Adapter**, **Krea 2 Identity Edit v1.2**, or **Krea 2 Ostris Edit** for Krea image-conditioned modes. | Native keeps Neo’s existing latent/mask/canvas path. Identity uses `Krea2EditModelPatch` + grounded Qwen3-VL conditioning. Ostris uses `TextEncodeKrea2OstrisEdit` + `Krea2OstrisEditModelPatch`. The Parameters card now shows live backend readiness for the selected engine. |
+| **Edit Weight Source** | Chooses whether the active Identity/Ostris edit weights come from a separate model-only LoRA or are already baked/merged into the selected Krea diffusion model. | **Separate LoRA** requires the engine LoRA selector/loader. **Baked into Model** skips only that dedicated LoRA loader; the selected edit engine’s runtime nodes are still required. |
+| **Identity Edit LoRA / Strength** | Selects and weights the dedicated model-only Identity Edit LoRA. | Required only for **Identity Edit + Separate LoRA**. Hidden/non-executable for baked Identity models. The recommended v1.2 weight starts around strength `1.0`. |
+| **AI Toolkit Edit LoRA / Strength** | Selects and weights the dedicated model-only Krea 2 edit LoRA used by the **Ostris Edit** engine. | Required only for **Ostris Edit + Separate LoRA**. The dropdown is populated from the normal live Comfy LoRA catalog. Use LoRAs trained with AI Toolkit experimental edit mode (`model_kwargs.edit: true`); this is not the Identity Edit v1.2 LoRA. Hidden/non-executable when matching Ostris/AI Toolkit edit weights are baked into the selected model. |
+| **Ostris KV Cache** | Controls `Krea2OstrisEditModelPatch.kv_cache`. | Leave **Off** for normal Ostris edit LoRAs. Turn it **On** only when the LoRA/model documentation says it was trained/exported with AI Toolkit KV Cache support. It is a training-compatibility switch, not an automatic VRAM/speed preset. |
 | **Reference Fit / Reference Boost / Grounding Resolution / Grounding System Prompt** | Controls v1.2 source geometry, reference-fidelity attention, Qwen3-VL image grounding, and the optional grounding-system override. | Start with Fit, identity boost `4.0`, scene boost `1.0`, grounding `768`, and leave system prompt blank unless you intentionally need extra grounding guidance. |
 | **Seed** | Controls repeatability. `-1` usually means random/auto-resolved. | Use random for exploration, lock/reuse a seed for revisions, and copy seed when documenting a result. |
 | **Seed lock** | Keeps future generations on the same seed. | Use for controlled iterations. |
@@ -125,6 +129,28 @@ Neo selects a parameter profile from the active Model Family + Main Model Type +
 | **Outpaint Left / Right / Top / Bottom** | Adds canvas area on each side. | Use small increments first. Large padding can increase VRAM and make composition harder. |
 | **Outpaint Feather** | Blends old image and new canvas extension. | Higher feather can soften the transition; too high can smear details. |
 
+## Qwen Image 2.1 parameter contract — Q21-3
+
+Q21-3 keeps the Q21-2 txt2img/unified-edit controls and adds the **GGUF transformer** Main Model Type. Q21-3 GGUF still uses the native/safetensors Qwen3-VL 8B encoder and Qwen Image 2.1 VAE. Inpaint/outpaint/LoRA/High-Res/RGBA/cache controls remain future-phase gated.
+
+| Future control | Contract |
+|---|---|
+| **Qwen Image 2.1 Main Model** | Safetensors/components uses the live diffusion-model catalog. GGUF uses the live GGUF diffusion-transformer catalog. |
+| **Qwen3-VL 8B Encoder** | Required native conditioning component through `CLIPLoader(type=qwen_image)`. Do not reuse Krea's 4B encoder or old Qwen 2.5-VL assumptions. |
+| **Qwen Image 2.1 VAE** | Required for edit/reference-latent routes and native RGBA semantics. |
+| **GGUF mixed stack** | GGUF quantizes only the Qwen 2.1 diffusion transformer. Keep Qwen3-VL 8B on native `CLIPLoader(type=qwen_image)` and the VAE on native `VAELoader`; Q21-3 does not require MMProj or `CLIPLoaderGGUF`. |
+| **Reference Resolution** | Maps to `TextEncodeQwenImage21.resolution`; Q21-2 edit defaults to `0`, preserving each reference's own size through Comfy's native preprocessing. Positive values use the selected reference resize budget. This is independent from final output Width/Height. |
+| **References** | Progressive Image 1–10 lanes. Image 1 is the primary edit target; Images 2–10 are ordered references. |
+| **Edit Canvas** | **Follow Image 1** uses the Qwen encoder-returned latent and therefore follows Image 1. **Custom width / height** inserts an explicit `EmptyLatentImage`; the normal Width/Height fields then become authoritative. |
+| **Qwen Cache Device** | Q21-6B `auto`, `gpu`, `cpu`, `off`; shown only when live `QwenImage21Cache` is compatible. Inference optimization only. |
+| **Qwen Cache Dtype** | Q21-6B `default`, `int8`, `int4`; controls cache storage precision and remains independent of model-weight quantization selection. |
+| **Output Channels** | Qwen Image 2.1 Q21-6A: `Auto / RGB / RGBA / Transparent`; Txt2Img RGBA has a physical alpha pass, while broader edit alpha remains under Q21-7. |
+| **Masked Preservation** | Q21-4 exposes strict/native Inpaint preservation and preserve/redraw Outpaint policy on supported Safetensors routes. |
+
+The local starting profile may follow the current Comfy template (25 steps, CFG 1, Euler + Simple, 1024-oriented), while Qwen's Diffusers example uses 40 steps. These are defaults/recommendations only; explicit Parameters remain final truth.
+
+At CFG 1, do not present Negative Prompt as an active strong control when the Qwen route treats it as unused.
+
 ## Krea 2 RAW / Turbo parameter behavior
 
 Krea 2 is a separate image architecture, not FLUX.1 Krea. Both **Krea 2 RAW** and **Krea 2 Turbo** use one Qwen3-VL-4B text encoder through `CLIPLoader(type=krea2)` plus the Qwen Image VAE. Neo preflights that Krea 2 CLIP type through backend capability discovery; an older ComfyUI build that exposes `CLIPLoader` but not `type=krea2` is blocked before queue submission.
@@ -135,8 +161,11 @@ Custom Krea 2 VAE/AE selection is intentionally **warning-only**. Neo does not e
 - **Krea 2 Turbo:** distilled fast model. Neo uses 8 steps / CFG 1 only as defaults when those fields are missing. Manual Steps and CFG remain authoritative. Turbo still uses its family-specific negative-conditioning graph semantics.
 - **Safetensors / Components:** the diffusion model, Qwen3-VL-4B encoder, and Qwen Image VAE remain native Comfy components.
 - **GGUF (M16 experimental):** only the Krea 2 diffusion transformer may be GGUF. Keep the Qwen3-VL-4B encoder native/safetensors through `CLIPLoader(type=krea2)` because Krea 2 consumes a specialized multi-layer conditioning stack.
-- **Img2Img / Inpaint / Outpaint:** the M16 provider-owned latent adapters remain the default. M17 adds an explicit **Krea 2 Identity Edit v1.2** engine for the community `comfyui-krea2edit` + Identity Edit LoRA workflow.
-- **Identity Edit graph:** `LoraLoaderModelOnly -> Krea2EditModelPatch`, image-grounded positive + empty grounded negative through `Krea2EditGroundedEncode`, and one shared `EmptySD3LatentImage` target wired to both the patch and KSampler.
+- **Img2Img / Edit / Inpaint / Outpaint:** the provider-owned latent adapters remain the Native default. M17 adds **Krea 2 Identity Edit v1.2**; M18 adds **Krea 2 Ostris Edit**.
+- **Identity Edit graph:** Separate mode uses `LoraLoaderModelOnly -> Krea2EditModelPatch`; baked mode skips the dedicated LoRA loader. Both modes keep image-grounded positive + empty grounded negative through `Krea2EditGroundedEncode` and the shared `EmptySD3LatentImage` target.
+- **Ostris Edit graph:** Separate mode uses `LoraLoaderModelOnly -> Krea2OstrisEditModelPatch`; baked mode sends the selected model directly into `Krea2OstrisEditModelPatch`. Positive and negative conditioning use `TextEncodeKrea2OstrisEdit`. Image 1 is required; Image 2 and Image 3 are optional ordered references when the live node exposes those sockets.
+- **Krea Edit Runtime Readiness:** the Parameters surface checks the active backend’s discovered node roles and shows whether Native, Identity, or Ostris runtime requirements are ready, missing, or currently unverified. Saved result metadata records the same readiness snapshot for Output Inspector/replay auditing.
+- **Runtime readiness vs visual compatibility:** a green runtime/readiness state means Neo found the required backend nodes and can build the selected graph. It does **not** guarantee that every third-party edit LoRA or baked checkpoint will produce good visual results. Match the model author’s required engine and KV Cache setting, and avoid treating filename similarity as proof that weights are baked or KV-trained.
 - **Two references:** Image 1 is scene/context; optional Image 2 is subject/identity. Image 3 is intentionally unavailable for Identity Edit.
 - **Identity Edit inpaint:** the model edits from the trained clean target-noise path; the user mask is applied as the final commit/composite boundary. It is not combined with LanPaint.
 - **Identity Edit outpaint:** the clean source stays unpadded and is centered by v1.2 `fit` geometry inside the larger target. Asymmetric padding changes target size but cannot side-anchor the clean reference exactly.
@@ -202,7 +231,7 @@ The Image Parameters panel controls the base route. Workspace extension cards ad
 | Asset extension | Key fields | What to explain |
 |---|---|---|
 | **LoRA Stack** | Apply LoRA Stack, rows, LoRA name, Strength, Pass, Target, row order. | It is an Image → Assets tool. It applies LoRA rows only when the route exposes safe patch points. Regional targets are preserved for Scene Director. |
-| **LoRA Library** | Search Comfy LoRAs, Comfy LoRA selector, triggers, keywords, sample prompt, CivitAI link/merge/pull. | It is an Image → Assets metadata/catalog manager and can add a selected LoRA to the stack. It does not execute a LoRA by itself. |
+| **LoRA Library** | Main-folder + subfolder filters, provider LoRA selector, search, triggers, keywords, sample prompt, manual Notes, persisted CivitAI source link/merge/pull. | It is an Image → Assets metadata/catalog manager and can add a selected LoRA to the stack. Folder options come from the selected provider catalog. It does not execute a LoRA by itself. |
 | **Embeddings / Textual Inversion** | Apply Embeddings/TI, Scan Folder, Refresh, Embeddings folder, Search, Embedding, Prompt token, Target, Strength, Add Embedding, CivitAI link, merge mode, Applied Embeddings. | It is an Image → Assets prompt-token manager. It inserts/preserves tokens such as `embedding:name`; no custom loader node is required. |
 
 Use the dedicated guides for detailed behavior:

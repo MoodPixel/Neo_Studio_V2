@@ -171,16 +171,39 @@ def _build_compatible_vae_decode_node(
 
 
 def _find_output_image_consumers(workflow: dict[str, Any], decoded_ref: list[Any] | None = None) -> list[tuple[str, str]]:
-    consumers: list[tuple[str, str]] = []
-    output_classes = {"PreviewImage", "SaveImage"}
+    """Find final image outputs without hijacking diagnostic PreviewImage nodes.
+
+    SaveImage is Neo's authoritative backend-native handoff when present. Q21-4B
+    deliberately adds intermediate PreviewImage proof nodes, so High-Res must only
+    rewrite PreviewImage nodes that share the same image ref as a SaveImage final
+    output. Routes without SaveImage keep the historical all-preview fallback.
+    """
+    save_consumers: list[tuple[str, str]] = []
+    preview_consumers: list[tuple[str, str]] = []
+    save_refs: set[tuple[Any, ...]] = set()
     for node_id, node in workflow.items():
-        if not isinstance(node, dict) or node.get("class_type") not in output_classes:
+        if not isinstance(node, dict) or node.get("class_type") not in {"PreviewImage", "SaveImage"}:
             continue
         inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
-        if "images" in inputs:
-            consumers.append((str(node_id), "images"))
-    if consumers:
-        return consumers
+        value = inputs.get("images")
+        if not isinstance(value, (list, tuple)) or len(value) < 2:
+            continue
+        consumer = (str(node_id), "images")
+        if node.get("class_type") == "SaveImage":
+            save_consumers.append(consumer)
+            save_refs.add(tuple(value))
+        else:
+            preview_consumers.append(consumer)
+    if save_consumers:
+        matching_previews = []
+        for consumer in preview_consumers:
+            value = _node_inputs(workflow, consumer[0]).get(consumer[1])
+            if isinstance(value, (list, tuple)) and tuple(value) in save_refs:
+                matching_previews.append(consumer)
+        return [*save_consumers, *matching_previews]
+    if preview_consumers:
+        return preview_consumers
+    consumers: list[tuple[str, str]] = []
     # Fallback: rewrite consumers of the base decode image output.
     if decoded_ref:
         for node_id, node in workflow.items():
@@ -196,6 +219,136 @@ def _find_output_image_consumers(workflow: dict[str, Any], decoded_ref: list[Any
 def _find_base_decode_ref(workflow: dict[str, Any]) -> list[Any] | None:
     node_id, _ = _base_decode_node(workflow)
     return [node_id, 0] if node_id else None
+
+def _current_output_ref(workflow: dict[str, Any], consumers: list[tuple[str, str]]) -> list[Any] | None:
+    """Return the image ref currently feeding SaveImage/PreviewImage.
+
+    Q21-4 strict masked workflows may insert ImageCompositeMasked after the base
+    VAEDecode. High-Res must start from that final Stage-1 image rather than the
+    earlier decoder output or it would silently discard strict preservation.
+    """
+    for consumer_id, input_name in consumers:
+        value = _node_inputs(workflow, consumer_id).get(input_name)
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            return _copy_ref(value)
+    return None
+
+
+def _route_identity(route: dict[str, Any] | None) -> tuple[str, str]:
+    route = route if isinstance(route, dict) else {}
+    family = str(route.get("family") or "").strip()
+    mode = str(route.get("mode") or route.get("workflow_mode") or "").strip().lower()
+    if mode == "generate":
+        mode = "txt2img"
+    if mode == "image_to_image":
+        mode = "img2img"
+    return family, mode
+
+
+def _qwen21_output_channel_policy(route: dict[str, Any] | None) -> tuple[str, str]:
+    route = route if isinstance(route, dict) else {}
+    route_params = route.get("actual_params") if isinstance(route.get("actual_params"), dict) else route.get("params") if isinstance(route.get("params"), dict) else {}
+    raw = route_params.get("qwen21_output_channels") if isinstance(route_params, dict) else None
+    if raw in (None, ""):
+        # Backward-compatible direct patch callers predating Q21-6A owned only
+        # the RGB-safe A1 bridge. Production Q21-6A compilers always publish
+        # qwen21_output_channels in actual_params.
+        return "legacy", "legacy_rgb_safe_default"
+    value = str(raw).strip().lower()
+    aliases = {"transparent": "rgba", "alpha": "rgba", "rgba_transparent": "rgba", "native": "auto"}
+    value = aliases.get(value, value)
+    return (value if value in {"auto", "rgb", "rgba"} else "auto"), "route_actual_params"
+
+
+def _load_image_alpha_ref(workflow: dict[str, Any], image_ref: list[Any] | None) -> list[Any] | None:
+    if not isinstance(image_ref, (list, tuple)) or len(image_ref) < 2:
+        return None
+    node = workflow.get(str(image_ref[0]))
+    if isinstance(node, dict) and node.get("class_type") == "LoadImage" and int(image_ref[1] or 0) == 0:
+        # Comfy LoadImage exposes its decoded alpha as MASK output 1 while IMAGE
+        # output 0 is RGB. This keeps preview-action High-Res alpha recoverable.
+        return [str(image_ref[0]), 1]
+    return None
+
+
+def _qwen21_inpaint_mask_ref_from_sampler(workflow: dict[str, Any], sampler_inputs: dict[str, Any]) -> list[Any] | None:
+    latent_ref = sampler_inputs.get("latent_image")
+    if not isinstance(latent_ref, (list, tuple)) or len(latent_ref) < 2:
+        return None
+    latent_node = workflow.get(str(latent_ref[0]))
+    if not isinstance(latent_node, dict) or latent_node.get("class_type") != "SetLatentNoiseMask":
+        return None
+    mask_ref = (latent_node.get("inputs") or {}).get("mask")
+    return _copy_ref(mask_ref) if isinstance(mask_ref, (list, tuple)) and len(mask_ref) >= 2 else None
+
+
+def _qwen21_outpaint_mask_ref(workflow: dict[str, Any]) -> list[Any] | None:
+    encode_node = workflow.get("4")
+    if isinstance(encode_node, dict) and encode_node.get("class_type") == "TextEncodeQwenImage21":
+        image1_ref = (encode_node.get("inputs") or {}).get("images.image_1")
+        if isinstance(image1_ref, (list, tuple)) and len(image1_ref) >= 2:
+            pad_node = workflow.get(str(image1_ref[0]))
+            if isinstance(pad_node, dict) and pad_node.get("class_type") == "ImagePadForOutpaint":
+                return [str(image1_ref[0]), 1]
+    for node_id, node in workflow.items():
+        if isinstance(node, dict) and node.get("class_type") == "ImagePadForOutpaint":
+            return [str(node_id), 1]
+    return None
+
+
+def _resize_mask_with_core_nodes(
+    *,
+    graph: dict[str, Any],
+    next_id: str,
+    mask_ref: list[Any],
+    target_width: int,
+    target_height: int,
+    available_nodes: Any,
+) -> tuple[list[Any] | None, str, list[str]]:
+    """Resize a MASK using long-standing Comfy core/extras nodes.
+
+    MaskToImage -> ImageScale -> ImageToMask avoids relying on a brand-new
+    ResizeImageMaskNode signature while remaining compatible with current Comfy.
+    """
+    required = ("MaskToImage", "ImageScale", "ImageToMask")
+    if available_nodes is not None and not all(_available_has(available_nodes, name) for name in required):
+        return None, next_id, []
+    node_ids: list[str] = []
+    to_image_id = next_id
+    graph[to_image_id] = {"class_type": "MaskToImage", "inputs": {"mask": _copy_ref(mask_ref)}}
+    node_ids.append(to_image_id)
+    next_id = _next_graph_id(graph)
+    scale_id = next_id
+    graph[scale_id] = {
+        "class_type": "ImageScale",
+        "inputs": {
+            "image": [to_image_id, 0],
+            "upscale_method": "bilinear",
+            "width": int(target_width),
+            "height": int(target_height),
+            "crop": "disabled",
+        },
+    }
+    node_ids.append(scale_id)
+    next_id = _next_graph_id(graph)
+    to_mask_id = next_id
+    graph[to_mask_id] = {"class_type": "ImageToMask", "inputs": {"image": [scale_id, 0], "channel": "red"}}
+    node_ids.append(to_mask_id)
+    next_id = _next_graph_id(graph)
+    return [to_mask_id, 0], next_id, node_ids
+
+
+def _scale_image_to_target_node(image_ref: list[Any], target_width: int, target_height: int, resize_method: str) -> dict[str, Any]:
+    return {
+        "class_type": "ImageScale",
+        "inputs": {
+            "image": _copy_ref(image_ref),
+            "upscale_method": resize_method,
+            "width": int(target_width),
+            "height": int(target_height),
+            "crop": "disabled",
+        },
+    }
 
 def _find_source_load_image_ref(workflow: dict[str, Any]) -> list[Any] | None:
     """Return the source LoadImage output for V1-style preview finish passes.
@@ -382,7 +535,7 @@ def _sampler_inputs_for_refine(
         # stale SD-style CFG, clamp it instead of letting High-Res Lab distort the
         # second pass. Missing CFG falls back to the base route sampler CFG.
         inputs["cfg"] = min(float(params.get("cfg", base_sampler_inputs.get("cfg", inputs.get("cfg", 1.0))) or 1.0), 2.0)
-    elif cfg_policy in {"qwen_safe_low_cfg", "qwen_2509_safe_low_cfg"}:
+    elif cfg_policy in {"qwen_safe_low_cfg", "qwen_2509_safe_low_cfg", "qwen_2511_safe_low_cfg"}:
         # Qwen image/edit routes tolerate CFG, but SDXL-like high CFG pushes the
         # refine pass away from the source/edit conditioning. Keep it route-safe.
         inputs["cfg"] = min(float(params.get("cfg", base_sampler_inputs.get("cfg", inputs.get("cfg", 3.0))) or 3.0), 4.0)
@@ -624,6 +777,34 @@ def apply_high_res_lab_patch(
     if not output_consumers:
         return no_patch("validation_failed: no PreviewImage/SaveImage output consumer was found")
 
+    route_family, route_mode = _route_identity(route)
+    qwen21_route = route_family == "qwen_image_21"
+    qwen21_inpaint_route = qwen21_route and route_mode == "inpaint"
+    qwen21_outpaint_route = qwen21_route and route_mode == "outpaint"
+    qwen21_masked_route = qwen21_inpaint_route or qwen21_outpaint_route
+    qwen21_output_channels, qwen21_output_channels_source = _qwen21_output_channel_policy(route) if qwen21_route else ("auto", "not_applicable")
+    stage1_final_output_ref = _current_output_ref(graph, output_consumers)
+    qwen21_mask_ref = None
+    if qwen21_inpaint_route:
+        qwen21_mask_ref = _qwen21_inpaint_mask_ref_from_sampler(graph, sampler_inputs)
+    elif qwen21_outpaint_route:
+        qwen21_mask_ref = _qwen21_outpaint_mask_ref(graph)
+    qwen21_strict_stage1 = bool(
+        qwen21_masked_route
+        and stage1_final_output_ref
+        and isinstance(graph.get(str(stage1_final_output_ref[0])), dict)
+        and graph[str(stage1_final_output_ref[0])].get("class_type") == "ImageCompositeMasked"
+    )
+    if qwen21_inpaint_route and qwen21_mask_ref is None:
+        return no_patch("validation_failed: Qwen Image 2.1 masked High-Res could not recover the Stage-1 SetLatentNoiseMask mask reference")
+    if qwen21_outpaint_route and qwen21_strict_stage1 and qwen21_mask_ref is None:
+        return no_patch("validation_failed: Qwen Image 2.1 outpaint High-Res could not recover the Stage-1 ImagePadForOutpaint mask reference")
+
+    # Q21-5 must consume the target KSampler's already-patched model path. This
+    # preserves LoRA rewiring and DifferentialDiffusion for Q21 masked routes.
+    if qwen21_route and isinstance(sampler_inputs.get("model"), (list, tuple)):
+        current_model_ref = _copy_ref(sampler_inputs.get("model"))
+
     scale = float(params.get("scale", 1.45))
     mode = str(params.get("mode") or "latent")
     strategy = str(params.get("strategy") or "standard")
@@ -638,13 +819,30 @@ def apply_high_res_lab_patch(
     )
     next_id = _next_graph_id(graph, next_node_id)
     node_ids: list[str] = []
+    qwen21_resized_mask_ref: list[Any] | None = None
+    qwen21_preserve_base_ref: list[Any] | None = None
+    qwen21_highres_image_bridge: dict[str, Any] = {
+        "schema": "neo.image.qwen_image_21.highres_image_bridge.v2",
+        "phase": "Q21-6A",
+        "source_contract": "rgba_capable" if qwen21_route else "not_applicable",
+        "requested_output_channels": qwen21_output_channels if qwen21_route else "not_applicable",
+        "output_channels_source": qwen21_output_channels_source,
+        "model_upscaler_contract": "rgb" if qwen21_route else "not_applicable",
+        "rgb_normalization": "not_required",
+        "alpha_policy": "not_applicable",
+        "split_node_id": "",
+        "split_mask_ref": [],
+        "alpha_resize_node_ids": [],
+        "alpha_join_node_id": "",
+        "final_rgb_split_node_id": "",
+    }
 
     if mode == "image_upscale":
         # Start from decoded base image when available; otherwise decode the sampler latent first.
         # V1 preview action parity: when High-Res Lab is triggered from a preview
         # toolbar, use the selected output LoadImage directly. Do not upscale the
         # result of a fresh img2img KSampler pass.
-        base_image_ref = _find_source_load_image_ref(graph) if preview_source_only else previous_decode_ref
+        base_image_ref = _find_source_load_image_ref(graph) if preview_source_only else (stage1_final_output_ref if qwen21_route and stage1_final_output_ref else previous_decode_ref)
         if base_image_ref is None:
             decode_id = next_id
             graph[decode_id] = _build_compatible_vae_decode_node(
@@ -707,18 +905,66 @@ def apply_high_res_lab_patch(
             patch["target_height"] = target_height
             patch["target_size_source"] = target_size_source
             patch["preview_source_only"] = preview_source_only
+            if qwen21_route:
+                patch["qwen21_highres_image_bridge"] = deepcopy(qwen21_highres_image_bridge)
             return {"workflow": graph, "validation": validation, "workflow_patch": patch, "mutated": True, "applied": True, "mutated_nodes": node_ids, "output_image_ref": patched_output_ref}
 
         upscaler_name = str(params.get("upscaler") or "").strip()
         resize_method = str(params.get("resize_method") or "lanczos")
         final_image_ref = _copy_ref(base_image_ref)
+        qwen21_image_explicit_rgb = False
+        qwen21_alpha_ref: list[Any] | None = None
+        if upscaler_name and qwen21_route:
+            # Qwen Image 2.1 can decode RGBA/4-channel IMAGE tensors, while
+            # Spandrel model upscalers (DAT/ESRGAN/etc.) are RGB-only. Split at
+            # that boundary. Preview-action LoadImage is already RGB, but its
+            # alpha remains recoverable from MASK output 1.
+            qwen21_alpha_ref = _load_image_alpha_ref(graph, base_image_ref)
+            if qwen21_alpha_ref is not None:
+                upscale_input_ref = _copy_ref(base_image_ref)
+                qwen21_highres_image_bridge.update({
+                    "rgb_normalization": "LoadImage RGB output",
+                    "split_mask_ref": _copy_ref(qwen21_alpha_ref),
+                })
+            else:
+                if available_nodes is not None and not _available_has(available_nodes, "SplitImageWithAlpha"):
+                    return no_patch(
+                        "validation_failed: Qwen Image 2.1 model-upscale High-Res requires SplitImageWithAlpha "
+                        "to normalize RGBA output to RGB before ImageUpscaleWithModel"
+                    )
+                split_id = next_id
+                graph[split_id] = {"class_type": "SplitImageWithAlpha", "inputs": {"image": _copy_ref(base_image_ref)}}
+                node_ids.append(split_id)
+                next_id = _next_graph_id(graph)
+                upscale_input_ref = [split_id, 0]
+                qwen21_alpha_ref = [split_id, 1]
+                qwen21_highres_image_bridge.update({
+                    "rgb_normalization": "SplitImageWithAlpha",
+                    "split_node_id": split_id,
+                    "split_mask_ref": _copy_ref(qwen21_alpha_ref),
+                })
+            qwen21_image_explicit_rgb = True
+            if qwen21_output_channels in {"auto", "rgba"}:
+                qwen21_highres_image_bridge["alpha_policy"] = "preserve_and_rejoin_after_rgb_upscale"
+            elif qwen21_output_channels_source == "legacy_rgb_safe_default":
+                qwen21_highres_image_bridge["alpha_policy"] = "discard_until_q21_6"
+            else:
+                qwen21_highres_image_bridge["alpha_policy"] = "explicit_strip_alpha"
+        else:
+            upscale_input_ref = _copy_ref(base_image_ref)
+            if qwen21_route:
+                qwen21_highres_image_bridge.update({
+                    "model_upscaler_contract": "not_used",
+                    "alpha_policy": "preserve_in_core_image_path" if qwen21_output_channels != "rgb" else "explicit_strip_at_output",
+                })
+
         if upscaler_name and _available_has(available_nodes, "UpscaleModelLoader") and _available_has(available_nodes, "ImageUpscaleWithModel"):
             loader_id = next_id
             graph[loader_id] = {"class_type": "UpscaleModelLoader", "inputs": {"model_name": upscaler_name}}
             node_ids.append(loader_id)
             next_id = _next_graph_id(graph)
             upscale_id = next_id
-            graph[upscale_id] = {"class_type": "ImageUpscaleWithModel", "inputs": {"upscale_model": [loader_id, 0], "image": _copy_ref(base_image_ref)}}
+            graph[upscale_id] = {"class_type": "ImageUpscaleWithModel", "inputs": {"upscale_model": [loader_id, 0], "image": _copy_ref(upscale_input_ref)}}
             node_ids.append(upscale_id)
             final_image_ref = [upscale_id, 0]
             next_id = _next_graph_id(graph)
@@ -734,6 +980,40 @@ def apply_high_res_lab_patch(
                 node_ids.append(rescale_id)
                 final_image_ref = [rescale_id, 0]
                 next_id = _next_graph_id(graph)
+
+            if qwen21_route and qwen21_alpha_ref is not None and qwen21_output_channels in {"auto", "rgba"}:
+                if available_nodes is not None and not _available_has(available_nodes, "JoinImageWithAlpha"):
+                    return no_patch(
+                        "validation_failed: Qwen Image 2.1 Auto/RGBA model-upscale High-Res requires JoinImageWithAlpha "
+                        "to restore alpha after the RGB-only upscaler"
+                    )
+                resized_alpha_ref, next_id, alpha_resize_node_ids = _resize_mask_with_core_nodes(
+                    graph=graph,
+                    next_id=next_id,
+                    mask_ref=qwen21_alpha_ref,
+                    target_width=target_width,
+                    target_height=target_height,
+                    available_nodes=available_nodes,
+                )
+                if resized_alpha_ref is None:
+                    return no_patch(
+                        "validation_failed: Qwen Image 2.1 Auto/RGBA model-upscale High-Res requires "
+                        "MaskToImage + ImageScale + ImageToMask to resize alpha safely"
+                    )
+                node_ids.extend(alpha_resize_node_ids)
+                join_id = next_id
+                graph[join_id] = {
+                    "class_type": "JoinImageWithAlpha",
+                    "inputs": {"image": _copy_ref(final_image_ref), "alpha": _copy_ref(resized_alpha_ref)},
+                }
+                node_ids.append(join_id)
+                next_id = _next_graph_id(graph)
+                final_image_ref = [join_id, 0]
+                qwen21_image_explicit_rgb = False
+                qwen21_highres_image_bridge.update({
+                    "alpha_resize_node_ids": list(alpha_resize_node_ids),
+                    "alpha_join_node_id": join_id,
+                })
         else:
             scale_id = next_id
             graph[scale_id] = _image_scale_by_node(final_image_ref, resize_method, scale)
@@ -741,8 +1021,20 @@ def apply_high_res_lab_patch(
             final_image_ref = [scale_id, 0]
             next_id = _next_graph_id(graph)
 
+        if qwen21_masked_route and qwen21_strict_stage1:
+            qwen21_preserve_base_ref = _copy_ref(final_image_ref)
+
         if strategy == "upscale_only":
             patched_output_ref = _copy_ref(final_image_ref)
+            if qwen21_route and qwen21_output_channels == "rgb" and not qwen21_image_explicit_rgb:
+                if available_nodes is not None and not _available_has(available_nodes, "SplitImageWithAlpha"):
+                    return no_patch("validation_failed: Qwen Image 2.1 RGB High-Res output requires SplitImageWithAlpha")
+                final_split_id = next_id
+                graph[final_split_id] = {"class_type": "SplitImageWithAlpha", "inputs": {"image": _copy_ref(patched_output_ref)}}
+                node_ids.append(final_split_id)
+                next_id = _next_graph_id(graph)
+                patched_output_ref = [final_split_id, 0]
+                qwen21_highres_image_bridge["final_rgb_split_node_id"] = final_split_id
             previous_refs: list[list[Any]] = []
             for consumer_id, input_name in output_consumers:
                 inputs = _node_inputs(graph, consumer_id)
@@ -767,6 +1059,8 @@ def apply_high_res_lab_patch(
             patch["target_height"] = target_height
             patch["target_size_source"] = target_size_source
             patch["preview_source_only"] = preview_source_only
+            if qwen21_route:
+                patch["qwen21_highres_image_bridge"] = deepcopy(qwen21_highres_image_bridge)
             return {"workflow": graph, "validation": validation, "workflow_patch": patch, "mutated": True, "applied": True, "mutated_nodes": node_ids, "output_image_ref": patched_output_ref}
 
         encode_id = next_id
@@ -799,6 +1093,38 @@ def apply_high_res_lab_patch(
         next_id = _next_graph_id(graph)
         refine_latent_ref = [latent_upscale_id, 0]
 
+    if qwen21_masked_route and qwen21_mask_ref is not None:
+        qwen21_resized_mask_ref, next_id, mask_resize_node_ids = _resize_mask_with_core_nodes(
+            graph=graph,
+            next_id=next_id,
+            mask_ref=qwen21_mask_ref,
+            target_width=target_width,
+            target_height=target_height,
+            available_nodes=available_nodes,
+        )
+        if qwen21_resized_mask_ref is None:
+            return no_patch("validation_failed: Qwen Image 2.1 masked High-Res requires MaskToImage + ImageScale + ImageToMask to preserve the Stage-1 mask in Stage 2")
+        node_ids.extend(mask_resize_node_ids)
+
+        if qwen21_inpaint_route:
+            remask_id = next_id
+            graph[remask_id] = {
+                "class_type": "SetLatentNoiseMask",
+                "inputs": {"samples": _copy_ref(refine_latent_ref), "mask": _copy_ref(qwen21_resized_mask_ref)},
+            }
+            node_ids.append(remask_id)
+            next_id = _next_graph_id(graph)
+            refine_latent_ref = [remask_id, 0]
+
+        if qwen21_strict_stage1 and qwen21_preserve_base_ref is None and stage1_final_output_ref is not None:
+            preserve_scale_id = next_id
+            graph[preserve_scale_id] = _scale_image_to_target_node(
+                _copy_ref(stage1_final_output_ref), target_width, target_height, str(params.get("resize_method") or "lanczos")
+            )
+            node_ids.append(preserve_scale_id)
+            next_id = _next_graph_id(graph)
+            qwen21_preserve_base_ref = [preserve_scale_id, 0]
+
     refine_sampler_id = next_id
     graph[refine_sampler_id] = {"class_type": "KSampler", "inputs": _sampler_inputs_for_refine(base_sampler_inputs=sampler_inputs, latent_ref=refine_latent_ref, model_ref=current_model_ref, params=params, route_profile=route_profile)}
     node_ids.append(refine_sampler_id)
@@ -814,6 +1140,33 @@ def apply_high_res_lab_patch(
     )
     node_ids.append(decode_id)
     patched_output_ref = [decode_id, 0]
+
+    qwen21_stage2_strict_composite = False
+    if qwen21_masked_route and qwen21_strict_stage1 and qwen21_preserve_base_ref is not None and qwen21_resized_mask_ref is not None:
+        composite_id = _next_graph_id(graph)
+        graph[composite_id] = {
+            "class_type": "ImageCompositeMasked",
+            "inputs": {
+                "destination": _copy_ref(qwen21_preserve_base_ref),
+                "source": _copy_ref(patched_output_ref),
+                "x": 0,
+                "y": 0,
+                "resize_source": True,
+                "mask": _copy_ref(qwen21_resized_mask_ref),
+            },
+        }
+        node_ids.append(composite_id)
+        patched_output_ref = [composite_id, 0]
+        qwen21_stage2_strict_composite = True
+
+    if qwen21_route and qwen21_output_channels == "rgb":
+        if available_nodes is not None and not _available_has(available_nodes, "SplitImageWithAlpha"):
+            return no_patch("validation_failed: Qwen Image 2.1 RGB High-Res output requires SplitImageWithAlpha")
+        final_split_id = _next_graph_id(graph)
+        graph[final_split_id] = {"class_type": "SplitImageWithAlpha", "inputs": {"image": _copy_ref(patched_output_ref)}}
+        node_ids.append(final_split_id)
+        patched_output_ref = [final_split_id, 0]
+        qwen21_highres_image_bridge["final_rgb_split_node_id"] = final_split_id
 
     previous_refs: list[list[Any]] = []
     for consumer_id, input_name in output_consumers:
@@ -839,6 +1192,16 @@ def apply_high_res_lab_patch(
     patch["target_height"] = target_height
     patch["target_size_source"] = target_size_source
     patch["preview_source_only"] = preview_source_only
+    if qwen21_route:
+        patch["qwen21_reference_conditioning_preserved"] = True
+        patch["qwen21_true_cfg_preserved"] = str(route_profile.get("cfg_policy") or "") == "preserve_base_sampler_cfg"
+        patch["qwen21_mask_policy_preserved"] = bool(
+            (qwen21_inpaint_route and qwen21_resized_mask_ref)
+            or (qwen21_outpaint_route and qwen21_strict_stage1 and qwen21_resized_mask_ref)
+        )
+        patch["qwen21_stage2_strict_composite"] = bool(qwen21_stage2_strict_composite)
+        patch["qwen21_stage1_strict_preservation"] = bool(qwen21_strict_stage1)
+        patch["qwen21_highres_image_bridge"] = deepcopy(qwen21_highres_image_bridge)
     return {"workflow": graph, "validation": validation, "workflow_patch": patch, "mutated": True, "applied": True, "mutated_nodes": node_ids, "output_image_ref": patched_output_ref}
 
 

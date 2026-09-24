@@ -8,11 +8,13 @@ applies_to:
   - model_family
   - main_model_type
   - workflow_mode
+  - qwen_image_21
   - inpaint
   - outpaint
   - lanpaint
   - multi_ksampler
   - res4lyf
+  - qwen image 2.1
   - clownshark
   - parameter_integrity
 tags:
@@ -25,8 +27,8 @@ tags:
   - multi ksampler
   - res4lyf
 priority: 124
-version: 2
-updated: 2026-08-07
+version: 4
+updated: 2026-09-23
 ---
 
 # Image Family Compatibility and Feature Gating
@@ -109,6 +111,39 @@ Important Phase 7 locks:
 - **HiDream:** Native masked modes are gated; HiDream-I1 masked editing uses its exact LanPaint adapter.
 - **Wan Image / Hunyuan Image:** remain provider/implementation gated; Neo does not invent local Comfy image compilers for them.
 
+### Qwen Image 2.1 Q21 target gating
+
+Qwen Image 2.1 is a separate family under `qwen_image_21`. **Q21-6B exposes Safetensors/components Txt2Img, unified Img2Img/Edit, Inpaint, experimental Outpaint, model-only LoRA/High-Res, RGBA output policy, and QwenImage21Cache controls with visible capability status; GGUF exposes Txt2Img and unified Img2Img/Edit with RGBA/cache controls.** Outpaint remains visually unqualified and GGUF masked routes remain gated.
+
+Future compatibility must be promoted mode-by-mode instead of inheriting status from older Qwen families:
+
+| Target | Current state | Promotion rule |
+|---|---|---|
+| Safetensors Txt2Img | Experimental available | Q21-1 compiler + live node roles + tests; physical run confirmed by project testing |
+| Safetensors Img2Img/Edit | Experimental available | Q21-2 unified edit compiler + Image 1–10 ordered reference contract |
+| GGUF Txt2Img | Experimental available | Q21-3 mixed-stack compiler + live compatible GGUF loader; physical run still required for promotion |
+| GGUF Img2Img/Edit | Experimental available | Q21-3 reuses Q21-2 ordered references/canvas with GGUF transformer + native encoder/VAE; physical run still required |
+| Inpaint / Outpaint | Inpaint experimental available; Outpaint implemented/parked | Q21-4 Inpaint physically passed; Outpaint runtime exists through Q21-4C but visual qualification is deferred |
+| LoRA Stack | Experimental available | Q21-5 model-only patch contract implemented; physical compatible-LoRA run still required |
+| High-Res Lab | Experimental available | Q21-5/Q21-5A runtime repairs implemented and physically passed on the tested Safetensors path |
+| Native RGBA | Experimental available | Q21-6A Txt2Img saved-PNG alpha physically passed; edit/reference alpha remains Q21-7 |
+| QwenImage21Cache | Experimental available when live node exists | Q21-6B device/precision controls implemented; physical speed/memory qualification remains Q21-7 |
+
+Important locks:
+
+- current Comfy `TextEncodeQwenImage21` does not expose a direct mask input, so Neo must not promote Qwen 2.1 masked routes by reusing generic SD/Flux Native mask assumptions;
+- current Comfy code exposes more autogrow lane names than the official model contract, but Neo's product limit remains **10 references**;
+- `QwenImage21Cache` is an inference optimization and does not reuse Krea Ostris KV-cache compatibility state;
+- Qwen Image 2.1 Q21-3 GGUF support is transformer-only GGUF plus native/safetensors Qwen3-VL 8B and Qwen Image 2.1 VAE; no `CLIPLoaderGGUF` or MMProj is inferred by inheritance.
+
+### Krea 2 edit-weight and Ostris status
+
+Krea 2 Identity Edit v1.2 supports both **Separate LoRA** and **Baked into Model**. Baked mode skips the dedicated Identity Edit LoRA loader while retaining the Identity Edit runtime patch and grounded conditioning.
+
+Krea 2 Ostris Edit is also exposed as a separate edit engine for Img2Img/Edit/Inpaint/Outpaint. It targets Krea 2 edit LoRAs trained with AI Toolkit experimental edit mode (`model_kwargs.edit: true`), not Identity Edit v1.2 LoRAs. Separate mode selects from the normal Comfy LoRA catalog; baked mode skips the dedicated Ostris/AI Toolkit edit-LoRA loader.
+
+Ostris KV Cache must match the selected LoRA/model training instructions rather than GPU/VRAM size. Leave it Off unless the asset documentation explicitly requires AI Toolkit KV Cache.
+
 ## Outpaint synchronization
 
 Phase 3 added real LanPaint Outpaint compilation. Phase 7 synchronizes the family manifest with the executable adapters for:
@@ -158,3 +193,11 @@ Backend discovery also exposes an `image_family_compatibility` matrix so the fro
 ## Source authority
 
 The uploaded Neo Studio ZIP remains implementation authority. GitHub is read-only reference material and must not be modified by this work.
+
+## Qwen Image 2.1 Q21-5 extension compatibility
+
+- **LoRA Stack:** model-only, experimental. Exact Qwen Image 2.1 LoRA compatibility is asset-dependent; do not infer compatibility from adjacent Qwen families.
+- **High-Res Lab:** experimental on Q21 Safetensors txt2img/edit/inpaint/outpaint and on active Q21 GGUF txt2img/edit routes.
+- **Masked High-Res:** preserves Q21-4 mask authority and strict pixel-preservation policy.
+- **GGUF masked modes:** remain unsupported.
+- **Ultimate SD Upscale / legacy qwen_reedit:** unsupported for Q21.

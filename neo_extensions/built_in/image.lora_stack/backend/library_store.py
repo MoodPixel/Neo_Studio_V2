@@ -70,7 +70,7 @@ def upsert_record(root: str | Path, record: dict[str, Any]) -> dict[str, Any]:
     incoming_identity = _record_key(incoming)
     id_conflict = next((item for item in records if item.get("id") == incoming.get("id") and _record_key(item) and _record_key(item) != incoming_identity), None)
     if id_conflict and incoming_identity:
-        incoming["id"] = canonical_record_id(incoming.get("provider_id"), incoming.get("catalog_name"))
+        incoming["id"] = canonical_record_id(incoming.get("catalog_name"), incoming.get("provider_id"))
     replaced = False
     for index, existing in enumerate(records):
         same_id = existing.get("id") == incoming.get("id")
@@ -136,13 +136,13 @@ def audit_records(root: str | Path, *, provider_id: str, catalog_loras: list[str
         key = path.casefold()
         current_provider = str(record.get("provider_id") or "").casefold()
         expected_identity = canonical_lora_identity(current_provider, path)
-        if current_provider and expected_identity == record.get("canonical_identity") and record.get("id") == canonical_record_id(current_provider, path):
+        if current_provider and expected_identity == record.get("canonical_identity") and record.get("id") == canonical_record_id(path, current_provider):
             unchanged += 1
             continue
         if key in catalog and (not current_provider or current_provider == provider):
             exact = normalize_catalog_path(catalog[key])
             changes.append({
-                "old_id": record.get("id"), "new_id": canonical_record_id(provider, exact),
+                "old_id": record.get("id"), "new_id": canonical_record_id(exact, provider),
                 "provider_id": provider, "catalog_name": exact,
                 "canonical_identity": canonical_lora_identity(provider, exact),
             })

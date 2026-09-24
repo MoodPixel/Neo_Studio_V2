@@ -27,6 +27,7 @@
     "krea2_turbo",
     "krea2",
     "qwen_image",
+    "qwen_image_21",
     "qwen_image_edit_2509",
     "qwen_rapid_aio",
     "z_image",
@@ -619,6 +620,102 @@
         "Qwen img2img/inpaint/edit/outpaint must require mmproj.",
         "Qwen GGUF must not fallback to Flux routing.",
         "V25.9.20 Pass E: visible Qwen Rapid AIO family uses the same Qwen single-encoder GGUF runtime shape; this is Neo route support, not a global official-file claim."
+      ]
+    },
+    "qwen21_gguf": {
+      "profile_id": "qwen21_gguf",
+      "family": "qwen_image_21",
+      "loader": "gguf",
+      "modes": {
+        "generate": "experimental_native_encoder",
+        "img2img": "experimental_unified_edit",
+        "edit": "experimental_unified_edit"
+      },
+      "required_roles": [
+        "gguf_unet",
+        "qwen21_text_encoder",
+        "qwen21_vae",
+        "qwen21_gguf_diffusion_loader",
+        "qwen21_text_encoder_loader",
+        "qwen21_vae_loader",
+        "qwen21_conditioning",
+        "qwen21_empty_latent",
+        "qwen21_sampler",
+        "qwen21_decode"
+      ],
+      "optional_roles": [
+        "qwen21_cache"
+      ],
+      "readiness_gates": {
+        "generate": [
+          "gguf_unet",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_gguf_diffusion_loader",
+          "qwen21_text_encoder_loader",
+          "qwen21_vae_loader",
+          "qwen21_conditioning",
+          "qwen21_empty_latent",
+          "qwen21_sampler",
+          "qwen21_decode"
+        ],
+        "img2img": [
+          "source_image",
+          "gguf_unet",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_gguf_diffusion_loader",
+          "qwen21_text_encoder_loader",
+          "qwen21_vae_loader",
+          "qwen21_conditioning",
+          "qwen21_empty_latent",
+          "qwen21_sampler",
+          "qwen21_decode"
+        ],
+        "edit": [
+          "source_image",
+          "gguf_unet",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_gguf_diffusion_loader",
+          "qwen21_text_encoder_loader",
+          "qwen21_vae_loader",
+          "qwen21_conditioning",
+          "qwen21_empty_latent",
+          "qwen21_sampler",
+          "qwen21_decode"
+        ]
+      },
+      "params": [
+        "gguf_model",
+        "qwen_text_encoder",
+        "vae",
+        "qwen21_reference_resolution",
+        "qwen21_edit_canvas_mode",
+        "route_readiness"
+      ],
+      "backend_requirements": {
+        "comfyui": {
+          "required_roles": [
+            "qwen21_gguf_diffusion_loader",
+            "qwen21_text_encoder_loader",
+            "qwen21_vae_loader",
+            "qwen21_conditioning"
+          ]
+        },
+        "comfyui_portable": {
+          "required_roles": [
+            "qwen21_gguf_diffusion_loader",
+            "qwen21_text_encoder_loader",
+            "qwen21_vae_loader",
+            "qwen21_conditioning"
+          ]
+        }
+      },
+      "notes": [
+        "Q21-3 quantizes only the diffusion transformer; the Qwen3-VL 8B encoder and Qwen Image 2.1 VAE remain native/safetensors.",
+        "No Qwen MMProj is required because TextEncodeQwenImage21 owns native visual conditioning for Image 1-10.",
+        "GGUF text-encoder support remains outside Q21-3 and must not be inferred from generic CLIPLoaderGGUF availability."
       ]
     }
   },

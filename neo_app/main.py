@@ -386,7 +386,6 @@ from neo_app.image.base_contract import create_image_job_draft, get_image_surfac
 from neo_app.image.preview_actions import preview_action_definition_registry_payload
 from neo_app.image.preview_action_routing import build_preview_action_provider_evaluation
 from neo_app.image.preview_source_handoff import normalize_preview_source_handoff_params
-from neo_app.image.canonical_source_asset import CanonicalSourceAssetError, resolve_canonical_source_asset
 from neo_app.image.preview_reference_handoff import normalize_preview_reference_handoffs
 from neo_app.image.preview_finish_dispatch import normalize_preview_finish_params
 from neo_app.image.state_boundary import sanitize_image_action_state_for_provider
@@ -633,6 +632,9 @@ from neo_app.image.output_service import (
     image_replay_storage_summary,
     image_results_integrity_guard,
     list_image_results,
+    recover_image_metadata_from_bytes,
+    scan_image_metadata_integrity,
+    quarantine_orphan_image_metadata,
     load_output_record,
     persist_image_outputs,
     resolve_output_file,
@@ -6326,28 +6328,6 @@ def image_mask_image_file(mask_id: str) -> FileResponse:
     return FileResponse(path)
 
 
-@app.post("/api/image/source-handoff/preflight")
-def image_source_handoff_preflight(data: dict) -> dict:
-    """Validate an output source before the browser changes Image mode."""
-    source = data.get("source") if isinstance(data.get("source"), dict) else {}
-    selected_profile = str(data.get("profile_id") or "").strip()
-    selected_provider = str(data.get("provider_id") or "").strip().lower()
-    if not selected_profile or not selected_provider:
-        raise HTTPException(status_code=409, detail="Select an Image backend profile before staging this output.")
-    try:
-        canonical = resolve_canonical_source_asset(source)
-    except CanonicalSourceAssetError as exc:
-        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.detail}) from exc
-    return {
-        "ok": True,
-        "canonical_source": canonical,
-        "provider_id": selected_provider,
-        "profile_id": selected_profile,
-        "provider_policy": "selected_profile_only",
-        "automatic_provider_fallback": False,
-    }
-
-
 
 
 def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_id: str = "", profile_id: str = "") -> dict:
@@ -6357,7 +6337,6 @@ def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_
         runtime_mode=runtime_mode,
         provider_id=provider_id,
         profile_id=profile_id,
-        validate_asset=True,
     )
     if preview_handoff.get("status") == "blocked":
         reasons = ", ".join(preview_handoff.get("warning_codes") or ["preview_source_handoff_blocked"])
@@ -6380,27 +6359,6 @@ def _normalize_image_source_params(params: dict, runtime_mode: str, *, provider_
         source = local_from_dir(parsed_name, IMAGE_SOURCE_INPUT_DIR) or source_url
     if source.startswith("/api/image/source-file/"):
         source = local_from_dir(source.rsplit("/", 1)[-1], IMAGE_SOURCE_INPUT_DIR) or source
-
-    # Direct uploads and output handoffs converge here before any local provider
-    # sees the request. This makes their final source path/dimensions contract
-    # identical instead of validating only toolbar-originated handoffs.
-    local_provider = str(provider_id or "").strip().lower() in {"comfyui", "comfyui_portable", "forge"}
-    if source and local_provider:
-        try:
-            canonical_source = resolve_canonical_source_asset({
-                "path": source,
-                "url": source_url,
-                "filename": normalized.get("source_image_name") or Path(source).name,
-                "result_id": normalized.get("_neo_canonical_source_asset", {}).get("result_id") if isinstance(normalized.get("_neo_canonical_source_asset"), dict) else "",
-                "file_id": normalized.get("_neo_canonical_source_asset", {}).get("file_id") if isinstance(normalized.get("_neo_canonical_source_asset"), dict) else "",
-            })
-        except CanonicalSourceAssetError as exc:
-            raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.detail}) from exc
-        source = canonical_source["path"]
-        normalized["source_id"] = canonical_source["source_id"]
-        normalized["source_image_width"] = canonical_source["width"]
-        normalized["source_image_height"] = canonical_source["height"]
-        normalized["_neo_canonical_source_asset"] = canonical_source
 
     mask = str(normalized.get("mask_image") or normalized.get("mask_image_path") or normalized.get("inpaint_mask") or "").strip()
     mask_id = str(normalized.get("mask_id") or normalized.get("mask_image_id") or "").strip()
@@ -8103,7 +8061,7 @@ def image_output_file(result_id: str, file_id: str) -> FileResponse:
 
 @app.get("/api/image/results")
 def image_results(category: str | None = None, limit: int = 50, offset: int = 0, sort: str = "newest") -> dict:
-    """List persisted Image results from Neo_Data metadata sidecars."""
+    """List a pageable slice of persisted Image results from Neo_Data metadata sidecars."""
     return list_image_results(category=category, limit=limit, offset=offset, sort=sort)
 
 
@@ -8111,6 +8069,29 @@ def image_results(category: str | None = None, limit: int = 50, offset: int = 0,
 def image_results_integrity(selected_result_id: str | None = None, category: str | None = None) -> dict:
     """Validate saved Results references without forcing a reload loop."""
     return image_results_integrity_guard(selected_result_id=selected_result_id, category=category)
+
+
+@app.get("/api/image/results-integrity/scan")
+def image_results_integrity_scan() -> dict:
+    """Scan active Image sidecars for missing files and resolvable filename collisions."""
+    return scan_image_metadata_integrity()
+
+
+@app.post("/api/image/results-integrity/quarantine")
+def image_results_integrity_quarantine(payload: dict | None = None) -> dict:
+    data = payload if isinstance(payload, dict) else {}
+    return quarantine_orphan_image_metadata(include_resolved_collisions=bool(data.get("include_resolved_collisions", True)))
+
+
+@app.post("/api/image/recover-metadata")
+async def image_recover_metadata(file: UploadFile = File(...)) -> dict:
+    """Inspect an image from anywhere and recover Neo metadata by embedded output identity."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Recovery image is empty.")
+    if len(data) > 128 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Metadata recovery images are limited to 128 MB.")
+    return recover_image_metadata_from_bytes(data, filename=str(file.filename or "recovery_image"))
 
 
 @app.get("/api/image/results/{result_id}")

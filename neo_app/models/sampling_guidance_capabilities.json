@@ -14,7 +14,7 @@
     "threshold_semantics": "For cfg-gated routes, <=1.0 means inactive; >1.0 and <1.5 is technically active but weak; >=1.5 is normal UX state. Family/route overrides win.",
     "negative_prompt_ui_owner": "neo_app/static/js/negative_prompt_eligibility.js (IP-2 mirror; backend remains authoritative)",
     "preset_foundation_owner": "neo_app.image.sampling_presets (IP-3)",
-    "preset_clean_slate_policy": "Empty · Clean Slate never borrows provider defaults; incomplete manual sampling blocks generation",
+    "preset_clean_slate_policy": "Empty \u00b7 Clean Slate never borrows provider defaults; incomplete manual sampling blocks generation",
     "preset_provider_defaults_policy": "Provider Defaults intentionally removes preset-managed fields so provider/compiler defaults remain authoritative"
   },
   "resolution_policies": {
@@ -1035,6 +1035,68 @@
       },
       "source_contracts": [
         "neo_app/providers/comfy_workflows/qwen_native.py",
+        "neo_app/providers/compile_router.py"
+      ]
+    },
+    "qwen_image_21": {
+      "display_name": "Qwen Image 2.1",
+      "visible": true,
+      "loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "sampling": {
+        "sampler_control": "selectable",
+        "scheduler_control": "selectable",
+        "steps_control": "selectable",
+        "sampler_cfg": {
+          "kind": "selectable",
+          "field": "cfg",
+          "ui_label": "True CFG"
+        }
+      },
+      "guidance": {
+        "kind": "true_cfg",
+        "field": "cfg",
+        "aliases": [
+          "true_cfg"
+        ],
+        "ui_label": "True CFG",
+        "note": "Qwen Image 2.1 stores True CFG on KSampler cfg. Q21-4 keeps the same semantics for Safetensors txt2img/edit/inpaint/outpaint; Q21-3 GGUF remains txt2img/edit."
+      },
+      "negative_prompt": {
+        "policy": "cfg_gated",
+        "activation_field": "cfg",
+        "activation_aliases": [
+          "true_cfg"
+        ],
+        "hard_min_exclusive": 1.0,
+        "weak_below": 1.5,
+        "graph_semantics": "TextEncodeQwenImage21_negative_conditioning"
+      },
+      "resolution": {
+        "txt2img": "explicit_canvas",
+        "img2img": "image1_source_or_explicit_custom_canvas",
+        "edit": "image1_source_or_explicit_custom_canvas",
+        "inpaint": "image1_source_canvas_with_mask_authority",
+        "outpaint": "image1_padded_canvas"
+      },
+      "denoise": {
+        "txt2img": "full_generation",
+        "img2img": "full_qwen_unified_edit",
+        "edit": "full_qwen_unified_edit",
+        "inpaint": "full_qwen_unified_edit_with_latent_mask",
+        "outpaint": "full_qwen_unified_edit_with_outpaint_mask"
+      },
+      "source_contracts": [
+        "neo_app/providers/comfy_workflows/qwen_image_21.py",
         "neo_app/providers/compile_router.py"
       ]
     }

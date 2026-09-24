@@ -18,6 +18,7 @@ applies_to:
   - qwen_rapid_aio
   - qwen_image_edit
   - qwen_image_edit_2509
+  - qwen_image_21
   - z_image
   - z_image_turbo
   - hidream
@@ -45,8 +46,8 @@ tags:
   - checkpoint
   - routes
 priority: 120
-version: 5
-updated: 2026-08-21
+version: 6
+updated: 2026-09-23
 ---
 
 # Image Model Families, Loaders, and Routes
@@ -167,6 +168,15 @@ The old `unet` loader remains compatibility-only. Quantized/INT/FP8/scaled Safet
 - Use them for source-image edits where the source subject/composition should be preserved.
 - Qwen Image Edit 2509 is the newer route and can support multi-source behavior where the route/profile exposes it.
 - For prompts, tell the model what to change and explicitly say what must remain unchanged.
+
+### Qwen Image 2.1 — Q21 Experimental family
+
+- `qwen_image_21` is a **separate unified generation/edit family**. It is not an alias of Qwen Image Edit, 2509, 2511, or Qwen Rapid AIO.
+- Q21-1 implements Safetensors/components Txt2Img; Q21-2 implements unified Img2Img/Edit with up to **10 ordered references**, Image 1 as the primary edit target, and source/custom canvas modes.
+- Q21-3 implements **GGUF diffusion-transformer** Txt2Img and Img2Img/Edit while retaining native/safetensors Qwen3-VL 8B + Qwen Image 2.1 VAE. It does not require a GGUF encoder or MMProj.
+- The family uses current Comfy `TextEncodeQwenImage21` conditioning and `CLIPLoader(type=qwen_image)`.
+- Q21-4 through Q21-6B implement Safetensors masked routes, model-only LoRA/High-Res, explicit RGBA controls, and Qwen cache controls with visible capability status. `QwenImage21Cache` is an inference optimization and is unrelated to Krea Ostris edit-training KV-cache semantics. Outpaint remains visually unqualified and GGUF masked routes remain gated.
+- Keep the family labeled Experimental until Q21-7 physical qualification. See `guides/01_IMAGE/qwen_image_21.md` for the phase contracts and current model-license warning.
 
 ### ZImage and ZImage Turbo
 

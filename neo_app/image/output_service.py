@@ -6,16 +6,26 @@ from dataclasses import dataclass
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any, Iterable
 from urllib import parse, request
 
-from neo_app.image.output_paths import ROOT_DIR, get_image_output_paths, sanitize_path_part
+from neo_app.image.output_paths import IMAGE_OUTPUT_CATEGORIES, ROOT_DIR, get_image_output_paths, sanitize_path_part
+from neo_app.image.portable_metadata import (
+    build_portable_payload,
+    embed_portable_metadata_file,
+    extract_portable_metadata_bytes,
+    file_integrity,
+    new_neo_output_id,
+    new_neo_result_uid,
+)
 from neo_app.image.upload_validation import ALLOWED_IMAGE_EXTENSIONS, _detect_image_type, canonical_image_suffix_for_type
 from neo_app.providers.comfy_artifact_paths import ComfyArtifactPathError, normalize_comfy_artifact_reference
 from neo_app.image.action_state import sanitize_replay_extensions, sanitize_replay_params
 from neo_app.image.lanpaint_replay import build_lanpaint_replay_contract
 from neo_app.image.output_settings import (
     ensure_output_settings_dirs,
+    category_slug,
     load_image_output_settings,
     metadata_category_dir,
     next_category_index,
@@ -131,7 +141,10 @@ def persist_image_outputs(
     job_id = str(context.get("job_id") or "job")
     provider_id = str(context.get("provider_id") or "")
     profile_id = str(context.get("backend_profile_id") or context.get("profile_id") or "")
+    neo_result_uid = new_neo_result_uid()
     result_id = _build_result_id(paths.category, job_id)
+    if paths.metadata_file(result_id).exists():
+        result_id = sanitize_path_part(f"{result_id}_{neo_result_uid.rsplit('_', 1)[-1][:12]}", fallback="image_output")
     filename_prefix = sanitize_path_part(settings.get("filename_prefix"), fallback="NeoStudio")
     filename_index = next_category_index(paths.output_dir, filename_prefix, int(settings.get("filename_padding") or 4))
     created_at = utc_now_iso()
@@ -159,7 +172,7 @@ def persist_image_outputs(
             target.write_bytes(data)
             mime_type = _guess_mime_type(target.name, detected_type=detected_type)
             file_id = f"image_{index}"
-            files.append(build_output_file_record(
+            file_record = build_output_file_record(
                 file_id=file_id,
                 filename=target.name,
                 path=_relative_to_root(target),
@@ -167,7 +180,9 @@ def persist_image_outputs(
                 mime_type=mime_type,
                 role="image",
                 metadata=_output_file_metadata(output, index=index),
-            ))
+            )
+            file_record["neo_output_id"] = new_neo_output_id()
+            files.append(file_record)
         except Exception as exc:  # noqa: BLE001 - keep partial persistence visible to UI.
             errors.append(f"Output {index} could not be persisted: {exc}")
 
@@ -229,6 +244,7 @@ def persist_image_outputs(
         result_id=result_id,
     )
 
+    record["neo_result_uid"] = neo_result_uid
     record["lineage"] = build_output_lineage_metadata(record)
     record["provider_binding"] = build_provider_binding_metadata(record)
     record["replay_validation"] = build_provider_replay_validation_metadata(record)
@@ -294,6 +310,13 @@ def persist_image_outputs(
     })
     if latent_artifacts:
         record.setdefault("persistence", {})["latent_artifacts"] = latent_artifacts
+
+    portable_report = _embed_portable_metadata_for_record(record, files)
+    record.setdefault("persistence", {})["portable_metadata"] = portable_report
+    if portable_report.get("errors"):
+        # Embedded metadata is a recovery enhancement, not generation authority.
+        # Keep the image/result successful while making unsupported/corrupt formats visible.
+        record.setdefault("persistence", {}).setdefault("warnings", []).extend(portable_report.get("errors") or [])
     if errors:
         record.setdefault("persistence", {})["errors"] = errors
     cleanup = cleanup_backend_native_outputs(image_outputs, context=context, enabled=bool(settings.get("cleanup_backend_native_outputs", True)))
@@ -305,6 +328,7 @@ def persist_image_outputs(
     record["cleanup"] = asset_cleanup
     record_path = paths.metadata_file(result_id)
     record_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+    _register_record_identities(record_path, record)
 
     return PersistedImageOutputs(
         ok=bool(files) and not errors,
@@ -316,6 +340,97 @@ def persist_image_outputs(
     )
 
 
+
+IMAGE_OUTPUT_IDENTITY_INDEX_SCHEMA = "neo.image.output_identity_index.v1"
+IMAGE_METADATA_QUARANTINE_ROOT = ROOT_DIR / "neo_data" / "outputs" / "image_metadata_quarantine"
+IMAGE_OUTPUT_IDENTITY_INDEX_PATH = ROOT_DIR / "neo_data" / "cache" / "image_output_identity_index.json"
+_IDENTITY_INDEX_LOCK = Lock()
+
+
+def _load_output_identity_index() -> dict[str, Any]:
+    try:
+        raw = json.loads(IMAGE_OUTPUT_IDENTITY_INDEX_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    identities = raw.get("identities") if isinstance(raw.get("identities"), dict) else {}
+    return {"schema_version": IMAGE_OUTPUT_IDENTITY_INDEX_SCHEMA, "identities": identities}
+
+
+def _save_output_identity_index(payload: dict[str, Any]) -> None:
+    IMAGE_OUTPUT_IDENTITY_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp = IMAGE_OUTPUT_IDENTITY_INDEX_PATH.with_suffix(".tmp")
+    temp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    temp.replace(IMAGE_OUTPUT_IDENTITY_INDEX_PATH)
+
+
+def _register_record_identities(record_path: Path, record: dict[str, Any]) -> None:
+    with _IDENTITY_INDEX_LOCK:
+        index = _load_output_identity_index()
+        identities = index.setdefault("identities", {})
+        outputs = record.get("outputs") if isinstance(record.get("outputs"), dict) else {}
+        files = outputs.get("files") if isinstance(outputs.get("files"), list) else []
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            output_id = str(item.get("neo_output_id") or "").strip()
+            if not output_id:
+                continue
+            identities[output_id] = {
+                "result_id": str(record.get("result_id") or ""),
+                "neo_result_uid": str(record.get("neo_result_uid") or ""),
+                "file_id": str(item.get("file_id") or ""),
+                "metadata_path": _relative_to_root(record_path),
+                "state": "active" if "image_metadata_quarantine" not in record_path.as_posix() else "quarantined",
+                "updated_at": utc_now_iso(),
+            }
+        _save_output_identity_index(index)
+
+
+def _embed_portable_metadata_for_record(record: dict[str, Any], live_files: list[dict[str, Any]]) -> dict[str, Any]:
+    outputs = record.get("outputs") if isinstance(record.get("outputs"), dict) else {}
+    record_files = outputs.get("files") if isinstance(outputs.get("files"), list) else []
+    by_id = {str(item.get("file_id") or ""): item for item in live_files if isinstance(item, dict)}
+    embedded: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for item in record_files:
+        if not isinstance(item, dict):
+            continue
+        file_id = str(item.get("file_id") or "")
+        original = by_id.get(file_id)
+        if original and not item.get("neo_output_id"):
+            item["neo_output_id"] = original.get("neo_output_id")
+        path_value = str(item.get("path") or "").strip()
+        if not path_value:
+            continue
+        path = (ROOT_DIR / path_value).resolve()
+        try:
+            payload = build_portable_payload(record, item)
+            report = embed_portable_metadata_file(path, payload)
+            item["portable_metadata"] = report
+            item["integrity"] = file_integrity(path)
+            if original is not None:
+                original["portable_metadata"] = dict(report)
+                original["integrity"] = dict(item["integrity"])
+                original["neo_output_id"] = item.get("neo_output_id")
+            embedded.append({"file_id": file_id, "neo_output_id": item.get("neo_output_id"), "method": report.get("method")})
+        except Exception as exc:
+            try:
+                item["integrity"] = file_integrity(path)
+                if original is not None:
+                    original["integrity"] = dict(item["integrity"])
+            except Exception:
+                pass
+            failures.append(f"{item.get('filename') or file_id}: portable metadata was not embedded ({exc})")
+    return {
+        "schema_version": "neo.image.portable_metadata_persistence.v1",
+        "neo_result_uid": str(record.get("neo_result_uid") or ""),
+        "embedded_count": len(embedded),
+        "files": embedded,
+        "errors": failures,
+        "policy": "binary_metadata_no_pixel_reencode",
+    }
 
 
 def _output_file_metadata(output: dict[str, Any], *, index: int) -> dict[str, Any]:
@@ -662,6 +777,16 @@ def collect_input_asset_records(params: dict[str, Any], *, extensions: dict[str,
     add("source_image_1", "source", "Source image 1", ("source_image_path", "source_image", "init_image"), "source_image_url", "source_image_name", backend_key="comfy_source_image_name")
     add("source_image_2", "reference", "Source image 2", ("source_image_2_path", "source_image_2", "source_image__2", "reference_image_2"), "source_image_2_url", "source_image_2_name", backend_key="comfy_source_image_2_name")
     add("source_image_3", "reference", "Source image 3", ("source_image_3_path", "source_image_3", "source_image__3", "composition_image", "reference_image_3"), "source_image_3_url", "source_image_3_name", backend_key="comfy_source_image_3_name")
+    for lane in range(4, 11):
+        add(
+            f"source_image_{lane}",
+            "reference",
+            f"Source image {lane}",
+            (f"source_image_{lane}_path", f"source_image_{lane}", f"reference_image_{lane}"),
+            f"source_image_{lane}_url",
+            f"source_image_{lane}_name",
+            backend_key=f"comfy_source_image_{lane}_name",
+        )
     add("mask_image", "mask", "Mask", ("mask_image_path", "mask_image", "inpaint_mask", "mask"), "mask_image_url", "mask_image_name", backend_key="comfy_mask_image_name")
     add("outpaint_canvas", "outpaint_canvas", "Outpaint canvas", ("outpaint_canvas_image_path", "outpaint_canvas_image", "outpaint_padded_image", "padded_image"), "outpaint_canvas_image_url", "outpaint_canvas_image_name", backend_key="comfy_outpaint_canvas_image_name")
     add("outpaint_mask", "outpaint_mask", "Outpaint mask", ("outpaint_mask_image_path", "outpaint_mask_image", "outpaint_mask", "padded_mask"), "outpaint_mask_image_url", "outpaint_mask_image_name", backend_key="comfy_outpaint_mask_image_name")
@@ -798,7 +923,7 @@ def _iter_comfy_handoff_names(value: Any, *, depth: int = 0) -> Iterable[str]:
     if isinstance(value, dict):
         for key, item in value.items():
             key_text = str(key or "").lower()
-            if key_text in {"comfy_source_image_name", "comfy_source_image_2_name", "comfy_source_image_3_name", "comfy_mask_image_name", "comfy_outpaint_canvas_image_name", "comfy_outpaint_mask_image_name", "comfy_input_name", "comfy_image_name", "comfy_name", "workflow_source", "image_name", "mask_name"}:
+            if key_text in {"comfy_source_image_name", "comfy_mask_image_name", "comfy_outpaint_canvas_image_name", "comfy_outpaint_mask_image_name", "comfy_input_name", "comfy_image_name", "comfy_name", "workflow_source", "image_name", "mask_name"} or (key_text.startswith("comfy_source_image_") and key_text.endswith("_name")):
                 if _is_safe_comfy_input_handoff_name(item):
                     yield _basename(item)
             if isinstance(item, (dict, list)):
@@ -926,78 +1051,147 @@ def resolve_output_file(result_id: str, file_id: str) -> Path:
     raise FileNotFoundError(f"Unknown output file id: {file_id}")
 
 
-def list_image_results(*, category: str | None = None, limit: int = 50, offset: int = 0, sort: str = "newest") -> dict[str, Any]:
-    """List persisted Image output records from Neo_Data metadata sidecars.
+_IMAGE_RESULT_SUMMARY_CACHE: dict[str, tuple[int, int, dict[str, Any] | None]] = {}
 
-    Results APIs intentionally read Neo-owned sidecars, not ComfyUI output folders.
-    Missing image files are pruned from the API response so the UI never renders
-    broken placeholder cards after users manually clear Neo_Data outputs.
+
+def _cached_output_summary(record_path: Path) -> dict[str, Any] | None:
+    """Read one result sidecar only when its mtime/size changed.
+
+    Image metadata can be very large because replay/runtime snapshots are stored
+    with each result. The Results browser must therefore never deserialize the
+    entire history just to render the first page.
+    """
+    try:
+        stat = record_path.stat()
+    except OSError:
+        return None
+    key = str(record_path.resolve())
+    cached = _IMAGE_RESULT_SUMMARY_CACHE.get(key)
+    if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+        return cached[2]
+    summary: dict[str, Any] | None = None
+    try:
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        candidate = _summarize_output_record(record, record_path)
+        if not candidate.get("is_missing_files"):
+            summary = candidate
+    except Exception:
+        summary = None
+    _IMAGE_RESULT_SUMMARY_CACHE[key] = (stat.st_mtime_ns, stat.st_size, summary)
+    return summary
+
+
+def _image_result_metadata_paths(*, selected_category: str = "", newest_first: bool = True) -> tuple[list[Path], int, list[str]]:
+    """Return cheaply sorted metadata candidates without opening sidecar JSON.
+
+    Custom save categories own their metadata folder. For a selected category we
+    prefer that folder directly, which prevents an empty/stale category filter
+    from forcing a read of every historical sidecar. `all` still enumerates all
+    paths, but JSON is opened lazily by `list_image_results`.
+    """
+    metadata_root = ROOT_DIR / "neo_data" / "outputs" / "image_metadata"
+    if not metadata_root.exists():
+        return [], 0, []
+
+    all_paths = [item for item in metadata_root.rglob("*.json") if item.is_file()]
+    folder_names = sorted({item.parent.name for item in all_paths}, key=str.casefold)
+    if selected_category:
+        wanted_slug = category_slug(selected_category).casefold()
+        # Workflow filters (generate/img2img/inpaint/...) must inspect every save
+        # category because modern Neo stores metadata by user save category while
+        # preserving the workflow in `subtab`. User-created save categories, on
+        # the other hand, can use their own folder directly for a very fast path.
+        if selected_category.strip().casefold() in {item.casefold() for item in IMAGE_OUTPUT_CATEGORIES}:
+            candidates = all_paths
+        else:
+            candidates = [item for item in all_paths if item.parent.name.casefold() == wanted_slug]
+    else:
+        candidates = all_paths
+
+    def sort_key(path: Path) -> tuple[int, str]:
+        try:
+            return (path.stat().st_mtime_ns, path.name.casefold())
+        except OSError:
+            return (0, path.name.casefold())
+
+    candidates.sort(key=sort_key, reverse=newest_first)
+    return candidates, len(all_paths), folder_names
+
+
+def list_image_results(*, category: str | None = None, limit: int = 50, offset: int = 0, sort: str = "newest") -> dict[str, Any]:
+    """List persisted Image results using lazy paged sidecar parsing.
+
+    Previous pagination sliced *after* deserializing every metadata file. Large
+    libraries could therefore read hundreds of MB/GB before showing page one.
+    This implementation enumerates/stat-sorts cheap file paths first and opens
+    sidecars only until it has enough valid records for the requested page.
+    Parsed summaries are cached by file mtime+size for subsequent pages.
     """
     limit = max(1, min(int(limit or 50), 200))
     offset = max(0, int(offset or 0))
-    selected_category = sanitize_path_part(category or "", fallback="").strip()
-    if selected_category.lower() in {"", "all", "any"}:
+    selected_category = str(category or "").strip()
+    if selected_category.casefold() in {"", "all", "any"}:
         selected_category = ""
+    newest_first = str(sort or "newest").lower() not in {"oldest", "old_to_new", "asc"}
+    candidates, all_candidate_count, folder_names = _image_result_metadata_paths(
+        selected_category=selected_category,
+        newest_first=newest_first,
+    )
 
-    records: list[dict[str, Any]] = []
-    seen_paths: set[Path] = set()
-    metadata_root = (ROOT_DIR / "neo_data" / "outputs" / "image_metadata")
-    metadata_dirs = [item for item in metadata_root.iterdir() if item.is_dir()] if metadata_root.exists() else []
-
-    # Include canonical dirs even if metadata_root has not been created yet.
-    for item in ["generate", "img2img", "inpaint", "outpaint", "upscale", "edit", "batch", "uncategorized"]:
-        path = get_image_output_paths(item, create=False).metadata_dir
-        if path not in metadata_dirs:
-            metadata_dirs.append(path)
-
-    for metadata_dir in metadata_dirs:
-        if not metadata_dir.exists():
+    # Small libraries keep exact-total behavior for compatibility. Large
+    # libraries switch to lazy page parsing so page one does not deserialize the
+    # entire history.
+    exact_total_threshold = 250
+    needed = len(candidates) if len(candidates) <= exact_total_threshold else offset + limit + 1
+    valid: list[dict[str, Any]] = []
+    scanned = 0
+    for record_path in candidates:
+        scanned += 1
+        summary = _cached_output_summary(record_path)
+        if summary is None:
             continue
-        for record_path in metadata_dir.glob("*.json"):
-            if record_path in seen_paths:
+        # Folder routing is authoritative for modern save categories. Retain the
+        # logical match check as a guard for canonical/legacy records.
+        if selected_category:
+            wanted = category_slug(selected_category).casefold()
+            logical = {
+                category_slug(summary.get("subtab") or "").casefold(),
+                category_slug(summary.get("save_category") or "").casefold(),
+                record_path.parent.name.casefold(),
+            }
+            if wanted not in logical:
                 continue
-            seen_paths.add(record_path)
-            try:
-                record = json.loads(record_path.read_text(encoding="utf-8"))
-                summary = _summarize_output_record(record, record_path)
-                if summary.get("is_missing_files"):
-                    continue
-                if selected_category and selected_category not in {
-                    sanitize_path_part(summary.get("subtab") or "", fallback=""),
-                    sanitize_path_part(summary.get("save_category") or "", fallback=""),
-                    sanitize_path_part(record_path.parent.name, fallback=""),
-                }:
-                    continue
-                records.append(summary)
-            except Exception:
-                continue
-    reverse = str(sort or "newest").lower() not in {"oldest", "old_to_new", "asc"}
-    records.sort(key=lambda item: str(item.get("created_at") or ""), reverse=reverse)
-    unique_records: list[dict[str, Any]] = []
-    seen_result_ids: set[str] = set()
-    for record in records:
-        result_id = str(record.get("result_id") or "").strip()
-        if not result_id or result_id in seen_result_ids:
-            continue
-        seen_result_ids.add(result_id)
-        unique_records.append(record)
-    total = len(unique_records)
-    page = unique_records[offset:offset + limit]
+        valid.append(summary)
+        if len(valid) >= needed:
+            break
+
+    exhausted = scanned >= len(candidates)
+    page = valid[offset: offset + limit]
+    has_more = len(valid) > offset + limit or not exhausted
     next_offset = offset + len(page)
+    # Exact total is known only when every candidate has been inspected. Do not
+    # pretend an estimate is exact; the frontend renders an honest "more
+    # available" label until the final page is reached.
+    total_known = exhausted
+    total = len(valid) if total_known else next_offset
     return {
-        "schema_version": "neo.image.results_api.v2",
+        "schema_version": "neo.image.results_api.v1",
         "count": len(page),
-        "loaded_count": len(page),
         "total": total,
-        "total_matching": total,
+        "total_known": total_known,
         "offset": offset,
         "limit": limit,
-        "next_offset": next_offset,
-        "has_more": next_offset < total,
+        "has_more": has_more,
+        "next_offset": next_offset if has_more else None,
         "results": page,
         "source": "neo_data/outputs/image_metadata",
         "category": selected_category or "all",
-        "sort": "newest" if reverse else "oldest",
+        "sort": "newest" if newest_first else "oldest",
+        "metadata_candidates": len(candidates),
+        "all_metadata_candidates": all_candidate_count,
+        "metadata_sidecars_scanned_this_request": scanned,
+        "available_metadata_folders": folder_names,
+        "pagination_policy": "lazy_sidecar_parse_with_mtime_size_summary_cache",
     }
 
 
@@ -1423,6 +1617,252 @@ def build_image_result_reuse_payload(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _metadata_record_from_path(path: Path) -> dict[str, Any] | None:
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def _identity_index_record_path(entry: dict[str, Any]) -> Path | None:
+    rel = str(entry.get("metadata_path") or "").strip()
+    if not rel:
+        return None
+    path = (ROOT_DIR / rel).resolve()
+    allowed = [
+        (ROOT_DIR / "neo_data" / "outputs" / "image_metadata").resolve(),
+        IMAGE_METADATA_QUARANTINE_ROOT.resolve(),
+    ]
+    if not any(root == path or root in path.parents for root in allowed):
+        return None
+    return path if path.exists() and path.is_file() else None
+
+
+def find_output_record_by_neo_output_id(neo_output_id: str) -> tuple[dict[str, Any] | None, Path | None, str]:
+    wanted = str(neo_output_id or "").strip()
+    if not wanted:
+        return None, None, ""
+    index = _load_output_identity_index()
+    entry = index.get("identities", {}).get(wanted) if isinstance(index.get("identities"), dict) else None
+    if isinstance(entry, dict):
+        path = _identity_index_record_path(entry)
+        if path is not None:
+            record = _metadata_record_from_path(path)
+            if record is not None:
+                return record, path, str(entry.get("file_id") or "")
+    for root in ((ROOT_DIR / "neo_data" / "outputs" / "image_metadata"), IMAGE_METADATA_QUARANTINE_ROOT):
+        if not root.exists():
+            continue
+        for path in root.rglob("*.json"):
+            record = _metadata_record_from_path(path)
+            if not record:
+                continue
+            outputs = record.get("outputs") if isinstance(record.get("outputs"), dict) else {}
+            files = outputs.get("files") if isinstance(outputs.get("files"), list) else []
+            match = next((item for item in files if isinstance(item, dict) and str(item.get("neo_output_id") or "") == wanted), None)
+            if match:
+                _register_record_identities(path, record)
+                return record, path.resolve(), str(match.get("file_id") or "")
+    return None, None, ""
+
+
+def _portable_inspector_record(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    model = summary.get("model") if isinstance(summary.get("model"), dict) else {}
+    params = summary.get("params") if isinstance(summary.get("params"), dict) else {}
+    filename = str(payload.get("image_filename") or "Recovered image")
+    return {
+        "schema_version": "neo.image.portable_recovery_inspector.v1",
+        "result_id": str(payload.get("result_id") or payload.get("neo_output_id") or "portable_recovery"),
+        "neo_result_uid": str(payload.get("neo_result_uid") or ""),
+        "surface": "image",
+        "mode": str(params.get("mode") or "recovered"),
+        "subtab": "recovered",
+        "created_at": str(payload.get("created_at") or ""),
+        "prompt": {
+            "positive": str(summary.get("positive_prompt") or ""),
+            "negative": str(summary.get("negative_prompt") or ""),
+            "effective_positive": str(summary.get("effective_positive_prompt") or summary.get("positive_prompt") or ""),
+            "effective_negative": str(summary.get("effective_negative_prompt") or summary.get("negative_prompt") or ""),
+            "conditioning": {},
+        },
+        "params": params,
+        "model": model,
+        "outputs": {"active_file": "recovered_image", "files": [{"file_id": "recovered_image", "filename": filename, "neo_output_id": str(payload.get("neo_output_id") or ""), "role": "image"}]},
+        "save_details": {"category": str(payload.get("save_category") or "Recovered")},
+        "portable_recovery": {"status": "embedded_only", "payload": payload},
+    }
+
+
+def recover_image_metadata_from_bytes(data: bytes, *, filename: str = "") -> dict[str, Any]:
+    payload = extract_portable_metadata_bytes(data)
+    if not payload:
+        return {
+            "schema_version": "neo.image.metadata_recovery.v1",
+            "ok": False,
+            "status": "not_neo_portable_image",
+            "message": "No embedded Neo output identity was found in this image.",
+            "filename": Path(filename).name,
+        }
+    output_id = str(payload.get("neo_output_id") or "")
+    record, record_path, file_id = find_output_record_by_neo_output_id(output_id)
+    if record is not None and record_path is not None:
+        state = "quarantined" if IMAGE_METADATA_QUARANTINE_ROOT.resolve() in record_path.resolve().parents else "active"
+        return {
+            "schema_version": "neo.image.metadata_recovery.v1",
+            "ok": True,
+            "status": "full_record_recovered",
+            "source": state,
+            "neo_output_id": output_id,
+            "file_id": file_id,
+            "result_id": str(record.get("result_id") or payload.get("result_id") or ""),
+            "metadata_path": _relative_to_root(record_path),
+            "portable": payload,
+            "record": record,
+        }
+    return {
+        "schema_version": "neo.image.metadata_recovery.v1",
+        "ok": True,
+        "status": "embedded_metadata_only",
+        "source": "embedded_image",
+        "neo_output_id": output_id,
+        "file_id": str(payload.get("file_id") or ""),
+        "result_id": str(payload.get("result_id") or ""),
+        "portable": payload,
+        "record": _portable_inspector_record(payload),
+        "message": "The full Neo sidecar was not found; Inspector can still show the compact metadata embedded in the image.",
+    }
+
+
+def scan_image_metadata_integrity() -> dict[str, Any]:
+    metadata_root = (ROOT_DIR / "neo_data" / "outputs" / "image_metadata").resolve()
+    orphans: list[dict[str, Any]] = []
+    records: list[tuple[Path, dict[str, Any]]] = []
+    path_claims: dict[str, list[dict[str, Any]]] = {}
+    parse_errors: list[str] = []
+    if metadata_root.exists():
+        for path in metadata_root.rglob("*.json"):
+            record = _metadata_record_from_path(path)
+            if record is None:
+                parse_errors.append(_relative_to_root(path))
+                continue
+            records.append((path.resolve(), record))
+            outputs = record.get("outputs") if isinstance(record.get("outputs"), dict) else {}
+            files = outputs.get("files") if isinstance(outputs.get("files"), list) else []
+            live = []
+            for item in files:
+                if not isinstance(item, dict):
+                    continue
+                rel = str(item.get("path") or "").strip()
+                if not rel:
+                    continue
+                resolved = (ROOT_DIR / rel).resolve()
+                claim = {
+                    "result_id": str(record.get("result_id") or path.stem),
+                    "neo_output_id": str(item.get("neo_output_id") or ""),
+                    "file_id": str(item.get("file_id") or ""),
+                    "metadata_path": _relative_to_root(path),
+                    "image_path": rel,
+                    "exists": resolved.exists() and resolved.is_file(),
+                }
+                path_claims.setdefault(str(resolved).casefold(), []).append(claim)
+                if claim["exists"]:
+                    live.append(claim)
+            if files and not live:
+                orphans.append({
+                    "result_id": str(record.get("result_id") or path.stem),
+                    "neo_result_uid": str(record.get("neo_result_uid") or ""),
+                    "metadata_path": _relative_to_root(path),
+                    "output_ids": [str(item.get("neo_output_id") or "") for item in files if isinstance(item, dict) and item.get("neo_output_id")],
+                    "reason": "no_corresponding_image_file",
+                })
+    collisions: list[dict[str, Any]] = []
+    stale_collision_metadata: set[str] = set()
+    for claims in path_claims.values():
+        if len(claims) < 2:
+            continue
+        existing = next((item for item in claims if item.get("exists")), None)
+        embedded_id = ""
+        if existing:
+            try:
+                payload = extract_portable_metadata_bytes((ROOT_DIR / str(existing.get("image_path") or "")).read_bytes())
+                embedded_id = str((payload or {}).get("neo_output_id") or "")
+            except Exception:
+                embedded_id = ""
+        matching = [item for item in claims if embedded_id and item.get("neo_output_id") == embedded_id]
+        stale = [item for item in claims if matching and item not in matching]
+        for item in stale:
+            stale_collision_metadata.add(str(item.get("metadata_path") or ""))
+        collisions.append({
+            "image_path": str((existing or claims[0]).get("image_path") or ""),
+            "claim_count": len(claims),
+            "embedded_neo_output_id": embedded_id,
+            "resolved": len(matching) == 1,
+            "authoritative_result_id": matching[0].get("result_id") if len(matching) == 1 else "",
+            "claims": claims,
+            "stale_metadata_paths": [item.get("metadata_path") for item in stale],
+        })
+    return {
+        "schema_version": "neo.image.metadata_integrity_scan.v1",
+        "ok": True,
+        "metadata_record_count": len(records),
+        "orphan_count": len(orphans),
+        "collision_count": len(collisions),
+        "resolved_collision_count": sum(1 for item in collisions if item.get("resolved")),
+        "unresolved_collision_count": sum(1 for item in collisions if not item.get("resolved")),
+        "parse_error_count": len(parse_errors),
+        "orphans": orphans,
+        "collisions": collisions,
+        "parse_errors": parse_errors,
+        "quarantine_candidates": sorted({*(item["metadata_path"] for item in orphans), *stale_collision_metadata}),
+        "policy": "read_only_scan_embedded_id_resolves_filename_collisions",
+    }
+
+
+def quarantine_orphan_image_metadata(*, include_resolved_collisions: bool = True) -> dict[str, Any]:
+    scan = scan_image_metadata_integrity()
+    candidates = set(item.get("metadata_path") for item in scan.get("orphans", []) if item.get("metadata_path"))
+    if include_resolved_collisions:
+        for collision in scan.get("collisions", []):
+            if collision.get("resolved"):
+                candidates.update(item for item in collision.get("stale_metadata_paths", []) if item)
+    active_root = (ROOT_DIR / "neo_data" / "outputs" / "image_metadata").resolve()
+    moved: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for rel in sorted(candidates):
+        source = (ROOT_DIR / str(rel)).resolve()
+        if active_root not in source.parents or not source.exists():
+            continue
+        relative = source.relative_to(active_root)
+        target = (IMAGE_METADATA_QUARANTINE_ROOT / relative).resolve()
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            record = _metadata_record_from_path(source) or {}
+            record["integrity_status"] = {
+                "state": "quarantined",
+                "reason": "missing_output_or_resolved_filename_collision",
+                "quarantined_at": utc_now_iso(),
+                "original_metadata_path": _relative_to_root(source),
+            }
+            target.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+            source.unlink()
+            _IMAGE_RESULT_SUMMARY_CACHE.pop(str(source), None)
+            _register_record_identities(target, record)
+            moved.append({"result_id": str(record.get("result_id") or source.stem), "from": _relative_to_root(source), "to": _relative_to_root(target)})
+        except Exception as exc:
+            errors.append(f"{rel}: {exc}")
+    return {
+        "schema_version": "neo.image.metadata_quarantine.v1",
+        "ok": not errors,
+        "moved_count": len(moved),
+        "moved": moved,
+        "errors": errors,
+        "quarantine_root": _relative_to_root(IMAGE_METADATA_QUARANTINE_ROOT),
+        "policy": "reversible_quarantine_no_hard_delete",
+        "scan": scan,
+    }
+
 def image_results_integrity_guard(*, selected_result_id: str | None = None, category: str | None = None) -> dict[str, Any]:
     """Validate persisted Results state after manual Neo_Data cleanup.
 
@@ -1490,7 +1930,24 @@ def _output_file_exists(file_record: dict[str, Any]) -> bool:
         return False
     path = (ROOT_DIR / path_value).resolve()
     neo_output_root = (ROOT_DIR / "neo_data" / "outputs" / "image").resolve()
-    return neo_output_root in path.parents and path.exists() and path.is_file()
+    if neo_output_root not in path.parents or not path.exists() or not path.is_file():
+        return False
+    # New portable-metadata records carry a cheap filesystem fingerprint. If a
+    # user deletes an image and a later generation reuses the same human-friendly
+    # filename, the stale sidecar must not silently claim the replacement file.
+    integrity = file_record.get("integrity") if isinstance(file_record.get("integrity"), dict) else {}
+    if integrity:
+        try:
+            stat = path.stat()
+            expected_size = int(integrity.get("size_bytes")) if integrity.get("size_bytes") not in (None, "") else None
+            expected_mtime = int(integrity.get("mtime_ns")) if integrity.get("mtime_ns") not in (None, "") else None
+            if expected_size is not None and stat.st_size != expected_size:
+                return False
+            if expected_mtime is not None and stat.st_mtime_ns != expected_mtime:
+                return False
+        except (OSError, TypeError, ValueError):
+            return False
+    return True
 
 
 def deepcopy_dict(value: Any) -> dict[str, Any]:
@@ -1675,7 +2132,13 @@ def image_replay_storage_summary() -> dict[str, Any]:
     records_scanned = 0
     latent_artifacts = 0
     failed_artifacts = 0
-    if metadata_root.exists():
+    metadata_scan_mode = "full_latent_reference_scan"
+    # If there are no persisted latent files there cannot be any orphan latent
+    # candidates. Avoid deserializing the entire Image metadata history merely to
+    # prove an empty set. Large installations can have GB-scale replay sidecars.
+    if latent_files == 0:
+        metadata_scan_mode = "skipped_no_latent_files"
+    elif metadata_root.exists():
         for record_path in metadata_root.rglob("*.json"):
             try:
                 record = json.loads(record_path.read_text(encoding="utf-8"))
@@ -1749,6 +2212,8 @@ def image_replay_storage_summary() -> dict[str, Any]:
         },
         "records": {
             "metadata_records_scanned": records_scanned,
+            "metadata_records_count": metadata_files,
+            "metadata_scan_mode": metadata_scan_mode,
             "referenced_latent_artifacts": latent_artifacts,
             "failed_latent_artifacts": failed_artifacts,
             "referenced_result_ids": len(referenced_result_ids),

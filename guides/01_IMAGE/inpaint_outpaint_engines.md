@@ -179,3 +179,14 @@ A non-standard sampler graph being preserved is not equivalent to claiming the N
 The Native/LanPaint selector now follows the exact family compatibility matrix. Neo does not assume that every family with an Inpaint/Outpaint label has both engines.
 
 Current important restrictions include SD 3.5, Flux 2 Dev, Anima, Ideogram 4, and HiDream masked routes that are LanPaint-only in the verified local contract. Krea 2 RAW keeps its Native masked path while its unresolved LanPaint adapter stays gated. The UI preserves the user's chosen engine state but disables an engine that is not executable on the active route rather than silently changing it.
+
+## Qwen Image 2.1 Q21-4 masked workflows
+
+`qwen_image_21 + diffusion_model` now has experimental Inpaint and Outpaint routes. Qwen still owns semantic edit conditioning through `TextEncodeQwenImage21`; Neo supplies mask/canvas authority around that conditioning instead of pretending the Qwen encoder has a direct mask socket.
+
+**Inpaint** uses Image 1 + optional ordered refs 2–10, `LoadImageMask`, source `VAEEncode`, `SetLatentNoiseMask`, and `DifferentialDiffusion`. **Strict · Preserve outside mask** additionally restores Image 1 outside the final mask with `ImageCompositeMasked`; **Native · Allow edit spill** skips that final guard.
+
+**Outpaint** pads Image 1 with `ImagePadForOutpaint`. The padded image becomes Qwen `<image1>` and the pad mask becomes the latent noise mask. **Preserve original area** restores the original center after sampling; **Allow source redraw** returns Qwen's native full-canvas result.
+
+Q21-4 deliberately keeps masked GGUF routes gated. Physical visual qualification is still deferred to Q21-7.
+

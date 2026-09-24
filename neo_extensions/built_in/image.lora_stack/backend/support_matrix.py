@@ -40,6 +40,7 @@ SUPPORTED_FAMILIES = (
     "krea2",
     "krea2_turbo",
     "qwen_image",
+    "qwen_image_21",
     "qwen_rapid_aio",
     "qwen_image_edit_2509",
     "qwen_image_edit_2511",
@@ -332,6 +333,31 @@ for _family in ("qwen_image", "qwen_image_edit_2509", "qwen_image_edit_2511"):
                 notes=("2509 owns multi-source img2img/edit; normal qwen_image remains single-source. LoRA graph insertion stays base-pass only in L6.",),
                 enablement_pass=f"L6.{_family}",
             )
+
+# Q21-5: Qwen Image 2.1 LoRA inference is model-only. Qwen3-VL stays
+# untouched; the compiler owns exact transformer anchors for every active route.
+# Safetensors masked routes are active from Q21-4; GGUF remains limited to the
+# Q21-3 base modes because masked GGUF routes are still unsupported.
+for _mode in SUPPORTED_MODES:
+    _add_model_only_experimental(
+        "qwen_image_21", "diffusion_model", _mode,
+        "Q21-5 compiler emits a Qwen Image 2.1 model-only LoRA patch profile; LoraLoaderModelOnly rewires the exact transformer consumer without patching Qwen3-VL.",
+        notes=(
+            "Use LoRAs trained for Qwen Image 2.1. Qwen Image 1.x, legacy Qwen Edit, SDXL, Flux, and unrelated LoRAs are not assumed compatible.",
+            "Reference ordering, masks, and outpaint canvas semantics remain owned by the Q21 compiler; LoRA Stack only patches the model path.",
+        ),
+        enablement_pass="Q21-5.qwen_image_21",
+    )
+for _mode in ("generate", "img2img", "edit"):
+    _add_model_only_experimental(
+        "qwen_image_21", "gguf", _mode,
+        "Q21-5 exposes experimental model-only LoRA patching on the Q21 GGUF transformer route while keeping Qwen3-VL and VAE native.",
+        notes=(
+            "GGUF + LoRA remains physically unqualified until a Qwen Image 2.1 GGUF model and matching Q21 LoRA are tested together.",
+            "Only Qwen Image 2.1 LoRAs are intended for this route.",
+        ),
+        enablement_pass="Q21-5.qwen_image_21_gguf",
+    )
 
 # Qwen Rapid AIO: GGUF uses Qwen single-encoder consumer rewire. Bundled
 # checkpoint_aio uses a checkpoint-style chain from CheckpointLoaderSimple outputs,

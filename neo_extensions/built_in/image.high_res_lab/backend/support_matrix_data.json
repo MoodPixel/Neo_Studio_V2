@@ -1,6 +1,6 @@
 {
-  "phase": "V25.9.20 P8.5 \u2014 High-Res Lab ZImage Turbo safetensors + GGUF enablement",
-  "source_phase": "P8.5",
+  "phase": "2026-09-24 \u2014 Q21-5 Qwen Image 2.1 LoRA + High-Res integration",
+  "source_phase": "Q21-5",
   "extension_id": "image.high_res_lab",
   "route_profile_contract": "P8.5",
   "routes": [
@@ -15390,6 +15390,856 @@
         "latent_policy": "warn_low_denoise",
         "anchor_policy": "detect_model_sampler_vae_decode",
         "hidden_controls": []
+      },
+      "reason": "unsupported: Base route state is unsupported; High-Res Lab must not create a fallback route.",
+      "normal_ui": "hidden",
+      "diagnostic_ui": "visible_diagnostic",
+      "workflow_patch_allowed": false,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.diffusion_model.txt2img.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "mode": "txt2img",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_native",
+      "base_workflow_type": "image.txt2img.qwen_image_edit_2511_native",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_components_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_edit_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_components_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.diffusion_model.img2img.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "mode": "img2img",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_native_edit",
+      "base_workflow_type": "image.img2img.qwen_image_edit_2511",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_components_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_edit_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_components_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.diffusion_model.inpaint.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "mode": "inpaint",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_native_edit",
+      "base_workflow_type": "image.inpaint.qwen_image_edit_2511",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_components_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_edit_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_components_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.diffusion_model.outpaint.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "mode": "outpaint",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_native_edit",
+      "base_workflow_type": "image.outpaint.qwen_image_edit_2511",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_components_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_edit_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_components_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.diffusion_model.edit.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "diffusion_model",
+      "mode": "edit",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_native_edit",
+      "base_workflow_type": "image.edit.qwen_image_edit_2511",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_components_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_edit_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_components_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.gguf.txt2img.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "mode": "txt2img",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_gguf",
+      "base_workflow_type": "image.txt2img.qwen_image_edit_2511_gguf",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_gguf_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.gguf.img2img.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "mode": "img2img",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_gguf",
+      "base_workflow_type": "image.img2img.qwen_image_edit_2511_gguf",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_gguf_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.gguf.inpaint.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "mode": "inpaint",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_gguf",
+      "base_workflow_type": "image.inpaint.qwen_image_edit_2511_gguf",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_gguf_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.gguf.outpaint.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "mode": "outpaint",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_gguf",
+      "base_workflow_type": "image.outpaint.qwen_image_edit_2511_gguf",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_gguf_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_edit_2511.gguf.edit.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_edit_2511",
+      "loader": "gguf",
+      "mode": "edit",
+      "workspace_app": "finish",
+      "base_route_state": "available",
+      "base_compiler_id": "comfy.qwen_gguf",
+      "base_workflow_type": "image.edit.qwen_image_edit_2511_gguf",
+      "high_res_lab_state": "available",
+      "route_profile_id": "qwen_2511_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_2511",
+        "model_kind": "qwen_2511_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only",
+          "qwen_reedit"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale"
+        ],
+        "snap_multiple": 16,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "qwen_2511_safe_low_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "warn_low_denoise_qwen_2511",
+        "anchor_policy": "detect_qwen_2511_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Phase 18.1 route profile qwen_2511_gguf_highres is active and synced to base route state available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.diffusion_model.txt2img.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "diffusion_model",
+      "mode": "txt2img",
+      "workspace_app": "finish",
+      "base_route_state": "experimental_available",
+      "base_compiler_id": "comfy.qwen_image_21",
+      "base_workflow_type": "image.txt2img.qwen_image_21",
+      "high_res_lab_state": "experimental_available",
+      "route_profile_id": "qwen_image_21_components_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_and_mask_semantics",
+        "anchor_policy": "detect_qwen21_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Q21-5 route profile qwen_image_21_components_highres is active and synced to base route state experimental_available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.diffusion_model.img2img.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "diffusion_model",
+      "mode": "img2img",
+      "workspace_app": "finish",
+      "base_route_state": "experimental_available",
+      "base_compiler_id": "comfy.qwen_image_21",
+      "base_workflow_type": "image.img2img.qwen_image_21",
+      "high_res_lab_state": "experimental_available",
+      "route_profile_id": "qwen_image_21_components_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_and_mask_semantics",
+        "anchor_policy": "detect_qwen21_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Q21-5 route profile qwen_image_21_components_highres is active and synced to base route state experimental_available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.diffusion_model.edit.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "diffusion_model",
+      "mode": "edit",
+      "workspace_app": "finish",
+      "base_route_state": "experimental_available",
+      "base_compiler_id": "comfy.qwen_image_21",
+      "base_workflow_type": "image.edit.qwen_image_21",
+      "high_res_lab_state": "experimental_available",
+      "route_profile_id": "qwen_image_21_components_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_and_mask_semantics",
+        "anchor_policy": "detect_qwen21_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Q21-5 route profile qwen_image_21_components_highres is active and synced to base route state experimental_available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.diffusion_model.inpaint.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "diffusion_model",
+      "mode": "inpaint",
+      "workspace_app": "finish",
+      "base_route_state": "experimental_available",
+      "base_compiler_id": "comfy.qwen_image_21",
+      "base_workflow_type": "image.inpaint.qwen_image_21",
+      "high_res_lab_state": "experimental_available",
+      "route_profile_id": "qwen_image_21_components_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_and_mask_semantics",
+        "anchor_policy": "detect_qwen21_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Q21-5 route profile qwen_image_21_components_highres is active and synced to base route state experimental_available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.diffusion_model.outpaint.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "diffusion_model",
+      "mode": "outpaint",
+      "workspace_app": "finish",
+      "base_route_state": "experimental_available",
+      "base_compiler_id": "comfy.qwen_image_21",
+      "base_workflow_type": "image.outpaint.qwen_image_21",
+      "high_res_lab_state": "experimental_available",
+      "route_profile_id": "qwen_image_21_components_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_components",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_and_mask_semantics",
+        "anchor_policy": "detect_qwen21_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Q21-5 route profile qwen_image_21_components_highres is active and synced to base route state experimental_available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.gguf.txt2img.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "gguf",
+      "mode": "txt2img",
+      "workspace_app": "finish",
+      "base_route_state": "experimental_available",
+      "base_compiler_id": "comfy.qwen_image_21",
+      "base_workflow_type": "image.txt2img.qwen_image_21_gguf",
+      "high_res_lab_state": "experimental_available",
+      "route_profile_id": "qwen_image_21_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_semantics",
+        "anchor_policy": "detect_qwen21_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Q21-5 route profile qwen_image_21_gguf_highres is active and synced to base route state experimental_available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.gguf.img2img.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "gguf",
+      "mode": "img2img",
+      "workspace_app": "finish",
+      "base_route_state": "experimental_available",
+      "base_compiler_id": "comfy.qwen_image_21",
+      "base_workflow_type": "image.img2img.qwen_image_21_gguf",
+      "high_res_lab_state": "experimental_available",
+      "route_profile_id": "qwen_image_21_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_semantics",
+        "anchor_policy": "detect_qwen21_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Q21-5 route profile qwen_image_21_gguf_highres is active and synced to base route state experimental_available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.gguf.edit.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "gguf",
+      "mode": "edit",
+      "workspace_app": "finish",
+      "base_route_state": "experimental_available",
+      "base_compiler_id": "comfy.qwen_image_21",
+      "base_workflow_type": "image.edit.qwen_image_21_gguf",
+      "high_res_lab_state": "experimental_available",
+      "route_profile_id": "qwen_image_21_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_semantics",
+        "anchor_policy": "detect_qwen21_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "Q21-5 route profile qwen_image_21_gguf_highres is active and synced to base route state experimental_available.",
+      "normal_ui": "visible_selectable",
+      "diagnostic_ui": "visible_selectable",
+      "workflow_patch_allowed": true,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.gguf.inpaint.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "gguf",
+      "mode": "inpaint",
+      "workspace_app": "finish",
+      "base_route_state": "unsupported",
+      "base_compiler_id": null,
+      "base_workflow_type": null,
+      "high_res_lab_state": "unsupported",
+      "route_profile_id": "qwen_image_21_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_semantics",
+        "anchor_policy": "detect_qwen21_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
+      },
+      "reason": "unsupported: Base route state is unsupported; High-Res Lab must not create a fallback route.",
+      "normal_ui": "hidden",
+      "diagnostic_ui": "visible_diagnostic",
+      "workflow_patch_allowed": false,
+      "must_not_fallback": true
+    },
+    {
+      "route_id": "comfyui.qwen_image_21.gguf.outpaint.finish",
+      "extension_id": "image.high_res_lab",
+      "backend": "comfyui",
+      "family": "qwen_image_21",
+      "loader": "gguf",
+      "mode": "outpaint",
+      "workspace_app": "finish",
+      "base_route_state": "unsupported",
+      "base_compiler_id": null,
+      "base_workflow_type": null,
+      "high_res_lab_state": "unsupported",
+      "route_profile_id": "qwen_image_21_gguf_highres",
+      "route_profile": {
+        "family_group": "qwen_image_21",
+        "model_kind": "qwen_image_21_gguf",
+        "default_strategy": "forge_pixel_refine",
+        "allowed_strategies": [
+          "forge_pixel_refine",
+          "standard",
+          "upscale_only"
+        ],
+        "blocked_strategies": [
+          "ultimate_sd_upscale",
+          "qwen_reedit"
+        ],
+        "snap_multiple": 32,
+        "negative_prompt_policy": "preserve_route_conditioning",
+        "cfg_policy": "preserve_base_sampler_cfg",
+        "sampler_policy": "preserve_base_sampler",
+        "latent_policy": "qwen21_preserve_reference_semantics",
+        "anchor_policy": "detect_qwen21_gguf_model_sampler_vae_decode",
+        "hidden_controls": [
+          "cfg",
+          "ultimate_sd_upscale"
+        ]
       },
       "reason": "unsupported: Base route state is unsupported; High-Res Lab must not create a fallback route.",
       "normal_ui": "hidden",

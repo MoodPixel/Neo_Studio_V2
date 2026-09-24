@@ -83,6 +83,14 @@ SUPPORTED_COMFY_ROUTES = {
     ("krea2_turbo", "gguf", "inpaint"),
     ("krea2_turbo", "gguf", "outpaint"),
     ("qwen_image", "diffusion_model", "txt2img"),
+    ("qwen_image_21", "diffusion_model", "txt2img"),
+    ("qwen_image_21", "diffusion_model", "img2img"),
+    ("qwen_image_21", "diffusion_model", "edit"),
+    ("qwen_image_21", "diffusion_model", "outpaint"),
+    ("qwen_image_21", "diffusion_model", "inpaint"),
+    ("qwen_image_21", "gguf", "txt2img"),
+    ("qwen_image_21", "gguf", "img2img"),
+    ("qwen_image_21", "gguf", "edit"),
     ("qwen_image", "diffusion_model", "img2img"),
     ("qwen_image", "diffusion_model", "inpaint"),
     ("qwen_image", "diffusion_model", "outpaint"),
@@ -305,10 +313,15 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
     if (
         mode in {"inpaint", "outpaint"}
         and family in {"krea2", "krea2_turbo"}
-        and krea2_edit_engine == "identity_edit"
+        and krea2_edit_engine in {"identity_edit", "ostris_edit"}
         and masked_edit_engine != "native"
     ):
         engine_label = "Krea 2 AnyPaint" if masked_edit_engine == "krea2_anypaint" else ("LanPaint" if masked_edit_engine == "lanpaint" else masked_edit_engine)
+        blocker = (
+            f"Krea 2 Identity Edit cannot be combined with {engine_label}. Use Native Inpaint/Outpaint while Identity Edit is enabled."
+            if krea2_edit_engine == "identity_edit"
+            else f"Krea 2 Ostris Edit cannot be combined with {engine_label}. Use Native Inpaint/Outpaint while Ostris Edit is enabled."
+        )
         return CompileRoute(
             provider_id=job.provider_id,
             backend="comfyui",
@@ -318,7 +331,7 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             requested_mode=requested_mode,
             status="unsupported",
             engine=masked_edit_engine,
-            blockers=[f"Krea 2 Identity Edit cannot be combined with {engine_label}. Use Native Inpaint/Outpaint while Identity Edit is enabled."],
+            blockers=[blocker],
         )
 
     if mode in {"inpaint", "outpaint"} and masked_edit_engine != "native":
@@ -534,6 +547,32 @@ def select_comfy_compile_route(job: NeoJob) -> CompileRoute:
             compiler_id = "comfy.flux_gguf.klein"
             phase = "V25.9.20 Pass D / Pass O1 — Flux 2 Klein Img2Img/Edit Workflow Validation"
             warnings.append("Pass O1 Flux 2 Klein lock: GGUF img2img/edit uses Image 1 as the VAEEncode latent anchor with a single-Qwen3 Flux2/Klein provider route; optional Image 2/Image 3 remain replay/reference lanes until a dedicated local multi-reference conditioning node is validated.")
+        if family == "qwen_image_21" and loader == "diffusion_model" and mode == "txt2img":
+            workflow_type = "image.txt2img.qwen_image_21"
+            compiler_id = "comfy.qwen_image_21"
+            phase = "Q21-1 — Qwen Image 2.1 Safetensors Txt2Img"
+        if family == "qwen_image_21" and loader == "diffusion_model" and mode in {"img2img", "edit"}:
+            workflow_type = f"image.{mode}.qwen_image_21"
+            compiler_id = "comfy.qwen_image_21"
+            phase = "Q21-2 — Qwen Image 2.1 Unified Edit + 1–10 References"
+            warnings.append("Q21-2: Image 1 is the primary edit target; Images 2–10 are ordered references passed through TextEncodeQwenImage21.")
+        if family == "qwen_image_21" and loader == "diffusion_model" and mode in {"inpaint", "outpaint"}:
+            workflow_type = f"image.{mode}.qwen_image_21"
+            compiler_id = "comfy.qwen_image_21"
+            phase = "Q21-4 — Qwen Image 2.1 Inpaint + Outpaint"
+            warnings.append("Q21-4: Qwen owns semantic edit conditioning while Neo owns latent mask/canvas authority and optional strict pixel preservation.")
+
+        if family == "qwen_image_21" and loader == "gguf" and mode == "txt2img":
+            workflow_type = "image.txt2img.qwen_image_21_gguf"
+            compiler_id = "comfy.qwen_image_21"
+            phase = "Q21-3 — Qwen Image 2.1 GGUF Txt2Img"
+            warnings.append("Q21-3: GGUF applies to the diffusion transformer only; Qwen3-VL 8B and the Qwen 2.1 VAE remain native/safetensors.")
+        if family == "qwen_image_21" and loader == "gguf" and mode in {"img2img", "edit"}:
+            workflow_type = f"image.{mode}.qwen_image_21_gguf"
+            compiler_id = "comfy.qwen_image_21"
+            phase = "Q21-3 — Qwen Image 2.1 GGUF Unified Edit + 1–10 References"
+            warnings.append("Q21-3: GGUF changes only the diffusion loader; Image 1–10 still condition through native TextEncodeQwenImage21 with the native Qwen3-VL 8B encoder.")
+
         if family == "qwen_image" and loader == "diffusion_model" and mode == "txt2img":
             workflow_type = "image.txt2img.qwen_native"
             compiler_id = "comfy.qwen_native"

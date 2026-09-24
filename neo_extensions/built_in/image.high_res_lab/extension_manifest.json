@@ -1,6 +1,6 @@
 {
   "id": "image.high_res_lab",
-  "name": "Image · High-Res Lab",
+  "name": "Image \u00b7 High-Res Lab",
   "version": "0.9.1",
   "description": "Built-in Image Finish extension for route-profiled high-resolution refinement, aspect-safe resizing, selected-output source refinement, and replay-safe output metadata.",
   "extension_type": "workflow_extension",
@@ -44,7 +44,9 @@
     "flux",
     "flux2_klein",
     "qwen_image",
+    "qwen_image_21",
     "qwen_image_edit_2509",
+    "qwen_image_edit_2511",
     "qwen_rapid_aio",
     "z_image",
     "z_image_turbo",
@@ -125,7 +127,8 @@
     "phase_p8_2_qwen_policy": "P8.2 promotes Qwen Image Edit, Qwen Rapid AIO, and Qwen Image Edit 2509 High-Res Lab profiles across safetensors/checkpoint AIO/GGUF; Qwen blocks Ultimate SD Upscale and clamps refine CFG safely.",
     "phase_p8_3_flux_klein_policy": "P8.3 promotes Flux Klein Safetensors / Components and Flux Klein GGUF High-Res Lab profiles. Klein uses pixel refine, latent refine, and upscale-only; SD-style Ultimate SD Upscale and High-Res CFG override are blocked for Flux Klein.",
     "phase_p8_4_zimage_policy": "P8.4 promotes ZImage Safetensors / Components and ZImage GGUF High-Res Lab profiles. ZImage uses pixel refine, latent refine, and upscale-only; SD-style Ultimate SD Upscale and Qwen re-edit are blocked for ZImage.",
-    "phase_p8_5_zimage_turbo_policy": "P8.5 promotes ZImage Turbo Safetensors / Components and GGUF High-Res Lab profiles. Turbo uses conservative low-step/low-CFG pixel refine, latent refine, and upscale-only; SD-style Ultimate SD Upscale and Qwen re-edit are blocked."
+    "phase_p8_5_zimage_turbo_policy": "P8.5 promotes ZImage Turbo Safetensors / Components and GGUF High-Res Lab profiles. Turbo uses conservative low-step/low-CFG pixel refine, latent refine, and upscale-only; SD-style Ultimate SD Upscale and Qwen re-edit are blocked.",
+    "phase18_1_qwen2511_policy": "Phase 18.1 promotes Qwen Image Edit 2511 Safetensors / Components and GGUF High-Res Lab profiles using the same provider-owned sampler/model/VAE anchors as the 2511 base routes; Ultimate SD Upscale remains blocked."
   },
   "route_states": {
     "comfyui:sdxl:checkpoint:txt2img": "available",
@@ -547,7 +550,27 @@
     "comfyui_portable:krea2_turbo:gguf:generate": "experimental_available",
     "comfyui_portable:krea2_turbo:gguf:img2img": "experimental_available",
     "comfyui_portable:krea2_turbo:gguf:inpaint": "experimental_available",
-    "comfyui_portable:krea2_turbo:gguf:outpaint": "experimental_available"
+    "comfyui_portable:krea2_turbo:gguf:outpaint": "experimental_available",
+    "comfyui:qwen_image_edit_2511:diffusion_model:txt2img": "available",
+    "comfyui:qwen_image_edit_2511:diffusion_model:img2img": "available",
+    "comfyui:qwen_image_edit_2511:diffusion_model:inpaint": "available",
+    "comfyui:qwen_image_edit_2511:diffusion_model:outpaint": "available",
+    "comfyui:qwen_image_edit_2511:diffusion_model:edit": "available",
+    "comfyui:qwen_image_edit_2511:gguf:txt2img": "available",
+    "comfyui:qwen_image_edit_2511:gguf:img2img": "available",
+    "comfyui:qwen_image_edit_2511:gguf:inpaint": "available",
+    "comfyui:qwen_image_edit_2511:gguf:outpaint": "available",
+    "comfyui:qwen_image_edit_2511:gguf:edit": "available",
+    "comfyui:qwen_image_21:diffusion_model:txt2img": "experimental_available",
+    "comfyui:qwen_image_21:diffusion_model:img2img": "experimental_available",
+    "comfyui:qwen_image_21:diffusion_model:edit": "experimental_available",
+    "comfyui:qwen_image_21:diffusion_model:inpaint": "experimental_available",
+    "comfyui:qwen_image_21:diffusion_model:outpaint": "experimental_available",
+    "comfyui:qwen_image_21:gguf:txt2img": "experimental_available",
+    "comfyui:qwen_image_21:gguf:img2img": "experimental_available",
+    "comfyui:qwen_image_21:gguf:edit": "experimental_available",
+    "comfyui:qwen_image_21:gguf:inpaint": "unsupported",
+    "comfyui:qwen_image_21:gguf:outpaint": "unsupported"
   },
   "capability_profiles": {},
   "ui_schema": {
@@ -807,7 +830,7 @@
     "runtime_activation": false,
     "payload_emission": false,
     "workflow_graph_mutation": false,
-    "ui_policy": "Render the built-in panel in Image → Finish and enable controls only for compatible routes.",
+    "ui_policy": "Render the built-in panel in Image \u2192 Finish and enable controls only for compatible routes.",
     "guardrails": [
       "Do not mount under generic External Extensions.",
       "Do not collect active generation settings while the extension is unavailable for the selected route.",
@@ -868,7 +891,11 @@
     "phase_p8_4_zimage_enablement": "implemented",
     "z_image_turbo_high_res_lab_ready": true,
     "phase_p8_5_zimage_turbo_enablement": "implemented",
-    "route_profile_contract_phase": "P8.5"
+    "route_profile_contract_phase": "P8.5",
+    "qwen_2511_high_res_lab_ready": true,
+    "phase18_1_qwen2511_enablement": true,
+    "qwen_image_21_high_res_lab_ready": true,
+    "q21_5_qwen21_enablement": true
   },
   "workflow_patch_contract": {
     "enabled": true,
@@ -878,7 +905,8 @@
     "graph_mutation": "Adds latent/image upscale, second KSampler, VAE decode/tiled decode nodes, then reroutes PreviewImage/SaveImage to refined output.",
     "disabled_gated_policy": "Disabled, provider-gated, unsupported, or missing-required-node payloads return the original workflow unchanged.",
     "route_profile_contract": "Patch sizing and diagnostics read the extension-local route profile before mutating workflows.",
-    "phase_p8_4_zimage_policy": "ZImage High-Res Lab patches the selected ZImage/ZImage GGUF compiled graph and must not fallback to Flux, Qwen, SDXL, ZImage Turbo, or another loader family."
+    "phase_p8_4_zimage_policy": "ZImage High-Res Lab patches the selected ZImage/ZImage GGUF compiled graph and must not fallback to Flux, Qwen, SDXL, ZImage Turbo, or another loader family.",
+    "q21_5_qwen21_policy": "Q21-5 preserves Qwen Image 2.1 reference conditioning, base True-CFG, model-only LoRA rewiring, and masked Stage-2 preservation; Ultimate SD Upscale and legacy qwen_reedit remain blocked."
   },
   "replay_contract": {
     "phase": "P8.5",

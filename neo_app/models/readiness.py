@@ -36,6 +36,8 @@ ASSET_ALIASES = {
     "gguf_text_encoder_primary": ["gguf_text_encoder_primary", "text_encoder_primary", "text_encoder_1", "qwen_text_encoder", "qwen3_text_encoder", "qwen3vl_text_encoder"],
     "gguf_text_encoder_secondary": ["gguf_text_encoder_secondary", "text_encoder_secondary", "text_encoder_2"],
     "qwen_text_encoder": ["qwen_text_encoder", "text_encoder_primary", "gguf_text_encoder_primary", "text_encoder_1"],
+    "qwen21_text_encoder": ["qwen21_text_encoder", "qwen_text_encoder", "text_encoder_primary", "text_encoder_1", "clip", "clip_name"],
+    "qwen21_vae": ["qwen21_vae", "vae", "vae_or_ae", "ae_or_vae"],
     "qwen3_text_encoder": ["qwen3_text_encoder", "text_encoder_primary", "gguf_text_encoder_primary", "text_encoder_1"],
     "qwen3vl_4b_text_encoder": ["qwen3vl_4b_text_encoder", "qwen3vl_text_encoder", "text_encoder_primary", "text_encoder_1", "clip", "clip_name"],
     "qwen_image_vae": ["qwen_image_vae", "vae", "vae_or_ae", "ae_or_vae"],
@@ -62,6 +64,8 @@ EXPLICIT_COMPONENT_ASSET_ROLES = {
     "text_encoder_primary",
     "text_encoder_secondary",
     "qwen_text_encoder",
+    "qwen21_text_encoder",
+    "qwen21_vae",
     "qwen3_text_encoder",
     "qwen3vl_4b_text_encoder",
     "qwen_image_vae",
@@ -215,7 +219,7 @@ def _gate_ready(gate: str, request: ReadinessValidationRequest, backend_capabili
         has_value = _truthy(request.params.get("flux_guidance")) or _truthy(assets.get("flux_guidance"))
         has_backend = _role_available(backend_capabilities, loader, "flux_guidance", assets)
         return has_value and has_backend, "Missing Flux guidance value or backend support."
-    if gate in {"model", "qwen_text_encoder", "qwen3_text_encoder", "qwen3vl_4b_text_encoder", "qwen_image_vae", "ae_or_vae", "vae_or_ae", "variant", "wan_task", "edit_instruction"}:
+    if gate in {"model", "qwen_text_encoder", "qwen21_text_encoder", "qwen21_vae", "qwen3_text_encoder", "qwen3vl_4b_text_encoder", "qwen_image_vae", "ae_or_vae", "vae_or_ae", "variant", "wan_task", "edit_instruction"}:
         if gate == "model":
             if loader in {"diffusion_model", "unet"}:
                 return _has_selected_asset("diffusion_model", assets) or _has_selected_asset("unet", assets), "Select an installed diffusion model."

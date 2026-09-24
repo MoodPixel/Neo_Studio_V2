@@ -9,14 +9,23 @@ KREA2_TURBO_FAMILIES = {"krea2_turbo", "krea_2_turbo", "krea2turbo", "turbo"}
 
 KREA2_EDIT_ENGINE_NATIVE = "native"
 KREA2_EDIT_ENGINE_IDENTITY = "identity_edit"
+KREA2_EDIT_ENGINE_OSTRIS = "ostris_edit"
+KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA = "separate_lora"
+KREA2_EDIT_WEIGHT_SOURCE_BAKED_MODEL = "baked_in_model"
 KREA2_IDENTITY_EDIT_NODE_REPO = "https://github.com/lbouaraba/comfyui-krea2edit.git"
+KREA2_OSTRIS_EDIT_NODE_REPO = "https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit"
 KREA2_IDENTITY_EDIT_RECOMMENDED_LORA = "krea2_identity_edit_v1_2.safetensors"
-KREA2_IDENTITY_EDIT_NODE_CLASSES = (
+KREA2_IDENTITY_EDIT_RUNTIME_NODE_CLASSES = (
     "Krea2EditModelPatch",
     "Krea2EditGroundedEncode",
-    "LoraLoaderModelOnly",
     "EmptySD3LatentImage",
 )
+KREA2_IDENTITY_EDIT_NODE_CLASSES = (*KREA2_IDENTITY_EDIT_RUNTIME_NODE_CLASSES, "LoraLoaderModelOnly")
+KREA2_OSTRIS_EDIT_RUNTIME_NODE_CLASSES = (
+    "TextEncodeKrea2OstrisEdit",
+    "Krea2OstrisEditModelPatch",
+)
+KREA2_OSTRIS_EDIT_NODE_CLASSES = (*KREA2_OSTRIS_EDIT_RUNTIME_NODE_CLASSES, "LoraLoaderModelOnly")
 
 
 def normalize_krea2_edit_engine(value: Any) -> str:
@@ -31,7 +40,41 @@ def normalize_krea2_edit_engine(value: Any) -> str:
         "instruction_edit",
     }:
         return KREA2_EDIT_ENGINE_IDENTITY
+    if normalized in {
+        "ostris_edit",
+        "ostris",
+        "krea2_ostris_edit",
+        "krea_2_ostris_edit",
+        "ostris_engine",
+        "krea2_ostris",
+        "krea2_edit_ostris",
+    }:
+        return KREA2_EDIT_ENGINE_OSTRIS
     return KREA2_EDIT_ENGINE_NATIVE
+
+
+def normalize_krea2_edit_weight_source(value: Any) -> str:
+    """Normalize how the selected Krea edit engine obtains its trained weights.
+
+    The legacy/current behavior is ``separate_lora`` and remains the default so
+    old saved drafts and payloads compile exactly as before.  ``baked_in_model``
+    explicitly means the selected diffusion model already contains the edit
+    LoRA weights; Neo must still build the engine runtime nodes but must not add
+    a second engine-owned LoRA loader.
+    """
+
+    normalized = _normalize(value)
+    if normalized in {
+        "baked_in_model",
+        "baked",
+        "baked_in",
+        "merged",
+        "merged_model",
+        "merged_into_model",
+        "model_baked",
+    }:
+        return KREA2_EDIT_WEIGHT_SOURCE_BAKED_MODEL
+    return KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA
 
 
 def normalize_krea2_identity_fit_mode(value: Any) -> str:
@@ -43,6 +86,19 @@ def normalize_krea2_identity_fit_mode(value: Any) -> str:
 
 def krea2_identity_edit_enabled(value: Any) -> bool:
     return normalize_krea2_edit_engine(value) == KREA2_EDIT_ENGINE_IDENTITY
+
+
+def krea2_ostris_edit_enabled(value: Any) -> bool:
+    return normalize_krea2_edit_engine(value) == KREA2_EDIT_ENGINE_OSTRIS
+
+
+def normalize_krea2_ostris_kv_cache(value: Any) -> bool:
+    normalized = _normalize(value)
+    if normalized in {"1", "true", "yes", "on", "enabled", "enable"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "disabled", "disable", ""}:
+        return False
+    return bool(value)
 
 
 def _normalize(value: Any) -> str:

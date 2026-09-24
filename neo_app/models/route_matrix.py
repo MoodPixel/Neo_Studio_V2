@@ -543,6 +543,124 @@ for _mode in ("img2img", "edit", "inpaint", "outpaint"):
         reason="V25.9.20 Pass E / Pass N3 completes Qwen Rapid AIO GGUF normal workflow coverage: edit aliases to img2img, while inpaint/outpaint use the source/mmproj mask/canvas stack.",
         notes=["Requires source image plus Qwen MMProj sidecar; img2img/edit may consume optional Image 2/Image 3, inpaint also requires mask, outpaint also requires padding."],
     ))
+# Q21-1: Qwen Image 2.1 native Safetensors/components text-to-image.
+_add_comfy(RouteMatrixEntry(
+    family="qwen_image_21",
+    loader="diffusion_model",
+    backend="comfyui",
+    mode="txt2img",
+    state="experimental_available",
+    workflow_type="image.txt2img.qwen_image_21",
+    compiler_id="comfy.qwen_image_21",
+    requires=["diffusion_model", "qwen21_text_encoder", "qwen21_vae", "qwen21_diffusion_loader", "qwen21_text_encoder_loader", "qwen21_vae_loader", "qwen21_conditioning", "qwen21_empty_latent", "qwen21_sampler", "qwen21_decode"],
+    parameter_profile="qwen21_native",
+    provider_nodes={
+        "diffusion_model_loader": "UNETLoader",
+        "text_encoder_loader": "CLIPLoader",
+        "conditioning": "TextEncodeQwenImage21",
+        "empty_latent": "EmptyLatentImage",
+        "vae_loader": "VAELoader",
+        "sampler": "KSampler",
+        "decode": "VAEDecode",
+    },
+    reason="Q21-1 exposes Qwen Image 2.1 Safetensors/components txt2img as an experimental route pending Q21-7 physical qualification.",
+    notes=["Uses CLIPLoader(type=qwen_image) with Qwen3-VL 8B.", "Does not inherit legacy Qwen ModelSamplingAuraFlow or edit conditioning.", "Edit/references, GGUF, inpaint/outpaint, LoRA Stack and High-Res are implemented through Q21-5; explicit RGBA/cache controls remain gated."],
+))
+for _q21_edit_mode in ("img2img", "edit"):
+    _add_comfy(RouteMatrixEntry(
+        family="qwen_image_21",
+        loader="diffusion_model",
+        backend="comfyui",
+        mode=_q21_edit_mode,
+        state="experimental_available",
+        workflow_type=f"image.{_q21_edit_mode}.qwen_image_21",
+        compiler_id="comfy.qwen_image_21",
+        requires=["diffusion_model", "qwen21_text_encoder", "qwen21_vae", "source_image", "qwen21_diffusion_loader", "qwen21_text_encoder_loader", "qwen21_vae_loader", "qwen21_conditioning", "qwen21_sampler", "qwen21_decode"],
+        parameter_profile="qwen21_native",
+        provider_nodes={
+            "diffusion_model_loader": "UNETLoader",
+            "text_encoder_loader": "CLIPLoader",
+            "conditioning": "TextEncodeQwenImage21",
+            "reference_loader": "LoadImage",
+            "vae_loader": "VAELoader",
+            "sampler": "KSampler",
+            "decode": "VAEDecode",
+        },
+        reason="Q21-2 enables Qwen Image 2.1 unified edit with Image 1 as target and ordered Image 2-10 references.",
+        notes=["Reference order and <imageN> token semantics are replay truth. Default edit canvas follows Image 1 through TextEncodeQwenImage21 output[2].", "Q21-5 adds model-only LoRA Stack and Qwen-safe High-Res refinement without rebuilding reference conditioning."],
+    ))
+
+# Q21-4: Qwen Image 2.1 Safetensors masked workflows.
+for _q21_masked_mode in ("inpaint", "outpaint"):
+    _requires = ["diffusion_model", "qwen21_text_encoder", "qwen21_vae", "source_image", "qwen21_diffusion_loader", "qwen21_text_encoder_loader", "qwen21_vae_loader", "qwen21_conditioning", "qwen21_sampler", "qwen21_decode", "qwen21_vae_encode", "qwen21_latent_mask", "qwen21_differential"]
+    if _q21_masked_mode == "inpaint":
+        _requires.extend(["mask_image", "qwen21_mask_loader"])
+    else:
+        _requires.extend(["outpaint_padding", "qwen21_outpaint_pad"])
+    _add_comfy(RouteMatrixEntry(
+        family="qwen_image_21", loader="diffusion_model", backend="comfyui", mode=_q21_masked_mode,
+        state="experimental_available", workflow_type=f"image.{_q21_masked_mode}.qwen_image_21", compiler_id="comfy.qwen_image_21",
+        requires=_requires, parameter_profile="qwen21_native",
+        provider_nodes={
+            "diffusion_model_loader":"UNETLoader", "text_encoder_loader":"CLIPLoader", "conditioning":"TextEncodeQwenImage21",
+            "reference_loader":"LoadImage", "vae_loader":"VAELoader", "latent_mask":"SetLatentNoiseMask",
+            "differential":"DifferentialDiffusion", "sampler":"KSampler", "decode":"VAEDecode",
+            "canvas_mask":"LoadImageMask" if _q21_masked_mode == "inpaint" else "ImagePadForOutpaint",
+            "strict_composite":"ImageCompositeMasked",
+        },
+        reason="Q21-4 keeps Qwen 2.1 semantic edit conditioning while Neo owns latent mask/canvas authority and optional strict pixel preservation.",
+        notes=["Image 1 remains the primary target; Images 2-10 remain ordered references.", "Q21-5 adds model-only LoRA Stack and masked-policy-aware High-Res refinement.", "GGUF masked workflows remain gated pending physical qualification."],
+    ))
+
+
+# Q21-3: Qwen Image 2.1 GGUF transformer with native Qwen3-VL 8B + native VAE.
+_add_comfy(RouteMatrixEntry(
+    family="qwen_image_21",
+    loader="gguf",
+    backend="comfyui",
+    mode="txt2img",
+    state="experimental_available",
+    workflow_type="image.txt2img.qwen_image_21_gguf",
+    compiler_id="comfy.qwen_image_21",
+    requires=["gguf_unet", "qwen21_text_encoder", "qwen21_vae", "qwen21_gguf_diffusion_loader", "qwen21_text_encoder_loader", "qwen21_vae_loader", "qwen21_conditioning", "qwen21_empty_latent", "qwen21_sampler", "qwen21_decode"],
+    parameter_profile="qwen21_gguf",
+    provider_nodes={
+        "gguf_unet_loader": "UnetLoaderGGUF or LoaderGGUF",
+        "text_encoder_loader": "CLIPLoader",
+        "conditioning": "TextEncodeQwenImage21",
+        "empty_latent": "EmptyLatentImage",
+        "vae_loader": "VAELoader",
+        "sampler": "KSampler",
+        "decode": "VAEDecode",
+    },
+    reason="Q21-3 enables a mixed Qwen Image 2.1 GGUF route: only the diffusion transformer is GGUF; Qwen3-VL 8B and the VAE remain native/safetensors.",
+    notes=["No Qwen MMProj is required.", "No GGUF text encoder is required or selected by this phase.", "Physical qualification remains Q21-7."],
+))
+for _q21_edit_mode in ("img2img", "edit"):
+    _add_comfy(RouteMatrixEntry(
+        family="qwen_image_21",
+        loader="gguf",
+        backend="comfyui",
+        mode=_q21_edit_mode,
+        state="experimental_available",
+        workflow_type=f"image.{_q21_edit_mode}.qwen_image_21_gguf",
+        compiler_id="comfy.qwen_image_21",
+        requires=["gguf_unet", "qwen21_text_encoder", "qwen21_vae", "source_image", "qwen21_gguf_diffusion_loader", "qwen21_text_encoder_loader", "qwen21_vae_loader", "qwen21_conditioning", "qwen21_empty_latent", "qwen21_sampler", "qwen21_decode"],
+        parameter_profile="qwen21_gguf",
+        provider_nodes={
+            "gguf_unet_loader": "UnetLoaderGGUF or LoaderGGUF",
+            "text_encoder_loader": "CLIPLoader",
+            "conditioning": "TextEncodeQwenImage21",
+            "reference_loader": "LoadImage",
+            "vae_loader": "VAELoader",
+            "sampler": "KSampler",
+            "decode": "VAEDecode",
+        },
+        reason="Q21-3 extends Q21-2 ordered 1-10-reference unified edit to a GGUF diffusion transformer without changing the native conditioning stack.",
+        notes=["Image 1 remains the primary edit target.", "Reference ordering and <imageN> replay semantics are identical to the Safetensors route.", "Custom canvas still uses EmptyLatentImage."],
+    ))
+
+
 # Qwen native txt2img is available through the original split-model compiler.
 _add_comfy(RouteMatrixEntry(
     family="qwen_image",

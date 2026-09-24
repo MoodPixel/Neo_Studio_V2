@@ -175,6 +175,8 @@ def admin_model_catalog_payload() -> dict[str, Any]:
         "status": "ready" if validation.get("ok") else "needs attention",
         "capabilities": {
             "manifest_loading": True,
+            "artifact_compatibility": True,
+            "download_sha256_verification": True,
             "schema_validation": True,
             "static_catalog": True,
             "grouping": True,

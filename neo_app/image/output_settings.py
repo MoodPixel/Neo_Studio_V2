@@ -39,6 +39,46 @@ def _dedupe_categories(values: Iterable[str] | None) -> list[str]:
     return rows or [DEFAULT_CATEGORY]
 
 
+def _normalize_filename_padding(value: Any, default: int = 4) -> int:
+    try:
+        return max(2, min(8, int(value)))
+    except Exception:
+        return max(2, min(8, int(default)))
+
+
+def _normalize_category_naming(value: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for raw_category, raw_settings in value.items():
+        category = category_display_name(raw_category)
+        settings = raw_settings if isinstance(raw_settings, dict) else {}
+        out[category] = {
+            "filename_prefix": category_slug(settings.get("filename_prefix") or "NeoStudio"),
+            "filename_padding": _normalize_filename_padding(settings.get("filename_padding"), 4),
+        }
+    return out
+
+def _category_naming_for(
+    category: str,
+    category_naming: dict[str, dict[str, Any]],
+    *,
+    fallback_prefix: str = "NeoStudio",
+    fallback_padding: int = 4,
+) -> dict[str, Any]:
+    wanted = category_display_name(category)
+    row = next((settings for name, settings in category_naming.items() if name.casefold() == wanted.casefold()), None)
+    if isinstance(row, dict):
+        return {
+            "filename_prefix": category_slug(row.get("filename_prefix") or fallback_prefix),
+            "filename_padding": _normalize_filename_padding(row.get("filename_padding"), fallback_padding),
+        }
+    return {
+        "filename_prefix": category_slug(fallback_prefix),
+        "filename_padding": _normalize_filename_padding(fallback_padding),
+    }
+
+
 def default_image_output_settings() -> dict[str, Any]:
     return {
         "output_root": str(IMAGE_OUTPUT_ROOT),
@@ -47,6 +87,7 @@ def default_image_output_settings() -> dict[str, Any]:
         "selected_category": DEFAULT_CATEGORY,
         "filename_prefix": "NeoStudio",
         "filename_padding": 4,
+        "category_naming": {DEFAULT_CATEGORY: {"filename_prefix": "NeoStudio", "filename_padding": 4}},
         "cleanup_backend_native_outputs": True,
     }
 
@@ -63,16 +104,26 @@ def load_image_output_settings() -> dict[str, Any]:
     selected = category_display_name(data.get("selected_category") or categories[0])
     if selected.casefold() not in {item.casefold() for item in categories}:
         categories.append(selected)
-    try:
-        padding = max(2, min(8, int(data.get("filename_padding", defaults["filename_padding"]))))
-    except Exception:
-        padding = defaults["filename_padding"]
+
+    legacy_prefix = category_slug(data.get("filename_prefix") or defaults["filename_prefix"])
+    legacy_padding = _normalize_filename_padding(data.get("filename_padding"), defaults["filename_padding"])
+    category_naming = _normalize_category_naming(data.get("category_naming"))
+    if not category_naming:
+        # Migration path for settings written before per-category naming existed.
+        category_naming = {selected: {"filename_prefix": legacy_prefix, "filename_padding": legacy_padding}}
+    effective = _category_naming_for(
+        selected,
+        category_naming,
+        fallback_prefix=legacy_prefix,
+        fallback_padding=legacy_padding,
+    )
     return {
         **defaults,
         "categories": categories,
         "selected_category": selected,
-        "filename_prefix": category_slug(data.get("filename_prefix") or defaults["filename_prefix"]),
-        "filename_padding": padding,
+        "filename_prefix": effective["filename_prefix"],
+        "filename_padding": effective["filename_padding"],
+        "category_naming": category_naming,
         "cleanup_backend_native_outputs": bool(data.get("cleanup_backend_native_outputs", True)),
     }
 
@@ -83,16 +134,30 @@ def save_image_output_settings(payload: dict[str, Any]) -> dict[str, Any]:
     selected = category_display_name(payload.get("selected_category") or current["selected_category"])
     if selected.casefold() not in {item.casefold() for item in categories}:
         categories.append(selected)
-    try:
-        padding = max(2, min(8, int(payload.get("filename_padding", current["filename_padding"]))))
-    except Exception:
-        padding = current["filename_padding"]
+
+    category_naming = _normalize_category_naming(current.get("category_naming"))
+    incoming_map = _normalize_category_naming(payload.get("category_naming"))
+    category_naming.update(incoming_map)
+    existing_effective = _category_naming_for(
+        selected,
+        category_naming,
+        fallback_prefix=str(current.get("filename_prefix") or "NeoStudio"),
+        fallback_padding=int(current.get("filename_padding") or 4),
+    )
+    selected_prefix = category_slug(payload.get("filename_prefix") or existing_effective["filename_prefix"])
+    selected_padding = _normalize_filename_padding(payload.get("filename_padding"), existing_effective["filename_padding"])
+    category_naming[selected] = {
+        "filename_prefix": selected_prefix,
+        "filename_padding": selected_padding,
+    }
+
     settings = {
         **current,
         "categories": categories,
         "selected_category": selected,
-        "filename_prefix": category_slug(payload.get("filename_prefix") or current["filename_prefix"]),
-        "filename_padding": padding,
+        "filename_prefix": selected_prefix,
+        "filename_padding": selected_padding,
+        "category_naming": category_naming,
         "cleanup_backend_native_outputs": bool(payload.get("cleanup_backend_native_outputs", current.get("cleanup_backend_native_outputs", True))),
     }
     SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -165,6 +230,7 @@ def settings_response(settings: dict[str, Any] | None = None) -> dict[str, Any]:
             "Neo owns final Image outputs under neo_data/outputs/image.",
             "Backend native output files are temporary source refs and may be cleaned after persistence.",
             "Folder category names are stored in Neo settings, not browser localStorage.",
+            "Filename prefix and padding are remembered independently for each output category.",
         ],
     }
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .artifact_compatibility import validate_artifact_record
+
 CATALOG_SCHEMA_ID = "neo.models.catalog.v1"
 FOLDER_RULES_SCHEMA_ID = "neo.models.folder_rules.v1"
 CATEGORY_MAP_SCHEMA_ID = "neo.models.category_map.v1"
@@ -249,6 +251,8 @@ def validate_model_catalog(
         elif record_id in seen_ids:
             errors.append(f"Duplicate model record id: {record_id}")
         seen_ids.add(str(record_id))
+
+        errors.extend(f"{prefix}.{error}" for error in validate_artifact_record(record))
 
         for key in ("display_name", "base_model", "model_type"):
             if not _is_non_empty_string(record.get(key)):

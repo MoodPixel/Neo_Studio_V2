@@ -162,8 +162,6 @@ const state = {
   videoLoraCatalogLoading: false,
   videoLoraCatalogError: '',
   videoLoraCatalogFilter: '',
-  videoLoraCatalogFolder: '',
-  videoLoraCatalogSelection: '',
   videoRouteMatrix: null,
   videoParameterProfile: null,
   videoDraft: {
@@ -512,7 +510,42 @@ const state = {
     source_image_3_url: '',
     source_image_3_name: '',
     source_image_3_role: 'composition_guide',
+    source_image_4: '',
+    source_image_4_url: '',
+    source_image_4_name: '',
+    source_image_4_role: 'reference_4',
+    source_image_5: '',
+    source_image_5_url: '',
+    source_image_5_name: '',
+    source_image_5_role: 'reference_5',
+    source_image_6: '',
+    source_image_6_url: '',
+    source_image_6_name: '',
+    source_image_6_role: 'reference_6',
+    source_image_7: '',
+    source_image_7_url: '',
+    source_image_7_name: '',
+    source_image_7_role: 'reference_7',
+    source_image_8: '',
+    source_image_8_url: '',
+    source_image_8_name: '',
+    source_image_8_role: 'reference_8',
+    source_image_9: '',
+    source_image_9_url: '',
+    source_image_9_name: '',
+    source_image_9_role: 'reference_9',
+    source_image_10: '',
+    source_image_10_url: '',
+    source_image_10_name: '',
+    source_image_10_role: 'reference_10',
     qwen_source_slot_count: 1,
+    qwen21_reference_resolution: 0,
+    qwen21_output_channels: 'auto',
+    qwen21_cache_device: 'auto',
+    qwen21_cache_dtype: 'default',
+    qwen21_edit_canvas_mode: 'source',
+    qwen21_inpaint_preservation: 'strict',
+    qwen21_outpaint_source_policy: 'preserve',
     qwen_composition_source_mode: 'source_image',
     qwen_stitch: { schema: 'neo.image.qwen_stitch.v1', version: 1, enabled: false, ui_open: false, groups: [] },
     mask_image: '',
@@ -524,6 +557,7 @@ const state = {
     inpaint_selection_target: 'masked_area',
     inpaint_engine: 'native',
     krea2_edit_engine: 'native',
+    krea2_edit_weight_source: 'separate_lora',
     krea2_identity_edit_lora: '',
     krea2_identity_edit_lora_strength: 1.0,
     krea2_identity_edit_ref_boost: 4.0,
@@ -531,6 +565,9 @@ const state = {
     krea2_identity_edit_fit_mode: 'fit',
     krea2_identity_edit_grounding_px: 768,
     krea2_identity_edit_system_prompt: '',
+    krea2_ostris_edit_lora: '',
+    krea2_ostris_edit_lora_strength: 1.0,
+    krea2_ostris_kv_cache: 'off',
     krea2_identity_edit_ref_boost_mask: '',
     krea2_identity_edit_ref_boost_mask_path: '',
     krea2_identity_edit_ref_boost_mask_url: '',
@@ -591,7 +628,12 @@ const state = {
   imageSavedResults: [],
   activeSavedResultIndex: 0,
   activeSavedResultId: '',
-  imageResultsScrollLeft: 0,
+  imageResultsTotal: 0,
+  imageResultsTotalKnown: true,
+  imageResultsHasMore: false,
+  imageResultsNextOffset: 0,
+  imageResultsPageSize: 60,
+  imageResultsStripScrollLeft: 0,
   activeSavedResultMetadata: null,
   activeSavedResultReuse: null,
   activeSavedOutputFileId: '',
@@ -600,15 +642,13 @@ const state = {
   imageResultsLoadedSort: null,
   imageResultsFilterCategory: 'all',
   imageResultsSort: 'newest',
-  imageResultsPageSize: 60,
-  imageResultsNextOffset: 0,
-  imageResultsTotal: 0,
-  imageResultsHasMore: false,
   imageResultsReplaySource: 'none',
   imageResultsLatePassRestorePoint: 'none',
   imageResultsLoading: false,
   imageResultsError: '',
   imageResultsIntegrityChecked: false,
+  imageMetadataIntegrity: { loading: false, error: '', report: null },
+  imageMetadataRecovery: { loading: false, error: '', status: '', filename: '', previewUrl: '', record: null, payload: null },
   imageBrokenResultIds: [],
   imageOutputSettings: null,
   imageOutputSettingsError: '',
@@ -1453,6 +1493,15 @@ async function createUiPresetFromCurrent(surfaceId) {
   state.uiPresetStatus = `Saved preset: ${preset.name}`;
   render();
 }
+function restoreActiveUiPresetAfterRefresh(surfaceId, presetId, reason = 'user_preset_refresh') {
+  const id = String(presetId || '').trim();
+  if (!id) return;
+  state.activeUiPresetIds[surfaceId] = id;
+  if (surfaceId === 'image') {
+    state.imageUnifiedPresetSelection = `${IMAGE_UNIFIED_USER_PREFIX}${id}`;
+    adoptImageWorkspacePresetAuthority(id, reason);
+  }
+}
 async function updateSelectedUiPreset(surfaceId) {
   const presetId = state.activeUiPresetIds[surfaceId];
   if (!presetId) return createUiPresetFromCurrent(surfaceId);
@@ -1463,7 +1512,12 @@ async function updateSelectedUiPreset(surfaceId) {
   });
   const preset = await response.json();
   if (!response.ok) throw new Error(preset.detail || 'Could not update UI preset');
+  const updatedPresetId = preset.preset_id || presetId;
   await loadUiPresets(surfaceId);
+  // loadUiPresets intentionally clears Image's active user preset during boot/load.
+  // Mutation refreshes must restore the preset we just updated so repeated Update
+  // clicks keep targeting the same record instead of falling through to Create.
+  restoreActiveUiPresetAfterRefresh(surfaceId, updatedPresetId, 'user_preset_updated');
   state.uiPresetStatus = `Updated preset: ${preset.name}`;
   render();
 }
@@ -1494,6 +1548,7 @@ async function makeSelectedUiPresetDefault(surfaceId) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok === false) throw new Error(payload.detail || 'Could not set default UI preset');
   await loadUiPresets(surfaceId);
+  restoreActiveUiPresetAfterRefresh(surfaceId, presetId, 'user_preset_default_updated');
   state.uiPresetStatus = 'Default UI preset updated';
   render();
 }
@@ -1513,6 +1568,7 @@ async function renameSelectedUiPreset(surfaceId) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || 'Could not rename UI preset');
   await loadUiPresets(surfaceId);
+  restoreActiveUiPresetAfterRefresh(surfaceId, payload.preset_id || presetId, 'user_preset_renamed');
   state.uiPresetStatus = `Renamed preset: ${payload.name || name}`;
   render();
 }
@@ -2384,6 +2440,22 @@ function qwenSourceRoleOptions(lane) {
   if (Number(lane) === 1) return base;
   return base.filter((item) => item.id !== 'main_subject');
 }
+function qwen21MultiReferenceActive() {
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || '';
+  const mode = activeImageMode();
+  return family === 'qwen_image_21' && ['diffusion_model', 'gguf'].includes(loader) && ['img2img', 'edit', 'inpaint', 'outpaint'].includes(mode);
+}
+
+function qwen21EditCanvasModeSubmissionValue() {
+  // Submission authority is the live Edit Canvas selector when mounted. The
+  // draft remains the persisted/replay fallback, but a stale draft must never
+  // override an explicit selector choice visible to the user at Generate time.
+  const selector = typeof document !== 'undefined' ? document.getElementById('imageParam_qwen21_edit_canvas_mode') : null;
+  const raw = String(selector?.value || state.imageDraft.qwen21_edit_canvas_mode || 'source').trim().toLowerCase();
+  return raw === 'custom' ? 'custom' : 'source';
+}
+
 function qwenGgufMultiReferenceActive() {
   // Qwen Rapid AIO and Qwen Image Edit 2509 expose Image 1 plus optional
   // Image 2/Image 3 only for the img2img/edit workflow lane; mask/canvas
@@ -2413,8 +2485,90 @@ function krea2IdentityEditActive() {
   const mode = activeImageMode();
   return ['krea2', 'krea2_turbo'].includes(family)
     && ['diffusion_model', 'gguf'].includes(loader)
-    && ['img2img', 'inpaint', 'outpaint'].includes(mode)
+    && ['img2img', 'edit', 'inpaint', 'outpaint'].includes(mode)
     && String(state.imageDraft.krea2_edit_engine || 'native') === 'identity_edit';
+}
+function krea2OstrisEditActive() {
+  const family = state.imageDraft.family || imageCommandValue('family') || '';
+  const loader = state.imageDraft.loader || imageCommandValue('loader') || '';
+  const mode = activeImageMode();
+  return ['krea2', 'krea2_turbo'].includes(family)
+    && ['diffusion_model', 'gguf'].includes(loader)
+    && ['img2img', 'edit', 'inpaint', 'outpaint'].includes(mode)
+    && String(state.imageDraft.krea2_edit_engine || 'native') === 'ostris_edit';
+}
+function krea2EditWeightSourceValue(values = state.imageDraft || {}) {
+  const raw = String(values?.krea2_edit_weight_source || 'separate_lora').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return ['baked_in_model', 'baked', 'baked_in', 'merged', 'merged_model', 'merged_into_model', 'model_baked'].includes(raw)
+    ? 'baked_in_model'
+    : 'separate_lora';
+}
+function krea2IdentityEditBakedWeightsActive() {
+  return krea2IdentityEditActive() && krea2EditWeightSourceValue() === 'baked_in_model';
+}
+function krea2OstrisEditBakedWeightsActive() {
+  return krea2OstrisEditActive() && krea2EditWeightSourceValue() === 'baked_in_model';
+}
+function krea2SpecialEditActive() {
+  return krea2IdentityEditActive() || krea2OstrisEditActive();
+}
+function imageKrea2BackendCapabilities(profile = activeImageProfile()) {
+  const direct = profile?.backend_capabilities || profile?.runtime?.backend_capabilities || profile?.runtime?.capabilities?.backend_capabilities || {};
+  if (direct && typeof direct === 'object' && Object.keys(direct).length) return direct;
+  const overlay = typeof imageCapabilityOverlayForProfile === 'function' ? imageCapabilityOverlayForProfile(profile) : null;
+  const overlayCaps = overlay?.backend_capabilities || overlay?.capabilities?.backend_capabilities || {};
+  return overlayCaps && typeof overlayCaps === 'object' ? overlayCaps : {};
+}
+function imageKrea2EditReadiness(profile = activeImageProfile(), values = state.imageDraft || {}) {
+  const family = String(values.family || state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const loader = String(values.loader || state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  const mode = activeImageMode();
+  if (!['krea2', 'krea2_turbo'].includes(family) || !['diffusion_model', 'gguf'].includes(loader) || !['img2img', 'edit', 'inpaint', 'outpaint'].includes(mode)) return null;
+  const rawEngine = String(values.krea2_edit_engine || state.imageDraft.krea2_edit_engine || 'native').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const engine = rawEngine === 'ostris_edit' ? 'ostris_edit' : (rawEngine === 'identity_edit' ? 'identity_edit' : 'native');
+  const weightSource = engine === 'native' ? 'none' : krea2EditWeightSourceValue(values);
+  const caps = imageKrea2BackendCapabilities(profile);
+  const objectInfoAvailable = caps?.object_info_available === true;
+  const roles = caps?.loaders?.[loader]?.roles || {};
+  const roleLabels = {
+    krea2_clip_loader: 'CLIPLoader(type=krea2)',
+    krea2_edit_model_patch: 'Krea2EditModelPatch',
+    krea2_edit_grounded_encode: 'Krea2EditGroundedEncode',
+    krea2_edit_target_latent: 'EmptySD3LatentImage',
+    krea2_identity_lora_loader: 'LoraLoaderModelOnly',
+    krea2_ostris_text_encode: 'TextEncodeKrea2OstrisEdit',
+    krea2_ostris_model_patch: 'Krea2OstrisEditModelPatch',
+    krea2_ostris_lora_loader: 'LoraLoaderModelOnly',
+  };
+  const requiredRoleIds = ['krea2_clip_loader'];
+  if (engine === 'identity_edit') {
+    requiredRoleIds.push('krea2_edit_model_patch', 'krea2_edit_grounded_encode', 'krea2_edit_target_latent');
+    if (weightSource === 'separate_lora') requiredRoleIds.push('krea2_identity_lora_loader');
+  } else if (engine === 'ostris_edit') {
+    requiredRoleIds.push('krea2_ostris_text_encode', 'krea2_ostris_model_patch');
+    if (weightSource === 'separate_lora') requiredRoleIds.push('krea2_ostris_lora_loader');
+  }
+  const roleRows = requiredRoleIds.map((roleId) => {
+    const role = roles?.[roleId] || {};
+    const available = objectInfoAvailable ? role?.available === true : null;
+    return { role_id: roleId, label: roleLabels[roleId] || humanize(roleId), available };
+  });
+  const blockers = roleRows.filter((row) => row.available === false).map((row) => `${row.label} is missing or incompatible on the connected ComfyUI backend.`);
+  if (engine === 'identity_edit' && weightSource === 'separate_lora') {
+    const selected = String(values.krea2_identity_edit_lora ?? state.imageDraft.krea2_identity_edit_lora ?? '').trim();
+    if (!selected || selected === 'provider_default') blockers.push('Select an Identity Edit LoRA, or switch Edit Weight Source to Baked into Model.');
+  }
+  if (engine === 'ostris_edit' && weightSource === 'separate_lora') {
+    const selected = String(values.krea2_ostris_edit_lora ?? state.imageDraft.krea2_ostris_edit_lora ?? '').trim();
+    if (!selected || selected === 'provider_default') blockers.push('Select an AI Toolkit / Ostris Edit LoRA, or switch Edit Weight Source to Baked into Model.');
+  }
+  const warnings = [];
+  if (!objectInfoAvailable) warnings.push('Comfy /object_info is unavailable, so Neo cannot verify the selected Krea edit runtime sockets yet.');
+  const kvCache = engine === 'ostris_edit' && String(values.krea2_ostris_kv_cache ?? state.imageDraft.krea2_ostris_kv_cache ?? 'off').trim().toLowerCase() === 'on';
+  if (kvCache) warnings.push('KV Cache is ON. Use it only when the selected Ostris LoRA was trained/exported with AI Toolkit KV Cache enabled.');
+  const status = blockers.length ? 'blocked' : (!objectInfoAvailable ? 'unverified' : (warnings.length ? 'ready_with_warnings' : 'ready'));
+  const engineLabel = engine === 'identity_edit' ? 'Identity Edit v1.2' : (engine === 'ostris_edit' ? 'Ostris Edit' : 'Neo Native Adapter');
+  return { family, loader, mode, engine, engine_label: engineLabel, weight_source: weightSource, object_info_available: objectInfoAvailable, required_roles: requiredRoleIds, roles: roleRows, blockers, warnings, kv_cache: kvCache, status, ready: blockers.length === 0 };
 }
 function krea2IdentitySecondReferenceActive() {
   return krea2IdentityEditActive() && Boolean(state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url);
@@ -2426,7 +2580,9 @@ function syncKrea2IdentityReferenceRoles() {
   state.imageDraft.source_image_2_role = 'main_subject';
 }
 function imageMultiReferenceSlotLimit(profile = activeImageProfile()) {
+  if (qwen21MultiReferenceActive()) return 10;
   if (krea2IdentityEditActive()) return 2;
+  if (krea2OstrisEditActive()) return 3;
   if (controlNetPoseTransferActive()) return 2;
   return 3;
 }
@@ -2436,23 +2592,27 @@ function qwenPoseTransferRuntimeCardVisible() {
 }
 function imageMultiReferenceActive(profile = activeImageProfile()) {
   if (imageUsesStrictForgeRouteGating() && !imageRouteControlVisible('multi_source_panel', false)) return false;
-  return krea2IdentityEditActive() || qwenGgufMultiReferenceActive() || fluxGgufSourceStackActive() || cloudMultiImageEditActive(profile);
+  return qwen21MultiReferenceActive() || krea2IdentityEditActive() || krea2OstrisEditActive() || qwenGgufMultiReferenceActive() || fluxGgufSourceStackActive() || cloudMultiImageEditActive(profile);
 }
 function imageMultiReferenceLabel(profile = activeImageProfile()) {
+  if (qwen21MultiReferenceActive()) return 'Qwen Image 2.1 · 1–10 refs';
   if (controlNetPoseTransferActive()) return 'Qwen pose transfer';
   if (cloudMultiImageEditActive(profile)) return 'Grok multi-image edit';
   if (krea2IdentityEditActive()) return 'Krea 2 Identity Edit';
+  if (krea2OstrisEditActive()) return 'Krea 2 Ostris Edit';
   if (qwenGgufMultiReferenceActive()) return 'Qwen multi-source';
   if (flux2KleinMultiReferenceActive()) return 'Flux 2 Klein multi-source';
   if (fluxGgufSourceStackActive()) return 'Flux source stack';
   return 'Multi-source edit';
 }
 function imageMultiReferenceHelpText(profile = activeImageProfile()) {
+  if (qwen21MultiReferenceActive()) return 'Qwen Image 2.1: Image 1 is always the Primary / Edit Target. Images 2–10 are ordered references. Prompt tokens <image1> … <image10> follow the exact current lane order. Neo rejects gaps so token meaning cannot silently drift.';
   if (controlNetPoseTransferActive()) return 'Pose Transfer uses Image 1 as the subject, Image 2 as the human pose reference, and Image 3 as a runtime-generated DWPose map. Image 3 must stay free while this method is enabled.';
   if (cloudMultiImageEditActive(profile)) return 'Grok receives up to 3 source images through the image edit API. Roles are saved into Neo metadata for audit/replay.';
   if (krea2IdentityEditActive()) return krea2IdentitySecondReferenceActive()
     ? 'Krea 2 Identity Edit v1.2 two-reference order: Image 1 is scene/context and Image 2 is subject/identity. Identity Reference Boost targets Image 2; Scene Reference Boost targets Image 1. Image 3 is intentionally unavailable.'
     : 'Krea 2 Identity Edit v1.2 single-reference mode: Image 1 is the primary edit/identity reference and Identity Reference Boost targets it. Add Image 2 only when you want the trained scene + subject two-reference workflow.';
+  if (krea2OstrisEditActive()) return 'Krea 2 Ostris Edit forwards Image 1 into TextEncodeKrea2OstrisEdit as the primary edit reference and can optionally pass Image 2 and Image 3 as extra reference lanes. KV Cache should stay Off unless the selected Ostris LoRA was trained/exported for it.';
   if (qwenGgufMultiReferenceActive()) return 'This Qwen workflow receives Image 1 plus optional Image 2/Image 3 through the Qwen image edit encoder for img2img/edit. Inpaint and outpaint are implemented as single-source mask/canvas workflows.';
   if (flux2KleinMultiReferenceActive()) return 'Flux 2 Klein GGUF exposes Image 1 plus optional Image 2/Image 3 as source-stack lanes; component/P4 routes keep Image 2/Image 3 hidden and use Image 1 as the active Flux2 latent anchor.';
   if (fluxGgufSourceStackActive()) return 'Flux GGUF uses Image 1 as the latent anchor. Image 2 and Image 3 are submitted, uploaded to Comfy, and saved as reference lanes for metadata/replay and future adapter routing.';
@@ -2462,10 +2622,13 @@ function qwenVisibleSourceSlotCount() {
   const requested = Number(state.imageDraft.qwen_source_slot_count || 1);
   const slotLimit = imageMultiReferenceSlotLimit();
   let count = Number.isFinite(requested) ? Math.max(1, Math.min(slotLimit, requested)) : 1;
-  if (state.imageDraft.source_image_2 || state.imageDraft.source_image_2_url) count = Math.max(count, 2);
-  if (!controlNetPoseTransferActive() && slotLimit >= 3 && (state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url)) count = Math.max(count, 3);
+  for (let lane = 2; lane <= slotLimit; lane += 1) {
+    if (state.imageDraft[`source_image_${lane}`] || state.imageDraft[`source_image_${lane}_url`]) count = Math.max(count, lane);
+  }
+  if (controlNetPoseTransferActive()) count = Math.min(count, 3);
   return Math.min(slotLimit, count);
 }
+
 function qwenStitchRouteActive(mode = activeImageMode()) {
   if (imageUsesStrictForgeRouteGating() && !imageRouteControlVisible('stitch_images', false)) return false;
   const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
@@ -2475,7 +2638,7 @@ function qwenStitchRouteActive(mode = activeImageMode()) {
   if (['sdxl', 'sd15'].includes(family)) return loader === 'checkpoint';
   if (family === 'flux1_fill') return loader === 'diffusion_model' && ['inpaint', 'outpaint'].includes(runtimeMode);
   if (['flux', 'flux2_klein'].includes(family) || family === 'flux2_dev') return ['diffusion_model', 'gguf'].includes(loader);
-  if (['qwen_image', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
+  if (['qwen_image', 'qwen_image_21', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
   if (family === 'qwen_rapid_aio') return ['checkpoint_aio', 'gguf'].includes(loader);
   if (['z_image', 'z_image_turbo'].includes(family)) return ['diffusion_model', 'gguf'].includes(loader);
   return false;
@@ -2601,7 +2764,7 @@ function qwenStitchNewGroup(index = 0, outputLane = 2) {
 function qwenStitchDirectOccupiedLanes() {
   if (!qwenStitchUsesImageLanes()) return new Set([1]);
   const occupied = new Set([1]);
-  [2, 3].forEach((lane) => {
+  Array.from({ length: imageMultiReferenceSlotLimit() - 1 }, (_, i) => i + 2).forEach((lane) => {
     if (sourceImageLanePath(lane) || sourceImageLaneUrl(lane)) occupied.add(lane);
   });
   return occupied;
@@ -3561,14 +3724,22 @@ function activeImageParameterFields() {
   if (!profile) return [];
   const fields = [...(profile.shared_fields || []), ...(profile.family_fields || []), ...(profile.fields || [])];
   const mode = activeImageMode();
-  return fields.filter((field) => (!Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode)) && imageOverlayFieldVisible(field.field_id));
+  return fields.filter((field) => (
+    (!Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode))
+    && imageOverlayFieldVisible(field.field_id)
+    && qwen21CacheFieldVisible(field.field_id)
+  ));
 }
 function imageParameterFieldsForMode(modeOverride = '') {
   const profile = activeImageParameterProfile();
   if (!profile) return [];
   const fields = [...(profile.shared_fields || []), ...(profile.family_fields || []), ...(profile.fields || [])];
   const mode = normalizeImageWorkflowMode(modeOverride || activeImageMode());
-  return fields.filter((field) => (!Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode)) && imageOverlayFieldVisible(field.field_id));
+  return fields.filter((field) => (
+    (!Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode))
+    && imageOverlayFieldVisible(field.field_id)
+    && qwen21CacheFieldVisible(field.field_id)
+  ));
 }
 
 const GGUF_RUNTIME_FIELD_IDS = new Set(['gguf_model', 'gguf_loader_status', 'flux_guidance', 'text_encoder_1', 'text_encoder_2', 'qwen_text_encoder', 'qwen3_text_encoder', 'qwen3vl_text_encoder', 'qwen_mmproj', 'vae']);
@@ -3627,6 +3798,8 @@ function syncKrea2State({ persist = true } = {}) {
   state.imageDraft._neo_krea2_state = {
     schema: 'neo.image.krea2.state.v1',
     active: true, family, variant, selected_model: krea2SelectedModelName(),
+    edit_engine: String(state.imageDraft.krea2_edit_engine || 'native'),
+    edit_weight_source: krea2EditWeightSourceValue(state.imageDraft),
     encoder_policy: 'qwen3vl_4b_native_cliploader_krea2',
     vae_policy: 'qwen_image_vae',
     gguf_transformer_only: (state.imageDraft.loader || imageCommandValue('loader')) === 'gguf',
@@ -3820,6 +3993,7 @@ function syncFlux2KleinComponentState({ autoSelect = true, persist = true } = {}
 }
 function activeGgufArchitecture() {
   const family = state.imageDraft.family || imageCommandValue('family') || 'sdxl';
+  if (family === 'qwen_image_21') return 'qwen_image_21';
   if (family === 'qwen_image' || family === 'qwen_rapid_aio' || family === 'qwen_image_edit_2509') return 'qwen_image';
   if (family === 'flux2_dev') return 'flux2_dev';
   if (family === 'flux2_klein') return 'flux2_klein';
@@ -3840,12 +4014,13 @@ function ggufRouteRequiresDualEncoders(architecture = activeGgufArchitecture(), 
 }
 function activeGgufClipMode() {
   const architecture = activeGgufArchitecture();
-  if (['qwen_image', 'z_image', 'hidream', 'anima', 'ideogram4', 'flux2_dev', 'flux2_klein', 'krea2'].includes(architecture)) return 'single';
+  if (['qwen_image', 'qwen_image_21', 'z_image', 'hidream', 'anima', 'ideogram4', 'flux2_dev', 'flux2_klein', 'krea2'].includes(architecture)) return 'single';
   if (ggufRouteRequiresDualEncoders(architecture)) return 'dual';
   return state.imageDraft.gguf_clip_mode || 'dual';
 }
 function ggufRuntimeLabel() {
   const architecture = activeGgufArchitecture();
+  if (architecture === 'qwen_image_21') return 'Qwen Image 2.1 GGUF Runtime';
   if (architecture === 'qwen_image') return (state.imageDraft.family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO GGUF Runtime' : (state.imageDraft.family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 GGUF Runtime' : 'Qwen Image Edit GGUF Runtime'));
   if (architecture === 'z_image') return state.imageDraft.family === 'z_image_turbo' ? 'Z-Image Turbo GGUF Runtime' : 'Z-Image GGUF Runtime';
   if (architecture === 'krea2') return state.imageDraft.family === 'krea2_turbo' ? 'Krea 2 Turbo GGUF Runtime' : 'Krea 2 RAW GGUF Runtime';
@@ -4112,7 +4287,6 @@ const VIDEO_PARAMETER_PROFILE_ENDPOINT = '/api/video/parameter-profile';
 const VIDEO_LORA_CATALOG_ENDPOINT = '/api/video/lora-catalog';
 const VIDEO_LORA_STACK_EXTENSION_ID = 'video.lora_stack';
 const VIDEO_LORA_STACK_MAX_ROWS = 12;
-let videoLoraCatalogFilterTimer = null;
 const VIDEO_ROUTE_SELECTABLE_STATUSES = new Set(['enabled', 'experimental']);
 const VIDEO_ROUTE_RUNNABLE_STATUSES = new Set(['enabled', 'experimental']);
 
@@ -5242,41 +5416,6 @@ function videoLoraSpeedCandidates() {
   return new Set(videoLoraCatalogMatchesActive() && Array.isArray(state.videoLoraCatalog?.speed_candidates) ? state.videoLoraCatalog.speed_candidates.map(String) : []);
 }
 
-function videoLoraPortableName(value) {
-  return String(value || '').replace(/\\/g, '/').replace(/^\.\//, '').trim();
-}
-
-function videoLoraCatalogFolderForName(value) {
-  const name = videoLoraPortableName(value);
-  return name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
-}
-
-function videoLoraCatalogFolders(catalog = videoLoraCatalogRows()) {
-  const folders = new Set();
-  catalog.forEach((name) => {
-    const parts = videoLoraCatalogFolderForName(name).split('/').filter(Boolean);
-    parts.forEach((_, index) => folders.add(parts.slice(0, index + 1).join('/')));
-  });
-  return Array.from(folders).sort((a, b) => a.localeCompare(b));
-}
-
-function videoLoraFilteredCatalog(catalog = videoLoraCatalogRows()) {
-  const terms = String(state.videoLoraCatalogFilter || '').trim().toLowerCase().match(/"[^"]+"|\S+/g)?.map((item) => item.replace(/^"|"$/g, '')) || [];
-  const folder = videoLoraPortableName(state.videoLoraCatalogFolder || '').replace(/^\/+|\/+$/g, '').toLowerCase();
-  return catalog.filter((name) => {
-    const portable = videoLoraPortableName(name);
-    const itemFolder = videoLoraCatalogFolderForName(portable).toLowerCase();
-    if (folder && itemFolder !== folder && !itemFolder.startsWith(`${folder}/`)) return false;
-    const haystack = portable.toLowerCase();
-    return terms.every((term) => haystack.includes(term));
-  });
-}
-
-function videoLoraSelectedCatalogName(filtered = videoLoraFilteredCatalog()) {
-  const selected = String(state.videoLoraCatalogSelection || '');
-  return filtered.includes(selected) ? selected : (filtered[0] || '');
-}
-
 async function refreshVideoLoraCatalog({ silent = false } = {}) {
   const route = videoFindRoute();
   if (!route || isCloudVideoProfile()) {
@@ -5291,10 +5430,6 @@ async function refreshVideoLoraCatalog({ silent = false } = {}) {
     generation_type: route.mode,
     profile_id: videoBackendProfileId() || '',
   });
-  if (!videoLoraCatalogMatchesActive()) {
-    state.videoLoraCatalogFolder = '';
-    state.videoLoraCatalogSelection = '';
-  }
   state.videoLoraCatalogLoading = true;
   state.videoLoraCatalogError = '';
   if (!silent) render();
@@ -5361,14 +5496,14 @@ function videoLoraRecoveryErrorMessage(recovery = videoLoraCompatibilityRecovery
 function videoLoraRememberFocus() {
   const node = document.activeElement?.closest?.('[data-video-lora-row]');
   if (!node) return null;
-  const field = document.activeElement?.getAttribute?.('data-video-lora-field') || document.activeElement?.getAttribute?.('data-video-lora-move') || document.activeElement?.getAttribute?.('data-video-lora-disable') || document.activeElement?.getAttribute?.('data-video-lora-strength') || document.activeElement?.getAttribute?.('data-video-lora-duplicate') || '';
+  const field = document.activeElement?.getAttribute?.('data-video-lora-field') || document.activeElement?.getAttribute?.('data-video-lora-move') || document.activeElement?.getAttribute?.('data-video-lora-disable') || '';
   return { uid: node.getAttribute('data-video-lora-uid') || '', field };
 }
 
 function videoLoraRestoreFocus(token) {
   if (!token?.uid) return;
   const row = document.querySelector(`[data-video-lora-uid="${CSS.escape(token.uid)}"]`);
-  const target = token.field ? row?.querySelector(`[data-video-lora-field="${CSS.escape(token.field)}"], [data-video-lora-move="${CSS.escape(token.field)}"], [data-video-lora-strength="${CSS.escape(token.field)}"], [data-video-lora-duplicate], [data-video-lora-disable]`) : row;
+  const target = token.field ? row?.querySelector(`[data-video-lora-field="${CSS.escape(token.field)}"], [data-video-lora-move="${CSS.escape(token.field)}"], [data-video-lora-disable]`) : row;
   (target || row)?.focus?.();
 }
 
@@ -5396,7 +5531,6 @@ function videoLoraStackPayloadBlock() {
     metadata: {
       source: 'video.assets.lora_stack',
       ui_phase: '10',
-      ui_revision: 'modern_video_lora_v7',
       route_id: route?.route_id || videoFindRoute()?.route_id || '',
       profile_id: videoBackendProfileId() || '',
       legacy_field_writeback: false,
@@ -5418,11 +5552,10 @@ function videoLoraRowSelectHtml(row, index, catalog, speedCandidates, support) {
   const speedAllowed = Boolean(support?.supports_speed_lora);
   const targets = videoLoraAllowedTargets();
   return `<div class="neo-lora-stack-row neo-video-lora-row ${recovery.status === 'ready' ? '' : 'needs-attention'}" data-video-lora-row="${index}" data-video-lora-uid="${escapeAttr(row.uid)}" tabindex="-1" role="group" aria-label="Video LoRA ${index + 1}: ${escapeAttr(row.name || 'unnamed')}">
-    <div class="neo-video-lora-row-head"><div><span class="neo-video-lora-index">${index + 1}</span><strong>${escapeHtml(videoLoraPortableName(row.name).split('/').pop() || 'Select a LoRA')}</strong></div><div class="neo-chipline"><span class="neo-badge">${row.role === 'speed' ? '⚡ Speed' : 'Standard'}</span><span class="neo-badge">${row.target === 'all' ? 'Full model' : `${row.target} noise`}</span>${row.enabled === false ? '<span class="neo-badge">Disabled</span>' : ''}</div></div>
     ${recovery.issues.length ? `<div class="neo-video-lora-row-status" role="status"><strong>Needs attention</strong><span>${escapeHtml(issueText)}</span></div>` : ''}
-    <div class="neo-lora-row-main"><label class="neo-inline-check"><input type="checkbox" data-video-lora-field="enabled" data-video-lora-index="${index}" ${row.enabled !== false ? 'checked' : ''}>Use</label><label class="neo-video-lora-file-field">LoRA file<select data-video-lora-field="name" data-video-lora-index="${index}">${optionHtml}</select></label></div>
+    <div class="neo-lora-row-main"><label class="neo-inline-check"><input type="checkbox" data-video-lora-field="enabled" data-video-lora-index="${index}" ${row.enabled !== false ? 'checked' : ''}>Use</label><select data-video-lora-field="name" data-video-lora-index="${index}">${optionHtml}</select></div>
     <div class="neo-ui-field-grid three compact"><label>Strength<input type="number" min="-10" max="10" step="0.05" value="${escapeAttr(row.strength_model)}" data-video-lora-field="strength_model" data-video-lora-index="${index}"></label><label>Role<select data-video-lora-field="role" data-video-lora-index="${index}"><option value="standard" ${row.role !== 'speed' ? 'selected' : ''}>Standard</option><option value="speed" ${row.role === 'speed' ? 'selected' : ''} ${speedAllowed ? '' : 'disabled'}>Speed / Turbo</option></select></label><label>Target<select data-video-lora-field="target" data-video-lora-index="${index}">${targets.map((target) => `<option value="${target}" ${row.target === target ? 'selected' : ''}>${target === 'all' ? 'All' : target === 'high' ? 'High Noise' : 'Low Noise'}</option>`).join('')}</select></label></div>
-    <div class="neo-video-lora-row-footer"><div class="neo-video-lora-strength-presets" aria-label="Strength presets">${[0.5, 0.75, 1].map((value) => `<button type="button" class="neo-btn secondary ${Number(row.strength_model) === value ? 'active' : ''}" data-video-lora-strength="${value}" data-video-lora-index="${index}">${value}</button>`).join('')}</div><div class="neo-ui-toolbar compact"><button type="button" class="neo-btn secondary" aria-label="Move LoRA up" data-video-lora-move="up" data-video-lora-index="${index}" ${index <= 0 ? 'disabled' : ''}>↑</button><button type="button" class="neo-btn secondary" aria-label="Move LoRA down" data-video-lora-move="down" data-video-lora-index="${index}" ${index >= videoLoraStackSettings().rows.length - 1 ? 'disabled' : ''}>↓</button><button type="button" class="neo-btn secondary" data-video-lora-duplicate="${index}" ${videoLoraStackSettings().rows.length >= VIDEO_LORA_STACK_MAX_ROWS ? 'disabled' : ''}>Duplicate</button>${recovery.issues.length && row.enabled !== false ? `<button type="button" class="neo-btn secondary" data-video-lora-disable="${index}">Disable row</button>` : ''}<button type="button" class="neo-btn danger" aria-label="Remove ${escapeAttr(row.name || 'LoRA')}" data-video-lora-remove="${index}">Remove</button></div></div>
+    <div class="neo-ui-toolbar compact"><button type="button" class="neo-btn secondary" aria-label="Move LoRA up" data-video-lora-move="up" data-video-lora-index="${index}" ${index <= 0 ? 'disabled' : ''}>↑</button><button type="button" class="neo-btn secondary" aria-label="Move LoRA down" data-video-lora-move="down" data-video-lora-index="${index}" ${index >= videoLoraStackSettings().rows.length - 1 ? 'disabled' : ''}>↓</button>${recovery.issues.length && row.enabled !== false ? `<button type="button" class="neo-btn secondary" data-video-lora-disable="${index}">Disable row</button>` : ''}<button type="button" class="neo-btn danger" aria-label="Remove ${escapeAttr(row.name || 'LoRA')}" data-video-lora-remove="${index}">Remove</button></div>
   </div>`;
 }
 
@@ -5434,35 +5567,25 @@ function videoLoraStackPanel(record) {
   const catalog = videoLoraCatalogRows();
   const speedCandidates = videoLoraSpeedCandidates();
   const recovery = videoLoraCompatibilityRecovery();
-  const filtered = videoLoraFilteredCatalog(catalog);
-  const folders = videoLoraCatalogFolders(catalog);
-  const selectedCatalogName = videoLoraSelectedCatalogName(filtered);
-  const selectedFolder = videoLoraCatalogFolderForName(selectedCatalogName);
-  const activeRows = settings.rows.filter((row) => row.enabled !== false && row.name);
-  const speedRows = activeRows.filter((row) => row.role === 'speed');
+  const filter = String(state.videoLoraCatalogFilter || '').trim().toLowerCase();
+  const filtered = catalog.filter((name) => !filter || name.toLowerCase().includes(filter));
   const loaderReady = Boolean(state.videoLoraCatalog?.loader?.safe);
   const catalogReady = Boolean(videoLoraCatalogMatchesActive() && state.videoLoraCatalog?.ready);
   const canConfigure = extensionRouteStateActive(route.route_state);
-  const pickerOptions = filtered.length ? filtered.map((name) => `<option value="${escapeAttr(name)}" ${name === selectedCatalogName ? 'selected' : ''}>${escapeHtml(`${speedCandidates.has(name) ? '⚡ ' : ''}${name}`)}</option>`).join('') : '<option value="">No matching live LoRAs</option>';
-  const folderOptions = [`<option value="">All folders (${catalog.length})</option>`, ...folders.map((folder) => {
-    const count = catalog.filter((name) => { const item = videoLoraCatalogFolderForName(name); return item === folder || item.startsWith(`${folder}/`); }).length;
-    return `<option value="${escapeAttr(folder)}" ${folder === state.videoLoraCatalogFolder ? 'selected' : ''}>${escapeHtml(folder)} (${count})</option>`;
-  })].join('');
+  const pickerOptions = filtered.length ? filtered.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(`${speedCandidates.has(name) ? '⚡ ' : ''}${name}`)}</option>`).join('') : '<option value="">No matching live LoRAs</option>';
   const statusNotes = [
     `Route: ${route.route_id || 'unresolved'}`,
     support ? `Standard: ${support.supports_standard_lora ? 'yes' : 'no'} · Speed: ${support.supports_speed_lora ? 'yes' : 'no'} · Targets: ${(support.allowed_targets || ['all']).join('/')}` : 'Refresh the live catalog to load exact LoRA capabilities.',
     state.videoLoraCatalogLoading ? 'Refreshing live ComfyUI LoRA catalog…' : catalogReady ? `Live catalog: ${catalog.length} LoRA file(s)` : (state.videoLoraCatalogError || 'Live catalog not loaded yet.'),
   ];
   const rowsHtml = settings.rows.length ? settings.rows.map((row, index) => videoLoraRowSelectHtml(row, index, catalog, speedCandidates, support)).join('') : '<div class="neo-empty compact">No Video LoRAs in the stack. Pick a live LoRA below.</div>';
-  return `<section class="neo-lora-stack-panel neo-video-lora-stack-panel modern" aria-labelledby="videoLoraStackTitle" data-testid="video-lora-stack-panel" data-extension-id="${VIDEO_LORA_STACK_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}">
+  return `<section class="neo-lora-stack-panel neo-video-lora-stack-panel" aria-labelledby="videoLoraStackTitle" data-testid="video-lora-stack-panel" data-extension-id="${VIDEO_LORA_STACK_EXTENSION_ID}" data-route-state="${escapeAttr(route.route_state)}">
     <div id="videoLoraLiveStatus" class="neo-sr-only" role="status" aria-live="polite"></div>
-    <header class="neo-video-lora-modern-head"><div><span class="neo-video-lora-eyebrow">Video · Assets</span><strong id="videoLoraStackTitle">Video LoRA Stack</strong><p>Build one ordered stack for style, character, motion, and acceleration adapters.</p></div><label class="neo-video-lora-master"><input id="videoLoraStackEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${canConfigure ? '' : 'disabled'}><span>${settings.enabled ? 'Stack enabled' : 'Stack disabled'}</span></label></header>
-    <div class="neo-video-lora-overview"><div><strong>${activeRows.length}</strong><span>Active</span></div><div><strong>${activeRows.length - speedRows.length}</strong><span>Standard</span></div><div><strong>${speedRows.length}</strong><span>Speed</span></div><div><strong>${settings.rows.length}/${VIDEO_LORA_STACK_MAX_ROWS}</strong><span>Capacity</span></div></div>
-    <details class="neo-video-lora-route-details"><summary>${escapeHtml(policy.label || route.route_state)} · ${escapeHtml(route.route_id || 'Route unresolved')}</summary><div class="neo-ui-card compact">${NeoUI.badgeRow([`Standard ${support?.supports_standard_lora ? '✓' : '—'}`, `Speed ${support?.supports_speed_lora ? '✓' : '—'}`, `Target ${(support?.allowed_targets || ['all']).join('/')}`])}${NeoUI.metaList(statusNotes)}</div></details>
+    <div class="neo-ui-card compact"><strong id="videoLoraStackTitle">Route-aware Video LoRA Stack</strong><p>Normal/style LoRAs and Turbo/Speed LoRAs share one stack. The compiler still owns the graph patch location; this panel only owns user intent.</p>${NeoUI.badgeRow([policy.label || route.route_state, `Standard ${support?.supports_standard_lora ? '✓' : '—'}`, `Speed ${support?.supports_speed_lora ? '✓' : '—'}`, `Target ${(support?.allowed_targets || ['all']).join('/')}`])}${NeoUI.metaList(statusNotes)}</div>
     ${recovery.blocking ? `<div class="neo-warning-panel neo-video-lora-recovery-summary" role="alert"><strong>Fix ${recovery.blocked.length} LoRA row${recovery.blocked.length === 1 ? '' : 's'} before generation</strong><p>${escapeHtml(videoLoraRecoveryErrorMessage(recovery))}</p></div>` : ''}
-    <div class="neo-ui-card neo-lora-picker neo-video-lora-modern-library"><div class="neo-video-lora-section-head"><div><strong>Live LoRA Library</strong><span class="neo-muted">${filtered.length} of ${catalog.length} files</span></div><button type="button" class="neo-btn secondary" id="videoLoraRefreshCatalogBtn" ${state.videoLoraCatalogLoading ? 'disabled' : ''}>${state.videoLoraCatalogLoading ? 'Refreshing…' : '↻ Refresh'}</button></div><div class="neo-ui-field-grid three"><label>Search<input id="videoLoraCatalogFilter" type="search" value="${escapeAttr(state.videoLoraCatalogFilter || '')}" placeholder="Search filename or folder"></label><label>Folder<select id="videoLoraCatalogFolder">${folderOptions}</select></label><label>LoRA<select id="videoLoraPickerSelect" ${catalogReady ? '' : 'disabled'}>${pickerOptions}</select></label></div>${selectedCatalogName ? `<div class="neo-video-lora-selection-preview"><div><span class="neo-video-lora-file-icon">${speedCandidates.has(selectedCatalogName) ? '⚡' : 'L'}</span><div><strong>${escapeHtml(videoLoraPortableName(selectedCatalogName).split('/').pop())}</strong><span>${escapeHtml(selectedFolder || 'Root catalog')}</span></div></div><span class="neo-badge">${speedCandidates.has(selectedCatalogName) && support?.supports_speed_lora ? 'Speed role suggested' : 'Standard role'}</span></div>` : '<div class="neo-empty compact">No live LoRAs match the current search and folder.</div>'}<div class="neo-video-lora-library-actions"><button type="button" class="neo-btn secondary" id="videoLoraClearFiltersBtn" ${(state.videoLoraCatalogFilter || state.videoLoraCatalogFolder) ? '' : 'disabled'}>Clear filters</button><button type="button" class="neo-btn primary" id="videoLoraAddBtn" ${catalogReady && selectedCatalogName && settings.rows.length < VIDEO_LORA_STACK_MAX_ROWS ? '' : 'disabled'}>+ Add to stack</button></div><p class="neo-muted">⚡ is an advisory speed match. Exact live catalog filenames remain the authority.</p></div>
-    <div class="neo-video-lora-section-head"><div><strong>Current stack</strong><span class="neo-muted">Applied top to bottom</span></div><button type="button" class="neo-btn secondary" id="videoLoraClearStackBtn" ${settings.rows.length ? '' : 'disabled'}>Clear stack</button></div>
+    <label class="neo-inline-check"><input id="videoLoraStackEnabled" type="checkbox" ${settings.enabled ? 'checked' : ''} ${canConfigure ? '' : 'disabled'}>Apply Video LoRA Stack (optional)</label>
     <div class="neo-lora-stack-rows">${rowsHtml}</div>
+    <div class="neo-ui-card compact neo-lora-picker"><strong>Live LoRA Library</strong><div class="neo-ui-field-grid two"><label>Search<input id="videoLoraCatalogFilter" value="${escapeAttr(state.videoLoraCatalogFilter || '')}" placeholder="Filter LoRA names"></label><label>LoRA<select id="videoLoraPickerSelect" ${catalogReady ? '' : 'disabled'}>${pickerOptions}</select></label></div><div class="neo-ui-toolbar"><button type="button" class="neo-btn secondary" id="videoLoraRefreshCatalogBtn" ${state.videoLoraCatalogLoading ? 'disabled' : ''}>${state.videoLoraCatalogLoading ? 'Refreshing…' : 'Refresh catalog'}</button><button type="button" class="neo-btn" id="videoLoraAddBtn" ${catalogReady && settings.rows.length < VIDEO_LORA_STACK_MAX_ROWS ? '' : 'disabled'}>Add LoRA</button></div><p class="neo-muted">⚡ marks an advisory speed candidate. Manual selection remains allowed for every exact file in the live ModelOnly catalog.</p></div>
     ${!canConfigure ? `<div class="neo-warning-panel"><strong>Route gated</strong><p>${escapeHtml(route.reason || 'Video LoRA Stack is not enabled for this route.')}</p></div>` : ''}
     ${canConfigure && !loaderReady && videoLoraCatalogMatchesActive() ? `<div class="neo-warning-panel"><strong>Model-only loader unavailable</strong><p>${escapeHtml(state.videoLoraCatalog?.loader?.reason || 'LoraLoaderModelOnly is unavailable or has an incompatible signature.')}</p></div>` : ''}
   </section>`;
@@ -5490,16 +5613,8 @@ function bindVideoLoraStackPanel() {
   document.getElementById('videoLoraRefreshCatalogBtn')?.addEventListener('click', () => refreshVideoLoraCatalog({ silent: false }));
   document.getElementById('videoLoraCatalogFilter')?.addEventListener('input', (event) => {
     state.videoLoraCatalogFilter = event.target.value || '';
-    clearTimeout(videoLoraCatalogFilterTimer);
-    videoLoraCatalogFilterTimer = window.setTimeout(() => render(), 140);
-  });
-  document.getElementById('videoLoraCatalogFolder')?.addEventListener('change', (event) => { state.videoLoraCatalogFolder = event.target.value || ''; state.videoLoraCatalogSelection = ''; render(); });
-  document.getElementById('videoLoraPickerSelect')?.addEventListener('change', (event) => { state.videoLoraCatalogSelection = event.target.value || ''; render(); });
-  document.getElementById('videoLoraClearFiltersBtn')?.addEventListener('click', () => { state.videoLoraCatalogFilter = ''; state.videoLoraCatalogFolder = ''; state.videoLoraCatalogSelection = ''; render(); });
-  document.getElementById('videoLoraClearStackBtn')?.addEventListener('click', () => {
-    if (!videoLoraStackSettings().rows.length || !window.confirm('Remove every Video LoRA row from this stack?')) return;
-    updateVideoLoraStackSettings({ rows: [] });
-    videoLoraAnnounce('Video LoRA stack cleared.');
+    const query = String(state.videoLoraCatalogFilter).trim().toLowerCase();
+    document.querySelectorAll('#videoLoraPickerSelect option').forEach((option) => { option.hidden = Boolean(query && !String(option.textContent || '').toLowerCase().includes(query)); });
   });
   document.getElementById('videoLoraAddBtn')?.addEventListener('click', () => {
     const select = document.getElementById('videoLoraPickerSelect');
@@ -5513,7 +5628,6 @@ function bindVideoLoraStackPanel() {
     const record = videoLoraStackExtensionRecord();
     if (record) state.extensionWorkflowApplications = { ...(state.extensionWorkflowApplications || {}), [extensionWorkflowApplicationKey(record)]: true };
     saveUiState(); render();
-    videoLoraAnnounce(`${name} added to the Video LoRA stack.`);
   });
   document.querySelectorAll('[data-video-lora-field]').forEach((node) => node.addEventListener('change', (event) => {
     const index = Number(node.getAttribute('data-video-lora-index') || -1);
@@ -5533,23 +5647,6 @@ function bindVideoLoraStackPanel() {
     const rows = settings.rows.map((row, idx) => idx === index ? { ...row, enabled: false } : { ...row });
     updateVideoLoraStackSettings({ rows });
     videoLoraAnnounce('LoRA row disabled.');
-  }));
-  document.querySelectorAll('[data-video-lora-strength]').forEach((button) => button.addEventListener('click', () => {
-    const index = Number(button.getAttribute('data-video-lora-index') || -1);
-    const strength = Number(button.getAttribute('data-video-lora-strength'));
-    const settings = videoLoraStackSettings();
-    if (index < 0 || !settings.rows[index] || !Number.isFinite(strength)) return;
-    const rows = settings.rows.map((row, idx) => idx === index ? { ...row, strength_model: strength } : { ...row });
-    updateVideoLoraStackSettings({ rows });
-  }));
-  document.querySelectorAll('[data-video-lora-duplicate]').forEach((button) => button.addEventListener('click', () => {
-    const index = Number(button.getAttribute('data-video-lora-duplicate') || -1);
-    const settings = videoLoraStackSettings();
-    if (index < 0 || !settings.rows[index] || settings.rows.length >= VIDEO_LORA_STACK_MAX_ROWS) return;
-    const copy = { ...settings.rows[index], uid: `video_lora_${Date.now()}_${settings.rows.length + 1}` };
-    const rows = [...settings.rows.slice(0, index + 1), copy, ...settings.rows.slice(index + 1)];
-    updateVideoLoraStackSettings({ rows });
-    videoLoraAnnounce('Video LoRA row duplicated.');
   }));
   document.querySelectorAll('[data-video-lora-remove]').forEach((button) => button.addEventListener('click', () => {
     const index = Number(button.getAttribute('data-video-lora-remove') || -1);
@@ -7601,6 +7698,24 @@ function buildImageGenerationReadiness(profile = activeImageProfile(), subtab = 
       ? (profile?.runtime?.message || profile?.connection?.api_key_status_message || `Provider status: ${runtimeStatus || 'unknown'}. Configure and test this API profile in Admin > Backends.`)
       : backendProfileBlockedMessage(profile, 'Image generation');
   push('provider_status', 'Provider status', connected ? 'ready' : 'blocked', providerMessage, !connected);
+  const kreaEditReadiness = imageKrea2EditReadiness(profile);
+  if (kreaEditReadiness) {
+    const runtimeMessage = kreaEditReadiness.blockers.length
+      ? kreaEditReadiness.blockers[0]
+      : (kreaEditReadiness.object_info_available
+        ? `${kreaEditReadiness.engine_label} runtime contract is available for ${imageMainModelTypeLabel(kreaEditReadiness.loader, kreaEditReadiness.loader)}.`
+        : 'Neo cannot verify the selected Krea edit runtime until Comfy /object_info is available.');
+    push(
+      'krea2_edit_runtime',
+      'Krea 2 edit runtime',
+      kreaEditReadiness.blockers.length ? 'blocked' : (kreaEditReadiness.object_info_available ? 'ready' : 'warning'),
+      runtimeMessage,
+      Boolean(kreaEditReadiness.blockers.length),
+    );
+    if (kreaEditReadiness.kv_cache) {
+      push('krea2_ostris_kv_cache', 'Ostris KV Cache', 'warning', 'KV Cache is ON. Keep it enabled only for a LoRA trained/exported with AI Toolkit KV Cache support.', false);
+    }
+  }
   if (imageUsesStrictForgeRouteGating()) {
     const selectedRoute = routeEntryForSelection(state.imageDraft.family, state.imageDraft.loader, mode);
     const routeReady = Boolean(selectedRoute);
@@ -15413,6 +15528,10 @@ function highResLabSettings() {
   if (merged.enabled === true && !['user', 'preview_action'].includes(String(merged.enable_origin || '').trim())) merged.enabled = false;
   return merged;
 }
+function highResLabEnableOrigin(value = '') {
+  const origin = String(value || '').trim();
+  return ['user', 'preview_action'].includes(origin) ? origin : '';
+}
 function updateHighResLabSettings(patch = {}) {
   const next = { ...highResLabSettings(), ...patch };
   state.imageDraft[HIGH_RES_LAB_EXTENSION_ID] = next;
@@ -15621,6 +15740,7 @@ function highResLabPayloadPreview(record, appliedOverride = null) {
         assets,
         metadata: {
           source_mode: settings.source_mode || 'standard',
+          enable_origin: highResLabEnableOrigin(settings.enable_origin),
           preview_action_source: settings.preview_action_source || null,
           upscale_lab_source_only: Boolean(settings.upscale_lab_source_only),
           extension_id: HIGH_RES_LAB_EXTENSION_ID,
@@ -16725,6 +16845,7 @@ function highResLabStagePreviewSource(source = {}, { renderPanel = true } = {}) 
   stagePreviewActionSourceAsImageSource(cleanSource);
   updateHighResLabSettings({
     enabled: true,
+    enable_origin: 'preview_action',
     source_mode: 'preview_action_selected_output',
     staged_preview_source: cleanSource,
     preview_action_source: previewActionSource,
@@ -22086,11 +22207,11 @@ function bindControlNetControls() {
 }
 
 const LORA_STACK_EXTENSION_ID = 'lora_stack';
-let loraLibrarySearchTimer = null;
 const LORA_STACK_DEFAULT_LIBRARY = {
   folder_path: '',
-  folder_options: [],
   search: '',
+  folder_category: 'all',
+  folder_subcategory: 'all',
   selected_record_id: '',
   selected_preview_index: 0,
   edit_mode: false,
@@ -22394,6 +22515,41 @@ function loraPortableName(value) {
   while (text.startsWith('./')) text = text.slice(2);
   return text;
 }
+function loraFolderFacets(value) {
+  let text = String(value || '').replace(/\\/g, '/').trim();
+  if (!text) return { category: 'Root', subcategory: '' };
+  if (/^[A-Za-z]:\//.test(text) || text.startsWith('/')) return { category: 'Root', subcategory: '' };
+  while (text.startsWith('./')) text = text.slice(2);
+  const parts = text.split('/').map((part) => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return { category: 'Root', subcategory: '' };
+  return { category: parts[0] || 'Root', subcategory: parts.length > 2 ? parts.slice(1, -1).join(' / ') : '' };
+}
+function loraRecordFolderFacets(record = {}) {
+  const derived = loraFolderFacets(record.catalog_name || record.rel || record.name || record.file || '');
+  return {
+    category: String(record.folder_category || derived.category || 'Root').trim() || 'Root',
+    subcategory: String(record.folder_subcategory || derived.subcategory || '').trim(),
+  };
+}
+function loraFolderFilterOptions(records = loraAllLibraryRecords()) {
+  const categories = Array.from(new Set(records.map((record) => loraRecordFolderFacets(record).category).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const selectedCategory = String(loraStackSettings().library.folder_category || 'all');
+  const subcategories = Array.from(new Set(records
+    .filter((record) => selectedCategory === 'all' || loraRecordFolderFacets(record).category === selectedCategory)
+    .map((record) => loraRecordFolderFacets(record).subcategory)
+    .filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  return { categories, subcategories };
+}
+function loraSafeSourceUrl(record = {}) {
+  const raw = String(record.civitai_url || record.remote_source?.url || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw, window.location.origin);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch (_) {
+    return '';
+  }
+}
 function loraForgeName(value) {
   const portable = loraPortableName(value);
   const file = portable.split('/').pop() || portable;
@@ -22410,11 +22566,15 @@ function loraProviderCatalogRecords() {
   const context = loraProviderContext();
   return profileModelOptions('loras')
     .filter((item) => item.id && !item.id.startsWith('select_') && item.id !== 'provider_default')
-    .map((item) => ({
+    .map((item) => {
+      const facets = loraFolderFacets(item.id);
+      return {
       id: item.id,
       name: item.id,
       catalog_name: item.id,
       file: '',
+      folder_category: facets.category,
+      folder_subcategory: facets.subcategory,
       provider_id: context.provider_id,
       provider_label: context.provider_label,
       catalog_source: context.catalog_source,
@@ -22428,8 +22588,10 @@ function loraProviderCatalogRecords() {
       preview_images: [],
       example_prompt: '',
       civitai_url: '',
+      user_notes: '',
       notes: `Loaded from the selected ${context.provider_label} LoRA catalog. Use CivitAI Pull to enrich triggers, prompts, and previews.`,
-    }));
+    };
+    });
 }
 function loraCatalogOptions(currentValue = '') {
   const records = loraStackLibraryRecords();
@@ -22454,19 +22616,35 @@ function loraTargetOptions() {
 function loraCatalogIdentityKey(value) {
   return loraPortableName(value).replace(/\\/g, '/').trim().toLowerCase();
 }
-function loraLiveProviderMatch(record, providerRecords = loraProviderCatalogRecords()) {
-  const selectedProvider = loraProviderContext().provider_id;
-  if (record?.provider_id && selectedProvider && String(record.provider_id).toLowerCase() !== selectedProvider) return null;
-  const exactKeys = new Set([record?.catalog_name, record?.name, record?.file]
-    .map((value) => loraCatalogIdentityKey(value))
-    .filter(Boolean));
-  const exact = providerRecords.filter((item) => exactKeys.has(loraCatalogIdentityKey(item.catalog_name || item.name || item.file || item.id || '')));
-  if (exact.length === 1) return exact[0];
-  const fuzzy = providerRecords.filter((item) => loraRecordMatchesName(record, item.catalog_name || item.name || item.file || item.id || ''));
-  return fuzzy.length === 1 ? fuzzy[0] : null;
+function loraProviderCatalogLookup(providerRecords = []) {
+  const exact = new Map();
+  const aliases = new Map();
+  providerRecords.forEach((item) => {
+    const name = item.catalog_name || item.name || item.file || item.id || '';
+    const exactKey = loraCatalogIdentityKey(name);
+    if (exactKey && !exact.has(exactKey)) exact.set(exactKey, item);
+    loraCatalogMatchKeys(name).forEach((key) => {
+      const existing = aliases.get(key);
+      if (existing === undefined) aliases.set(key, item);
+      else if (existing !== item) aliases.set(key, null);
+    });
+  });
+  return { exact, aliases };
 }
-function loraReconcileSavedRecordWithLiveProvider(record, providerRecords, consumedLiveKeys) {
-  const live = loraLiveProviderMatch(record, providerRecords);
+function loraLiveProviderMatch(record, providerRecords = loraProviderCatalogRecords(), providerLookup = null) {
+  const lookup = providerLookup || loraProviderCatalogLookup(providerRecords);
+  const exactKeys = [record?.catalog_name, record?.name, record?.file]
+    .map((value) => loraCatalogIdentityKey(value))
+    .filter(Boolean);
+  const exactMatches = Array.from(new Set(exactKeys.map((key) => lookup.exact.get(key)).filter(Boolean)));
+  if (exactMatches.length === 1) return exactMatches[0];
+  const recordAliases = new Set([record?.catalog_name, record?.name, record?.file, record?.id, ...(record?.catalog_match_keys || [])]
+    .flatMap((value) => loraCatalogMatchKeys(value)));
+  const fuzzyMatches = Array.from(new Set(Array.from(recordAliases).map((key) => lookup.aliases.get(key)).filter(Boolean)));
+  return fuzzyMatches.length === 1 ? fuzzyMatches[0] : null;
+}
+function loraReconcileSavedRecordWithLiveProvider(record, providerRecords, consumedLiveKeys, providerLookup = null) {
+  const live = loraLiveProviderMatch(record, providerRecords, providerLookup);
   if (!live) return record;
   const liveKey = loraCatalogIdentityKey(live.catalog_name || live.name || live.file || live.id || '');
   if (liveKey) consumedLiveKeys.add(liveKey);
@@ -22485,44 +22663,26 @@ function loraAllLibraryRecords() {
   const library = loraStackSettings().library;
   const saved = Array.isArray(library.records) ? library.records : [];
   const providerRecords = loraProviderCatalogRecords();
+  const providerLookup = loraProviderCatalogLookup(providerRecords);
   const consumedLiveKeys = new Set();
-  const reconciledSaved = saved.map((record) => loraReconcileSavedRecordWithLiveProvider(record, providerRecords, consumedLiveKeys));
+  const reconciledSaved = saved.map((record) => loraReconcileSavedRecordWithLiveProvider(record, providerRecords, consumedLiveKeys, providerLookup));
   const providerOnly = providerRecords.filter((record) => !consumedLiveKeys.has(loraCatalogIdentityKey(record.catalog_name || record.name || record.file || record.id || '')));
   return [...reconciledSaved, ...providerOnly];
 }
 function loraStackLibraryRecords() {
   const library = loraStackSettings().library;
   const allRecords = loraAllLibraryRecords();
-  const terms = String(library.search || '').trim().toLowerCase().match(/"[^"]+"|\S+/g)?.map((item) => item.replace(/^"|"$/g, '')) || [];
-  const folder = loraPortableName(library.folder_path || '').replace(/^\/+|\/+$/g, '').toLowerCase();
+  const query = String(library.search || '').trim().toLowerCase();
+  const category = String(library.folder_category || 'all');
+  const subcategory = String(library.folder_subcategory || 'all');
   return allRecords.filter((record) => {
-    const catalogName = loraPortableName(record.catalog_name || record.name || '');
-    const recordFolder = String(record.folder_path || (catalogName.includes('/') ? catalogName.slice(0, catalogName.lastIndexOf('/')) : '')).toLowerCase();
-    if (folder && recordFolder !== folder && !recordFolder.startsWith(`${folder}/`)) return false;
-    const promptOptions = Array.isArray(record.prompt_options) ? record.prompt_options.flatMap((item) => [item?.name, item?.prompt]) : [];
-    const values = [record.name, record.catalog_name, record.file, record.category, record.base_model, record.style_category, record.notes, record.caution_notes, record.example_prompt, record.remote_source?.model_name, record.remote_source?.version_name, ...(record.triggers || []), ...(record.keywords || []), ...(record.negative_keywords || []), ...promptOptions];
-    const haystack = values.map((value) => String(value || '').toLowerCase()).join('\n');
-    return terms.every((term) => haystack.includes(term));
+    const facets = loraRecordFolderFacets(record);
+    if (category !== 'all' && facets.category !== category) return false;
+    if (subcategory !== 'all' && facets.subcategory !== subcategory) return false;
+    if (!query) return true;
+    return [record.name, record.catalog_name, record.file, record.category, facets.category, facets.subcategory, record.base_model, record.notes, record.user_notes]
+      .some((value) => String(value || '').toLowerCase().includes(query));
   });
-}
-
-function loraLibraryFolderOptions() {
-  const library = loraStackSettings().library;
-  if (Array.isArray(library.folder_options) && library.folder_options.length) return library.folder_options;
-  const records = loraAllLibraryRecords();
-  const leafFolders = records.map((record) => {
-    const name = loraPortableName(record.catalog_name || record.name || '');
-    return name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
-  }).filter(Boolean);
-  const folders = Array.from(new Set(leafFolders.flatMap((folder) => {
-    const parts = folder.split('/');
-    return parts.map((_, index) => parts.slice(0, index + 1).join('/'));
-  }))).sort((a, b) => a.localeCompare(b));
-  return [{ path: '', label: 'All folders', count: records.length }, ...folders.map((folder) => ({ path: folder, label: folder, count: records.filter((record) => {
-    const name = loraPortableName(record.catalog_name || record.name || '');
-    const recordFolder = name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
-    return recordFolder === folder || recordFolder.startsWith(`${folder}/`);
-  }).length }))];
 }
 
 function loraLibraryApiProfileId() {
@@ -22537,6 +22697,8 @@ async function loraLibraryFetchBrowser({ query = null, force = false } = {}) {
     const url = new URL('/api/extensions/lora_stack/library/browser', window.location.origin);
     const profileId = loraLibraryApiProfileId();
     if (profileId) url.searchParams.set('profile_id', profileId);
+    const q = query === null ? '' : query;
+    if (q) url.searchParams.set('q', q);
     const result = await loadJson(url.pathname + url.search, { ok: false, records: [] });
     if (loraLibraryApiProfileId() !== profileId) {
       updateLoraStackSettings({ library: { backend_loaded: false, backend_loading: false, status: 'Provider changed · refreshing LoRA catalog…' } });
@@ -22544,9 +22706,17 @@ async function loraLibraryFetchBrowser({ query = null, force = false } = {}) {
       return;
     }
     const records = Array.isArray(result.records) ? result.records : [];
+    const advertisedCategories = Array.isArray(result.folder_categories) ? result.folder_categories : [];
+    const requestedCategory = String(library.folder_category || 'all');
+    const safeCategory = requestedCategory === 'all' || advertisedCategories.includes(requestedCategory) ? requestedCategory : 'all';
+    const subMap = result.folder_subcategories && typeof result.folder_subcategories === 'object' ? result.folder_subcategories : {};
+    const advertisedSubs = safeCategory === 'all' ? [] : (Array.isArray(subMap[safeCategory]) ? subMap[safeCategory] : []);
+    const requestedSubcategory = String(library.folder_subcategory || 'all');
+    const safeSubcategory = requestedSubcategory === 'all' || advertisedSubs.includes(requestedSubcategory) ? requestedSubcategory : 'all';
     updateLoraStackSettings({ library: {
       records,
-      folder_options: Array.isArray(result.folder_options) ? result.folder_options : [],
+      folder_category: safeCategory,
+      folder_subcategory: safeSubcategory,
       backend_loaded: true,
       backend_loading: false,
       backend_loaded_profile_id: profileId || '',
@@ -22563,24 +22733,39 @@ async function loraLibraryFetchBrowser({ query = null, force = false } = {}) {
     render();
   }
 }
-function loraLibraryMergeRecord(record) {
+function loraLibraryMergeRecord(record, { select = true } = {}) {
   if (!record) return;
   const settings = loraStackSettings();
   const records = Array.isArray(settings.library.records) ? [...settings.library.records] : [];
   const idx = records.findIndex((item) => String(item.id || '') === String(record.id || ''));
   if (idx >= 0) records[idx] = record;
   else records.push(record);
-  const selectedId = record.id || settings.library.selected_record_id;
+  const selectedId = select ? (record.id || settings.library.selected_record_id) : settings.library.selected_record_id;
+  const currentRecord = select
+    ? record
+    : (String(settings.library.current_record?.id || '') === String(selectedId || '') ? settings.library.current_record : null);
   updateLoraStackSettings({
     library: {
       records,
       selected_record_id: selectedId,
-      current_record: record,
-      selected_preview_index: 0,
+      current_record: currentRecord,
+      selected_preview_index: select ? 0 : settings.library.selected_preview_index,
       status: 'Ready',
     },
   });
 }
+async function loraLibraryReadJsonResponse(response, label = 'LoRA Library request') {
+  const raw = await response.text();
+  if (!raw.trim()) return { ok: response.ok };
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    const status = [response.status, response.statusText].filter(Boolean).join(' ');
+    const preview = raw.replace(/\s+/g, ' ').trim().slice(0, 240);
+    throw new Error(`${label} returned a non-JSON response${status ? ` (${status})` : ''}${preview ? `: ${preview}` : ''}`);
+  }
+}
+
 async function loraLibrarySaveSelected() {
   const record = loraSelectedLibraryRecord();
   if (!record) return;
@@ -22591,22 +22776,20 @@ async function loraLibrarySaveSelected() {
     record: {
       ...record,
       example_prompt: sample ? sample.value : (record.example_prompt || ''),
+      user_notes: document.getElementById('loraUserNotes') ? document.getElementById('loraUserNotes').value : (record.user_notes || ''),
       remote_source: { ...(record.remote_source || {}), url: civitaiUrl ? civitaiUrl.value : (record.remote_source?.url || '') },
       civitai_url: civitaiUrl ? civitaiUrl.value : (record.civitai_url || ''),
       triggers: document.getElementById('loraTriggerWordsInput') ? splitLoraTokenInput(document.getElementById('loraTriggerWordsInput').value) : (record.triggers || []),
       keywords: document.getElementById('loraKeywordsInput') ? splitLoraTokenInput(document.getElementById('loraKeywordsInput').value) : (record.keywords || []),
       negative_keywords: document.getElementById('loraNegativeKeywordsInput') ? splitLoraTokenInput(document.getElementById('loraNegativeKeywordsInput').value) : (record.negative_keywords || []),
-      notes: document.getElementById('loraNotesInput') ? document.getElementById('loraNotesInput').value : (record.notes || ''),
     },
   };
   updateLoraStackSettings({ library: { status: 'Saving metadata…' } });
   try {
     const response = await fetch('/api/extensions/lora_stack/library/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.detail || result.error || 'Save failed');
+    const result = await loraLibraryReadJsonResponse(response, 'LoRA metadata save');
+    if (!response.ok || !result.ok) throw new Error(result.detail || result.error || `Save failed (${response.status || 'unknown status'})`);
     loraLibraryMergeRecord(result.record);
-    const persistedAt = result.save_confirmation?.persisted_at || '';
-    updateLoraStackSettings({ library: { status: persistedAt ? `Saved · ${persistedAt}` : 'Saved' } });
     render();
   } catch (error) {
     updateLoraStackSettings({ library: { status: `Save failed: ${error.message || error}` } });
@@ -22624,8 +22807,8 @@ async function loraLibraryPullCivitai() {
   await new Promise((resolve) => setTimeout(resolve, 0));
   try {
     const response = await fetch('/api/extensions/lora_stack/library/civitai-import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.detail || result.error || 'CivitAI pull failed');
+    const result = await loraLibraryReadJsonResponse(response, 'CivitAI metadata pull');
+    if (!response.ok || !result.ok) throw new Error(result.detail || result.error || `CivitAI pull failed (${response.status || 'unknown status'})`);
     loraLibraryMergeRecord(result.record);
     await loraLibraryFetchBrowser({ force: true });
     const summary = result.import_summary || {};
@@ -22645,7 +22828,11 @@ async function loraLibraryPullCivitai() {
 }
 function loraCatalogMatchKeys(value) {
   const text = String(value || '').replace(/\\/g, '/').trim().toLowerCase();
-  return text ? [text] : [];
+  if (!text) return [];
+  const file = text.split('/').pop() || text;
+  const stem = file.replace(/\.[^.]+$/, '');
+  const noExt = text.replace(/\.[^.]+$/, '');
+  return Array.from(new Set([text, file, stem, noExt].filter(Boolean)));
 }
 function loraRecordMatchesName(record, name) {
   const wanted = new Set(loraCatalogMatchKeys(name));
@@ -22670,9 +22857,13 @@ async function loraLibraryFetchRecord(recordId) {
     const result = await loadJson(url.pathname + url.search, { ok: false });
     if (loraLibraryApiProfileId() !== profileId) return;
     if (result.ok && result.record) {
-      loraLibraryMergeRecord(result.record);
-      updateLoraStackSettings({ library: { current_record: result.record, selected_record_id: result.record.id || id, selected_preview_index: 0 } });
-      render();
+      const stillSelected = String(loraStackSettings().library.selected_record_id || '') === id;
+      // A slower metadata response for a previously selected LoRA must never
+      // steal focus from the user's newer Library selection. Keep the fetched
+      // metadata in the record cache, but only own current_record when the same
+      // record is still selected.
+      loraLibraryMergeRecord(result.record, { select: stillSelected });
+      if (stillSelected) render();
     }
   } catch (error) {
     updateLoraStackSettings({ library: { status: `Record load failed: ${error.message || error}` } });
@@ -22697,13 +22888,23 @@ function loraSelectedLibraryRecord() {
   const settings = loraStackSettings();
   const library = settings.library;
   const records = loraStackLibraryRecords();
-  if (library.current_record && records.some((record) => record.id === library.current_record.id) && (!library.selected_record_id || library.current_record.id === library.selected_record_id)) return library.current_record;
-  const selectedStackRow = loraSelectedRow(settings);
-  if (selectedStackRow?.row?.name) {
-    const fromRow = records.find((record) => loraRecordMatchesName(record, selectedStackRow.row.name));
-    if (fromRow) return fromRow;
+  const selectedRecordId = String(library.selected_record_id || '').trim();
+  if (library.current_record && (!selectedRecordId || String(library.current_record.id || '') === selectedRecordId)) return library.current_record;
+  // The Library dropdown owns the detail card once it has an explicit selection.
+  // Stack-row Focus synchronizes selected_record_id when clicked, but must not
+  // permanently override later Library browsing.
+  if (selectedRecordId) {
+    const selectedRecord = records.find((record) => String(record.id || '') === selectedRecordId);
+    if (selectedRecord) return selectedRecord;
   }
-  return records.find((record) => record.id === library.selected_record_id) || records[0] || null;
+  if (!selectedRecordId) {
+    const selectedStackRow = loraSelectedRow(settings);
+    if (selectedStackRow?.row?.name) {
+      const fromRow = records.find((record) => loraRecordMatchesName(record, selectedStackRow.row.name));
+      if (fromRow) return fromRow;
+    }
+  }
+  return records[0] || null;
 }
 function splitLoraTokenInput(value) {
   return String(value || '').split(/[\n,]+/).map((item) => item.trim()).filter(Boolean);
@@ -22765,15 +22966,21 @@ function loraRowHtml(row, index, locked, selectedIndex = 0) {
 }
 function loraPickerRecords(settings = loraStackSettings()) {
   const query = String(settings.library?.picker_query || '').trim().toLowerCase();
-  const records = loraAllLibraryRecords().filter((record) => record.catalog_available !== false);
+  const category = String(settings.library?.folder_category || 'all');
+  const subcategory = String(settings.library?.folder_subcategory || 'all');
+  const records = loraAllLibraryRecords().filter((record) => {
+    if (record.catalog_available === false) return false;
+    const facets = loraRecordFolderFacets(record);
+    if (category !== 'all' && facets.category !== category) return false;
+    if (subcategory !== 'all' && facets.subcategory !== subcategory) return false;
+    return true;
+  });
   if (!query) return records;
-  return records.filter((record) => [
-    record.name,
-    record.catalog_name,
-    record.file,
-    record.category,
-    record.base_model,
-  ].some((value) => String(value || '').toLowerCase().includes(query)));
+  return records.filter((record) => {
+    const facets = loraRecordFolderFacets(record);
+    return [record.name, record.catalog_name, record.file, record.category, facets.category, facets.subcategory, record.base_model, record.user_notes]
+      .some((value) => String(value || '').toLowerCase().includes(query));
+  });
 }
 function loraPickerSelectedRecord(settings = loraStackSettings()) {
   const records = loraPickerRecords(settings);
@@ -22831,6 +23038,9 @@ function loraStackPanel(record) {
   const routeBadge = route.route_state === 'experimental_available' ? 'Experimental' : (route.route_state === 'available' ? 'Available' : 'Route gated');
   const loraModeBadge = loraStackCompatibilityModeLabel(route);
   const pickerRecords = loraPickerRecords(settings);
+  const folderFilters = loraFolderFilterOptions();
+  const pickerCategory = String(library.folder_category || 'all');
+  const pickerSubcategory = String(library.folder_subcategory || 'all');
   const pickerSelected = loraPickerSelectedRecord(settings);
   const pickerName = pickerSelected?.catalog_name || pickerSelected?.name || pickerSelected?.file || '';
   const pickerStrength = Number(library.pending_strength ?? pickerSelected?.default_strength ?? 0.8);
@@ -22839,7 +23049,9 @@ function loraStackPanel(record) {
     <div class="neo-lora-picker-head"><div><strong>Add LoRA</strong><span class="neo-muted">${escapeHtml(provider.provider_label)} catalog · selected profile only</span></div><span class="neo-badge">${pickerRecords.length} available</span></div>
     <div class="neo-lora-picker-grid">
       <label>Search<input id="loraStackPickerSearch" type="search" value="${escapeAttr(library.picker_query || '')}" placeholder="Search selected-provider LoRAs"></label>
-      <label>LoRA<select id="loraStackPickerSelect">${pickerOptions || '<option value="">No LoRAs reported by selected provider</option>'}</select></label>
+      <label>Main folder<select id="loraStackPickerFolderCategory"><option value="all">All folders</option>${folderFilters.categories.map((item) => `<option value="${escapeAttr(item)}" ${item === pickerCategory ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}</select></label>
+      <label>Subfolder<select id="loraStackPickerFolderSubcategory"><option value="all">All subfolders</option>${folderFilters.subcategories.map((item) => `<option value="${escapeAttr(item)}" ${item === pickerSubcategory ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}</select></label>
+      <label>LoRA<select id="loraStackPickerSelect">${pickerOptions || '<option value="">No LoRAs match the current filters</option>'}</select></label>
       <label>Strength<input id="loraStackPickerStrength" type="number" step="0.05" value="${escapeAttr(pickerStrength)}"></label>
     </div>
     <div class="neo-chipline"><span class="neo-muted">Selected from ${escapeHtml(provider.provider_label)}.</span>${state.detailMode === 'expert' ? `<span class="neo-badge">${escapeHtml(loraProviderSyntaxPreview(pickerName, pickerStrength, provider.provider_id))}</span>` : ''}</div>
@@ -22880,17 +23092,18 @@ function loraLibraryPanel(record) {
   const library = settings.library;
   const provider = loraProviderContext();
   const records = loraStackLibraryRecords();
-  const folderOptions = loraLibraryFolderOptions();
+  const folderFilters = loraFolderFilterOptions();
+  const selectedFolderCategory = String(library.folder_category || 'all');
+  const selectedFolderSubcategory = String(library.folder_subcategory || 'all');
   const selected = loraSelectedLibraryRecord();
+  const sourceUrl = selected ? loraSafeSourceUrl(selected) : '';
   const compact = state.detailMode === 'compact';
   const expert = state.detailMode === 'expert';
   const previewImages = selected ? [selected.preview_image, ...(selected.preview_images || [])].filter(Boolean) : [];
   const previewIndex = Math.min(Math.max(Number(library.selected_preview_index || 0), 0), Math.max(previewImages.length - 1, 0));
   const previewSource = loraPreviewDisplaySrc(previewImages[previewIndex]);
   const preview = previewSource ? `<button class="neo-lora-preview neo-zoomable-preview" type="button" data-zoom-src="${escapeAttr(previewSource)}" data-zoom-label="${escapeAttr(selected?.name || 'LoRA preview')}"><img src="${escapeAttr(previewSource)}" alt="LoRA preview"></button>` : '<div class="neo-lora-preview empty">No preview yet</div>';
-  const recordOptions = records.map((item) => `<option value="${escapeAttr(item.id || '')}" ${(item.id || '') === (selected?.id || '') ? 'selected' : ''}>${escapeHtml(`${item.catalog_available === false ? 'Missing · ' : ''}${item.catalog_name || item.name || item.file || item.id || 'Unnamed LoRA'}`)}</option>`).join('');
-  const folderSelectOptions = folderOptions.map((item) => `<option value="${escapeAttr(item.path || '')}" ${(item.path || '') === (library.folder_path || '') ? 'selected' : ''}>${escapeHtml(`${item.label || item.path || 'All folders'} (${item.count ?? 0})`)}</option>`).join('');
-  const filtersActive = Boolean(String(library.search || '').trim() || String(library.folder_path || '').trim());
+  const recordOptions = records.map((item) => `<option value="${escapeAttr(item.id || '')}" ${(item.id || '') === (library.selected_record_id || selected?.id || '') ? 'selected' : ''}>${escapeHtml(`${item.catalog_available === false ? 'Missing · ' : ''}${item.name || item.file || item.id || 'Unnamed LoRA'}`)}</option>`).join('');
   const editMode = Boolean(library.edit_mode);
   const chipList = (items = [], type = 'trigger', promptField = 'positive_prompt') => items.length ? items.map((item) => {
     const active = promptHasToken(item, promptField);
@@ -22904,26 +23117,28 @@ function loraLibraryPanel(record) {
   const body = `<section class="neo-lora-library-panel" data-extension-id="${LORA_STACK_EXTENSION_ID}" data-route-aware="true" data-route-state="${escapeAttr(route.route_state)}" data-provider-id="${escapeAttr(provider.provider_id)}" data-display-mode="${escapeAttr(state.detailMode)}">
     <header class="neo-lora-panel-header"><div><strong>LoRA Library</strong>${!compact ? '<span class="neo-muted">Selected stack card details, enrichable with CivitAI</span>' : ''}</div><div class="neo-extension-status-line"><span class="neo-badge">${escapeHtml(provider.provider_label)}</span><span class="neo-badge">${records.length} records</span><span class="neo-badge">${library.catalog_count || records.length} catalog</span><span class="neo-state-pill ${library.backend_loading ? '' : 'success'}">${escapeHtml(library.backend_loading ? 'Syncing' : (library.status || 'Ready'))}</span></div></header>
     <div class="neo-lora-library-tools">
-      <div class="neo-lora-library-tool-row neo-lora-library-source-row">
-        <label>Search ${escapeHtml(provider.provider_label)} LoRAs<input id="loraLibrarySearch" type="search" value="${escapeAttr(library.search || '')}" placeholder="Name, path, trigger, model, or notes"></label>
-        <label>Folder<select id="loraLibraryFolder">${folderSelectOptions}</select></label>
-        <label>${escapeHtml(provider.provider_label)} LoRA<select id="loraLibraryRecordSelect">${recordOptions || '<option value="">No LoRAs match these filters</option>'}</select></label>
+      <div class="neo-lora-library-tool-row neo-lora-library-filter-row">
+        <label>Main folder<select id="loraLibraryFolderCategory"><option value="all">All folders</option>${folderFilters.categories.map((item) => `<option value="${escapeAttr(item)}" ${item === selectedFolderCategory ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}</select></label>
+        <label>Subfolder<select id="loraLibraryFolderSubcategory"><option value="all">All subfolders</option>${folderFilters.subcategories.map((item) => `<option value="${escapeAttr(item)}" ${item === selectedFolderSubcategory ? 'selected' : ''}>${escapeHtml(item)}</option>`).join('')}</select></label>
       </div>
-      <div class="neo-lora-library-filter-summary"><span class="neo-muted">Showing ${records.length} of ${loraAllLibraryRecords().length} records${library.folder_path ? ` in ${escapeHtml(library.folder_path)}` : ''}</span><button class="neo-btn secondary" type="button" id="loraLibraryClearFilters" ${filtersActive ? '' : 'disabled'}>Clear filters</button></div>
+      <div class="neo-lora-library-tool-row neo-lora-library-source-row">
+        <label>Search ${escapeHtml(provider.provider_label)} LoRAs<input id="loraLibrarySearch" type="search" value="${escapeAttr(library.search || '')}" placeholder="Search selected-provider LoRAs"></label>
+        <label>${escapeHtml(provider.provider_label)} LoRA<select id="loraLibraryRecordSelect">${recordOptions || '<option value="">No LoRAs match the current filters</option>'}</select></label>
+      </div>
       ${compact ? '' : `<p class="neo-muted">LoRAs are loaded only from the selected Image profile. Forge uses its Extra Networks catalog; Comfy uses <code>LoraLoader.lora_name</code>. No default-profile fallback is performed.</p>`}
     </div>
     <div class="neo-lora-library-grid">
       <div class="neo-lora-preview-column">${preview}<div class="neo-lora-preview-actions"><button class="neo-btn secondary neo-lora-preview-nav" type="button" id="loraPreviewPrev" aria-label="Previous LoRA preview" ${previewImages.length < 2 ? 'disabled' : ''}>⬅️</button><span class="neo-muted">${previewImages.length ? `${previewIndex + 1}/${previewImages.length}` : '0/0'}</span><button class="neo-btn secondary neo-lora-preview-nav" type="button" id="loraPreviewNext" aria-label="Next LoRA preview" ${previewImages.length < 2 ? 'disabled' : ''}>➡️</button></div></div>
       <div class="neo-lora-record-summary">
         <div class="neo-chipline"><span class="neo-badge">${escapeHtml(selected?.base_model || 'Base unknown')}</span><span class="neo-badge">${escapeHtml(selected?.category || 'uncategorized')}</span><span class="neo-badge">Strength ${escapeHtml(selected?.default_strength ?? 0.8)}</span><span class="neo-badge">${selected?.catalog_available === false ? 'Missing from selected provider' : `In ${provider.provider_label} catalog`}</span><span class="neo-badge">${escapeHtml(selected?.metadata_status || 'metadata pending')}</span></div>
-        <h4>${escapeHtml(selected?.name || 'No LoRA selected')}</h4><div class="neo-chipline"><span class="neo-badge" title="Provider rendering is applied only at submission">${escapeHtml(loraProviderSyntaxPreview(selected?.catalog_name || selected?.name || '', selected?.default_strength ?? 0.8, provider.provider_id))}</span><span class="neo-muted">Visible prompt mutation: none</span></div>
-        ${compact ? '' : `<p class="neo-muted">${escapeHtml(selected?.notes || 'No notes saved yet.')}</p>`}
+        <h4>${escapeHtml(selected?.name || 'No LoRA selected')}</h4><div class="neo-chipline"><span class="neo-badge" title="Provider rendering is applied only at submission">${escapeHtml(loraProviderSyntaxPreview(selected?.catalog_name || selected?.name || '', selected?.default_strength ?? 0.8, provider.provider_id))}</span>${sourceUrl ? `<a class="neo-badge neo-lora-source-link" href="${escapeAttr(sourceUrl)}" target="_blank" rel="noopener noreferrer" title="Open saved CivitAI source">CivitAI source ↗</a>` : ''}<span class="neo-muted">Visible prompt mutation: none</span></div>
+        ${compact ? '' : `<p class="neo-muted"><strong>Source description:</strong> ${escapeHtml(selected?.notes || 'Selected from the active provider catalog. Add a CivitAI link, then pull to enrich triggers, prompts, and previews.')}</p>${selected?.user_notes ? `<p class="neo-muted"><strong>Notes:</strong> ${escapeHtml(selected.user_notes)}</p>` : ''}`}
       </div>
       <div class="neo-lora-record-details">
         ${tokenEditor('loraTriggerWordsInput', 'Positive triggers', selected?.triggers || [], 'positive_prompt')}
         ${tokenEditor('loraKeywordsInput', 'Positive keywords', selected?.keywords || [], 'positive_prompt')}
         ${tokenEditor('loraNegativeKeywordsInput', 'Negative keywords', selected?.negative_keywords || [], 'negative_prompt')}
-        ${editMode ? `<label>Notes<textarea id="loraNotesInput" rows="4" placeholder="Usage tips, strengths, compatibility, or reminders">${escapeHtml(selected?.notes || '')}</textarea></label>` : `<div class="neo-lora-notes"><strong>Notes</strong><p>${escapeHtml(selected?.notes || 'No notes saved yet.')}</p></div>`}
+        <label>Notes<textarea id="loraUserNotes" rows="3" placeholder="Your own notes, usage tips, strengths, caveats, or reminders. CivitAI pulls do not overwrite this field.">${escapeHtml(selected?.user_notes || '')}</textarea></label>
         ${`<label>Sample prompt<textarea id="loraSamplePrompt" rows="3">${escapeHtml(selected?.example_prompt || '')}</textarea></label><div class="neo-lora-library-actions"><button class="neo-btn secondary" type="button" id="loraPromptAppend">Append Prompt</button><button class="neo-btn secondary" type="button" id="loraPromptReplace">Replace Prompt</button></div>`}
         <div class="neo-lora-library-actions"><button class="neo-btn primary" type="button" id="loraLibraryAddToStack" ${selected ? '' : 'disabled'}>Add selected LoRA to stack</button><button class="neo-btn secondary" type="button" id="loraLibraryEdit">${library.edit_mode ? 'Lock metadata' : 'Edit metadata'}</button><button class="neo-btn secondary" type="button" id="loraLibrarySave">Save metadata</button></div>
         ${`<div class="neo-lora-civitai-row"><label>CivitAI link<input id="loraCivitaiUrl" type="url" value="${escapeAttr(library.civitai_url || selected?.civitai_url || selected?.remote_source?.url || '')}" placeholder="https://civitai.com/models/... or /model-versions/..."></label><label>CivitAI merge mode<select id="loraCivitaiMergeMode">${['fill_missing', 'smart_merge', 'overwrite_selected', 'previews_only'].map((mode) => `<option value="${mode}" ${mode === library.merge_mode ? 'selected' : ''}>${mode}</option>`).join('')}</select></label><button class="neo-btn secondary" type="button" id="loraCivitaiPull" ${(selected && !library.civitai_loading) ? '' : 'disabled'}>${library.civitai_loading ? 'Pulling…' : 'Pull from CivitAI'}</button></div>${library.civitai_loading ? '<div class="neo-lora-civitai-progress" role="status" aria-live="polite"><span class="neo-lora-spinner"></span><span>Fetching CivitAI metadata, previews, and prompts…</span><span class="neo-lora-progress-bar"><i></i></span></div>' : `<div class="neo-lora-civitai-status" role="status" aria-live="polite">${escapeHtml(library.status || 'Ready')}</div>`}`}
@@ -22948,6 +23163,8 @@ const EMBEDDINGS_TI_EXTENSION_ID = 'embeddings_ti';
 const EMBEDDINGS_TI_DEFAULT_STATE = {
   folder_path: '',
   search: '',
+  folder_category: 'all',
+  folder_subcategory: 'all',
   selected_record_id: '',
   selected_preview_index: 0,
   records: [],
@@ -23546,7 +23763,23 @@ function bindLoraStackControls() {
   if (pickerSearch) pickerSearch.addEventListener('input', (event) => {
     const query = event.target.value;
     const matching = loraPickerRecords({ ...loraStackSettings(), library: { ...loraStackSettings().library, picker_query: query } })[0] || null;
-    updateLoraStackSettings({ library: { picker_query: query, selected_record_id: matching?.id || '' } });
+    updateLoraStackSettings({ library: { picker_query: query, selected_record_id: matching?.id || '', current_record: null } });
+    render();
+  });
+  const pickerFolderCategory = document.getElementById('loraStackPickerFolderCategory');
+  if (pickerFolderCategory) pickerFolderCategory.addEventListener('change', (event) => {
+    const category = event.target.value || 'all';
+    const draft = { ...loraStackSettings(), library: { ...loraStackSettings().library, folder_category: category, folder_subcategory: 'all' } };
+    const matching = loraPickerRecords(draft)[0] || null;
+    updateLoraStackSettings({ library: { folder_category: category, folder_subcategory: 'all', selected_record_id: matching?.id || '', current_record: null, selected_preview_index: 0 } });
+    render();
+  });
+  const pickerFolderSubcategory = document.getElementById('loraStackPickerFolderSubcategory');
+  if (pickerFolderSubcategory) pickerFolderSubcategory.addEventListener('change', (event) => {
+    const subcategory = event.target.value || 'all';
+    const draft = { ...loraStackSettings(), library: { ...loraStackSettings().library, folder_subcategory: subcategory } };
+    const matching = loraPickerRecords(draft)[0] || null;
+    updateLoraStackSettings({ library: { folder_subcategory: subcategory, selected_record_id: matching?.id || '', current_record: null, selected_preview_index: 0 } });
     render();
   });
   const pickerSelect = document.getElementById('loraStackPickerSelect');
@@ -23613,16 +23846,30 @@ function bindLoraStackControls() {
     if (action === 'down') moveLoraStackRow(index, 1);
     render();
   }));
+  const libraryFolderCategory = document.getElementById('loraLibraryFolderCategory');
+  if (libraryFolderCategory) libraryFolderCategory.addEventListener('change', (event) => {
+    const category = event.target.value || 'all';
+    const draft = { ...loraStackSettings(), library: { ...loraStackSettings().library, folder_category: category, folder_subcategory: 'all' } };
+    updateLoraStackSettings({ library: { folder_category: category, folder_subcategory: 'all', selected_record_id: '', current_record: null, selected_preview_index: 0 } });
+    const first = loraStackLibraryRecords()[0] || null;
+    if (first) updateLoraStackSettings({ library: { selected_record_id: first.id || '' } });
+    render();
+  });
+  const libraryFolderSubcategory = document.getElementById('loraLibraryFolderSubcategory');
+  if (libraryFolderSubcategory) libraryFolderSubcategory.addEventListener('change', (event) => {
+    const subcategory = event.target.value || 'all';
+    updateLoraStackSettings({ library: { folder_subcategory: subcategory, selected_record_id: '', current_record: null, selected_preview_index: 0 } });
+    const first = loraStackLibraryRecords()[0] || null;
+    if (first) updateLoraStackSettings({ library: { selected_record_id: first.id || '' } });
+    render();
+  });
   const search = document.getElementById('loraLibrarySearch');
   if (search) search.addEventListener('input', (event) => {
-    updateLoraStackSettings({ library: { search: event.target.value } });
-    clearTimeout(loraLibrarySearchTimer);
-    loraLibrarySearchTimer = setTimeout(() => render(), 140);
+    updateLoraStackSettings({ library: { search: event.target.value, selected_record_id: '', current_record: null, selected_preview_index: 0 } });
+    const first = loraStackLibraryRecords()[0] || null;
+    if (first) updateLoraStackSettings({ library: { selected_record_id: first.id || '' } });
+    render();
   });
-  const folder = document.getElementById('loraLibraryFolder');
-  if (folder) folder.addEventListener('change', (event) => { updateLoraStackSettings({ library: { folder_path: event.target.value } }); render(); });
-  const clearFilters = document.getElementById('loraLibraryClearFilters');
-  if (clearFilters) clearFilters.addEventListener('click', () => { updateLoraStackSettings({ library: { search: '', folder_path: '' } }); render(); });
   const select = document.getElementById('loraLibraryRecordSelect');
   if (select) select.addEventListener('change', (event) => { updateLoraStackSettings({ library: { selected_record_id: event.target.value, current_record: null, selected_preview_index: 0 } }); loraLibraryFetchRecord(event.target.value); render(); });
   const record = loraSelectedLibraryRecord();
@@ -24621,6 +24868,18 @@ function setWorkflowExtensionApplied(extensionIdValue, applied) {
     };
     state.imageKrea2LoraCompatibility = [];
   }
+  if (extensionIdValue === HIGH_RES_LAB_EXTENSION_ID) {
+    const raw = state.imageDraft?.[HIGH_RES_LAB_EXTENSION_ID] || {};
+    const current = { ...HIGH_RES_LAB_DEFAULTS, ...raw };
+    const explicitOrigin = highResLabEnableOrigin(current.enable_origin);
+    state.imageDraft[HIGH_RES_LAB_EXTENSION_ID] = {
+      ...current,
+      enabled: Boolean(applied),
+      // Applying the extension from the normal workflow UI is an explicit user
+      // action. Preview actions stamp preview_action before reaching this bridge.
+      enable_origin: applied ? (explicitOrigin || 'user') : (explicitOrigin || current.enable_origin || ''),
+    };
+  }
   if (extensionIdValue === ADETAILER_EXTENSION_ID) {
     const settings = adetailerSettings();
     state.imageDraft[ADETAILER_EXTENSION_ID] = { ...settings, enabled: Boolean(applied) };
@@ -25379,6 +25638,8 @@ function imageExtensionSubmitStateSnapshot(sceneDirectorSnapshotOverride = null)
         preset: cfgFixSettings().preset || 'off',
       }),
       [HIGH_RES_LAB_EXTENSION_ID]: stateFor(HIGH_RES_LAB_EXTENSION_ID, Boolean(highResLabSettings().enabled), {
+        ui_enabled: Boolean(highResLabSettings().enabled),
+        enable_origin: highResLabEnableOrigin(highResLabSettings().enable_origin),
         workflow_requested: Boolean(highResLabSettings().enabled && extensionWorkflowAppliedById(HIGH_RES_LAB_EXTENSION_ID)),
         workflow_applied: false,
         workflow_status: 'pending_provider_compile',
@@ -35499,57 +35760,54 @@ function imageResultsFilterControls() {
 
 function activeSavedResultSummary() {
   const visibleResults = visibleImageSavedResults();
-  if (!visibleResults.length) {
+  const selectedId = String(state.activeSavedResultId || '');
+  if (selectedId) {
+    const byId = visibleResults.find((item) => String(item?.result_id || '') === selectedId);
+    if (byId) return byId;
+  }
+  return visibleResults[state.activeSavedResultIndex] || visibleResults[0] || null;
+}
+
+function syncActiveSavedResultSelection(preferredId = '') {
+  const visibleResults = visibleImageSavedResults();
+  const wanted = String(preferredId || state.activeSavedResultId || '');
+  let index = wanted ? visibleResults.findIndex((item) => String(item?.result_id || '') === wanted) : -1;
+  if (index < 0 && visibleResults.length) index = Math.min(Math.max(Number(state.activeSavedResultIndex || 0), 0), visibleResults.length - 1);
+  if (index < 0) {
     state.activeSavedResultIndex = 0;
     state.activeSavedResultId = '';
     return null;
   }
-  let index = visibleResults.findIndex((item) => item?.result_id === state.activeSavedResultId);
-  if (index < 0) index = Math.min(Math.max(Number(state.activeSavedResultIndex || 0), 0), visibleResults.length - 1);
-  const selected = visibleResults[index] || visibleResults[0];
   state.activeSavedResultIndex = index;
-  state.activeSavedResultId = selected?.result_id || '';
-  return selected || null;
+  state.activeSavedResultId = String(visibleResults[index]?.result_id || '');
+  return visibleResults[index] || null;
+}
+
+function keepActiveSavedResultVisible() {
+  const strip = document.querySelector('.neo-output-card-strip');
+  const active = strip?.querySelector('.neo-output-card.active');
+  if (!strip || !active) return;
+  const left = active.offsetLeft;
+  const right = left + active.offsetWidth;
+  const viewportLeft = strip.scrollLeft;
+  const viewportRight = viewportLeft + strip.clientWidth;
+  if (left >= viewportLeft && right <= viewportRight) return;
+  const target = Math.max(0, left - Math.max(0, (strip.clientWidth - active.offsetWidth) / 2));
+  strip.scrollTo({ left: target, behavior: 'auto' });
+  state.imageResultsStripScrollLeft = strip.scrollLeft;
+}
+
+function restoreImageResultsStripScroll() {
+  const strip = document.querySelector('.neo-output-card-strip');
+  if (!strip) return;
+  const wanted = Math.max(0, Number(state.imageResultsStripScrollLeft || 0));
+  strip.scrollLeft = Math.min(wanted, Math.max(0, strip.scrollWidth - strip.clientWidth));
+  keepActiveSavedResultVisible();
 }
 
 function visibleImageSavedResults() {
   const broken = new Set(state.imageBrokenResultIds || []);
   return (state.imageSavedResults || []).filter((item) => item?.result_id && !broken.has(item.result_id));
-}
-
-function reconcileActiveSavedResultSelection({ fallbackIndex = null } = {}) {
-  const visibleResults = visibleImageSavedResults();
-  if (!visibleResults.length) {
-    state.activeSavedResultId = '';
-    state.activeSavedResultIndex = 0;
-    return null;
-  }
-  let index = visibleResults.findIndex((item) => item?.result_id === state.activeSavedResultId);
-  if (index < 0) {
-    const requested = fallbackIndex === null ? Number(state.activeSavedResultIndex || 0) : Number(fallbackIndex || 0);
-    index = Math.min(Math.max(Number.isFinite(requested) ? requested : 0, 0), visibleResults.length - 1);
-  }
-  state.activeSavedResultIndex = index;
-  state.activeSavedResultId = visibleResults[index]?.result_id || '';
-  return visibleResults[index] || null;
-}
-
-function captureImageResultsScrollPosition() {
-  const strip = document.querySelector('.neo-output-card-strip');
-  if (strip) state.imageResultsScrollLeft = Math.max(0, Number(strip.scrollLeft || 0));
-  return state.imageResultsScrollLeft;
-}
-
-function restoreImageResultsScrollPosition() {
-  const strip = document.querySelector('.neo-output-card-strip');
-  if (!strip) return;
-  strip.scrollLeft = Math.max(0, Number(state.imageResultsScrollLeft || 0));
-}
-
-function resetImageResultsScrollPosition() {
-  state.imageResultsScrollLeft = 0;
-  const strip = document.querySelector('.neo-output-card-strip');
-  if (strip) strip.scrollLeft = 0;
 }
 
 function basename(value) {
@@ -36695,7 +36953,7 @@ function currentImageSeedInputValue() {
 function lastResolvedImageSeed() {
   const activeOutput = state.imageResults?.[state.activeResultIndex || 0] || null;
   const savedMeta = state.activeSavedResultMetadata || null;
-  const activeSaved = activeSavedResultSummary();
+  const activeSaved = activeSavedResultSummary() || null;
   const candidates = [state.imageDraft._last_resolved_seed, activeOutput, savedMeta, activeSaved, state.activeImageJob];
   for (const item of candidates) {
     const seed = seedFromNestedObject(item);
@@ -37821,7 +38079,11 @@ function outputGenerationSetupSummary(activeMetadata = {}) {
   const verified = Boolean(integrity && !mismatches && ['verified', 'verified_with_untracked_boundaries', 'verified_to_last_available_boundary'].includes(String(integrity.status || '')));
   const extPayloads = activeMetadata?.extensions?.payloads && typeof activeMetadata.extensions.payloads === 'object' ? activeMetadata.extensions.payloads : {};
   const loraRows = Array.isArray(extPayloads?.[LORA_STACK_EXTENSION_ID]?.params?.loras) ? extPayloads[LORA_STACK_EXTENSION_ID].params.loras : [];
-  return { params, family, loader, mode, masked, engine, cropStitch, samplerBackend, stageCount, upscaleCount, integrity, mismatches, verified, loraCount: loraRows.length };
+  const kreaEditEngine = ['krea2', 'krea2_turbo'].includes(family) ? String(params.krea2_edit_engine || 'native').trim().toLowerCase() : '';
+  const kreaEditWeightSource = kreaEditEngine && kreaEditEngine !== 'native' ? String(params.krea2_edit_weight_source || 'separate_lora').trim().toLowerCase() : '';
+  const kreaEditReadiness = params._neo_krea2_edit_readiness && typeof params._neo_krea2_edit_readiness === 'object' ? params._neo_krea2_edit_readiness : null;
+  const kreaOstrisKvCache = kreaEditEngine === 'ostris_edit' ? Boolean(params.krea2_ostris_kv_cache) : false;
+  return { params, family, loader, mode, masked, engine, cropStitch, samplerBackend, stageCount, upscaleCount, integrity, mismatches, verified, loraCount: loraRows.length, kreaEditEngine, kreaEditWeightSource, kreaEditReadiness, kreaOstrisKvCache };
 }
 
 function renderOutputGenerationSetup(activeMetadata = {}) {
@@ -37830,10 +38092,15 @@ function renderOutputGenerationSetup(activeMetadata = {}) {
   const samplerEngine = setup.samplerBackend === 'res4lyf_clownshark' ? 'ClownsharKSampler' : 'Standard KSampler';
   const integrityLabel = setup.mismatches ? 'Parameter mismatch' : (setup.verified ? 'Parameters verified' : 'Parameter trace recorded');
   const integrityClass = setup.mismatches ? 'danger' : (setup.verified ? 'success' : 'info');
+  const kreaEditLabel = setup.kreaEditEngine === 'identity_edit' ? 'Krea 2 Identity Edit' : (setup.kreaEditEngine === 'ostris_edit' ? 'Krea 2 Ostris Edit' : (setup.kreaEditEngine === 'native' ? 'Krea 2 Native' : ''));
+  const kreaWeightLabel = setup.kreaEditWeightSource === 'baked_in_model' ? 'Baked edit weights' : (setup.kreaEditWeightSource === 'separate_lora' ? 'Separate edit LoRA' : '');
   const chips = [
     setup.family ? humanize(setup.family).replace(/Krea2/gi, 'Krea 2') : '',
     setup.loader ? imageMainModelTypeLabel(setup.loader, setup.loader) : '',
     setup.mode ? humanize(setup.mode) : '',
+    kreaEditLabel,
+    kreaWeightLabel,
+    setup.kreaEditEngine === 'ostris_edit' ? `KV Cache ${setup.kreaOstrisKvCache ? 'On' : 'Off'}` : '',
     setup.masked ? `${setup.engine === 'lanpaint' ? 'LanPaint' : (['krea2_anypaint', 'anypaint'].includes(setup.engine) ? 'Krea 2 AnyPaint' : 'Native')}${setup.cropStitch ? ' + Crop & Stitch' : ''}` : '',
     samplerEngine,
     `${setup.stageCount} sampling stage${setup.stageCount === 1 ? '' : 's'}`,
@@ -37844,6 +38111,10 @@ function renderOutputGenerationSetup(activeMetadata = {}) {
     <div class="neo-output-provider-replay-head"><strong>Generation Setup</strong><span class="neo-state-pill ${integrityClass}">${escapeHtml(integrityLabel)}</span></div>
     <div class="neo-output-chip-row">${chips.map((chip) => `<span class="neo-output-chip">${escapeHtml(chip)}</span>`).join('')}</div>
     <div class="neo-output-meta-grid neo-output-generation-values">
+      ${resultMetaTile('Krea Edit Engine', kreaEditLabel)}
+      ${resultMetaTile('Edit Weight Source', kreaWeightLabel)}
+      ${setup.kreaEditEngine === 'ostris_edit' ? resultMetaTile('Ostris KV Cache', setup.kreaOstrisKvCache ? 'On' : 'Off') : ''}
+      ${setup.kreaEditReadiness ? resultMetaTile('Krea Runtime', humanize(setup.kreaEditReadiness.status || 'unknown')) : ''}
       ${resultMetaTile('Size', setup.params.width && setup.params.height ? `${setup.params.width} × ${setup.params.height}` : '')}
       ${resultMetaTile('Steps', setup.params.steps)}
       ${resultMetaTile('CFG', setup.params.cfg)}
@@ -37853,6 +38124,41 @@ function renderOutputGenerationSetup(activeMetadata = {}) {
       ${resultMetaTile('Seed', setup.params.actual_seed ?? setup.params.seed)}
       ${resultMetaTile('Batch', setup.params.batch_count ?? setup.params.batch_size)}
     </div>
+  </div>`;
+}
+
+function imageKrea2EditReadinessFromMetadata(activeMetadata = {}) {
+  const candidates = [
+    activeMetadata?.runtime?.actual_params?._neo_krea2_edit_readiness,
+    activeMetadata?.params?._neo_krea2_edit_readiness,
+    activeMetadata?._neo_krea2_edit_readiness,
+  ];
+  return candidates.find((item) => item && typeof item === 'object') || null;
+}
+
+function renderOutputKrea2EditReadiness(activeMetadata = {}) {
+  const readiness = imageKrea2EditReadinessFromMetadata(activeMetadata);
+  if (!readiness) return '';
+  const status = String(readiness.status || 'unverified');
+  const tone = status === 'blocked' ? 'danger' : (status === 'ready' ? 'success' : 'warning');
+  const engine = String(readiness.engine || 'native');
+  const engineLabel = engine === 'identity_edit' ? 'Identity Edit v1.2' : (engine === 'ostris_edit' ? 'Ostris Edit' : 'Neo Native Adapter');
+  const weightLabel = readiness.weight_source === 'baked_in_model' ? 'Baked into Model' : (readiness.weight_source === 'separate_lora' ? 'Separate LoRA' : 'No engine LoRA');
+  const roles = Array.isArray(readiness.roles) ? readiness.roles : [];
+  const roleRows = roles.map((row) => {
+    const available = row?.available;
+    const checkState = available === true ? 'available' : (available === false ? 'blocked' : 'required');
+    const label = available === true ? 'Ready' : (available === false ? 'Missing' : 'Unchecked');
+    return `<div class="neo-output-replay-check" data-replay-check-state="${escapeAttr(checkState)}"><span>${escapeHtml(row?.label || row?.role_id || 'runtime role')}</span><small>${escapeHtml(label)}</small></div>`;
+  }).join('');
+  const blockers = Array.isArray(readiness.blockers) ? readiness.blockers : [];
+  const blockerRows = blockers.map((row) => `<div class="neo-output-replay-check" data-replay-check-state="blocked"><span>${escapeHtml(humanize(row?.code || 'runtime blocker'))}</span><small>${escapeHtml(row?.message || '')}</small></div>`).join('');
+  return `<div class="neo-output-provider-replay" data-output-krea2-edit-readiness="true">
+    <div class="neo-output-provider-replay-head"><strong>Krea Edit Runtime</strong><span class="neo-state-pill ${escapeAttr(tone)}">${escapeHtml(humanize(status))}</span></div>
+    <p class="neo-output-provider-replay-summary">Saved runtime truth for the Krea edit engine used by this result. Replay should preserve the same engine and edit-weight source instead of silently substituting another route.</p>
+    <div class="neo-output-chip-row"><span class="neo-output-chip is-active">Engine · ${escapeHtml(engineLabel)}</span><span class="neo-output-chip">Weights · ${escapeHtml(weightLabel)}</span>${engine === 'ostris_edit' ? `<span class="neo-output-chip">KV Cache · ${readiness.kv_cache ? 'On' : 'Off'}</span>` : ''}<span class="neo-output-chip">Catalog · ${readiness.object_info_available ? 'Verified at compile time' : 'Unverified'}</span></div>
+    <div class="neo-output-replay-check-grid">${roleRows}${blockerRows}</div>
+    ${state.detailMode === 'expert' ? `<details class="neo-output-raw-details"><summary>Krea readiness JSON</summary><pre class="neo-metadata-preview">${escapeHtml(JSON.stringify(readiness, null, 2))}</pre></details>` : ''}
   </div>`;
 }
 
@@ -37927,16 +38233,107 @@ function renderOutputPostFixPanel(activeSummary = {}, activeMetadata = {}, activ
     </div>`;
 }
 
+function imageMetadataRecoveryControlsHtml() {
+  const recovery = state.imageMetadataRecovery || {};
+  return `<div class="neo-results-inline-actions">
+    <input id="imageMetadataRecoveryFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    <button class="neo-btn secondary" id="imageMetadataRecoveryBtn" type="button" ${recovery.loading ? 'disabled' : ''}>${recovery.loading ? 'Reading metadata…' : 'Load Image Metadata'}</button>
+    ${recovery.record ? '<button class="neo-btn secondary" id="imageMetadataRecoveryClearBtn" type="button">Return to Saved Result</button>' : ''}
+  </div>`;
+}
+
+function imageMetadataRecoveryPanelHtml() {
+  const recovery = state.imageMetadataRecovery || {};
+  if (!recovery.record && !recovery.error) return '';
+  if (recovery.error) return `<div class="neo-warning-panel"><strong>Metadata Recovery</strong><p>${escapeHtml(recovery.error)}</p></div>`;
+  const payload = recovery.payload || {};
+  const source = payload.source === 'quarantined' ? 'Quarantined sidecar recovered' : (payload.status === 'embedded_metadata_only' ? 'Embedded image metadata only' : 'Full Neo sidecar recovered');
+  return `<div class="neo-ui-card compact" data-testid="image-metadata-recovery-status"><strong>Portable Metadata Recovery</strong>${badgeRow([source, payload.neo_output_id ? `ID · ${payload.neo_output_id}` : '', recovery.filename || ''].filter(Boolean))}<p class="neo-muted">This Inspector view came from the loaded image. Renaming or moving a Neo image does not break lookup when its embedded output ID is still present.</p></div>`;
+}
+
+async function recoverImageMetadataFromFile(file) {
+  if (!file) return;
+  const recovery = state.imageMetadataRecovery || {};
+  if (recovery.previewUrl) URL.revokeObjectURL(recovery.previewUrl);
+  const previewUrl = URL.createObjectURL(file);
+  state.imageMetadataRecovery = { loading: true, error: '', status: '', filename: file.name || 'Recovered image', previewUrl, record: null, payload: null };
+  render();
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await fetch('/api/image/recover-metadata', { method: 'POST', body: form });
+    const payload = await response.json();
+    if (!response.ok || payload.ok === false) throw new Error(payload.message || payload.detail || 'No Neo metadata was found in this image.');
+    state.imageMetadataRecovery = { loading: false, error: '', status: payload.status || '', filename: file.name || 'Recovered image', previewUrl, record: payload.record || null, payload };
+  } catch (error) {
+    state.imageMetadataRecovery = { loading: false, error: error.message || 'Could not recover Neo metadata from this image.', status: 'failed', filename: file.name || '', previewUrl, record: null, payload: null };
+  }
+  render();
+}
+
+function clearImageMetadataRecovery() {
+  const recovery = state.imageMetadataRecovery || {};
+  if (recovery.previewUrl) URL.revokeObjectURL(recovery.previewUrl);
+  state.imageMetadataRecovery = { loading: false, error: '', status: '', filename: '', previewUrl: '', record: null, payload: null };
+  render();
+}
+
+async function scanImageMetadataIntegrityUi() {
+  state.imageMetadataIntegrity = { loading: true, error: '', report: null };
+  render();
+  try {
+    const response = await fetch('/api/image/results-integrity/scan');
+    const payload = await response.json();
+    if (!response.ok || payload.ok === false) throw new Error(payload.detail || 'Metadata integrity scan failed.');
+    state.imageMetadataIntegrity = { loading: false, error: '', report: payload };
+  } catch (error) {
+    state.imageMetadataIntegrity = { loading: false, error: error.message || 'Metadata integrity scan failed.', report: null };
+  }
+  render();
+}
+
+async function quarantineImageMetadataOrphansUi() {
+  const report = state.imageMetadataIntegrity?.report || {};
+  const count = Number(report.orphan_count || 0) + Number(report.resolved_collision_count || 0);
+  if (!count) return;
+  if (!confirm(`Move orphan/stale metadata into Neo's reversible quarantine?\n\n${count} cleanup group(s) are currently eligible. Image files will not be deleted.`)) return;
+  state.imageMetadataIntegrity = { ...state.imageMetadataIntegrity, loading: true, error: '' };
+  render();
+  try {
+    const response = await fetch('/api/image/results-integrity/quarantine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ include_resolved_collisions: true }) });
+    const payload = await response.json();
+    if (!response.ok || payload.ok === false) throw new Error((payload.errors || []).join('\n') || 'Metadata quarantine failed.');
+    state.imageMetadataIntegrity = { loading: false, error: '', report: null };
+    state.imageResultsLoadedCategory = null;
+    state.imageResultsIntegrityChecked = false;
+    await loadImageResults({ force: true });
+  } catch (error) {
+    state.imageMetadataIntegrity = { ...state.imageMetadataIntegrity, loading: false, error: error.message || 'Metadata quarantine failed.' };
+    render();
+  }
+}
+
+function imageMetadataIntegrityPanelHtml() {
+  const integrity = state.imageMetadataIntegrity || {};
+  const report = integrity.report;
+  if (!report && !integrity.error) return `<div class="neo-results-inline-actions"><button class="neo-btn secondary" id="imageMetadataIntegrityScanBtn" type="button" ${integrity.loading ? 'disabled' : ''}>${integrity.loading ? 'Scanning metadata…' : 'Scan Metadata Integrity'}</button></div>`;
+  if (integrity.error) return `<div class="neo-warning-panel"><strong>Metadata Integrity</strong><p>${escapeHtml(integrity.error)}</p><button class="neo-btn secondary" id="imageMetadataIntegrityScanBtn" type="button">Retry Scan</button></div>`;
+  const eligible = Number(report.orphan_count || 0) + Number(report.resolved_collision_count || 0);
+  return `<div class="neo-ui-card compact" data-testid="image-metadata-integrity"><strong>Metadata Integrity</strong>${badgeRow([`Orphans · ${report.orphan_count || 0}`, `Filename collisions · ${report.collision_count || 0}`, `Unresolved · ${report.unresolved_collision_count || 0}`])}<p class="neo-muted">Orphans have no corresponding image at their recorded path. Collisions are repaired automatically only when the image's embedded Neo ID identifies the authoritative sidecar.</p><div class="neo-results-inline-actions"><button class="neo-btn secondary" id="imageMetadataIntegrityScanBtn" type="button">Scan Again</button><button class="neo-btn secondary" id="imageMetadataQuarantineBtn" type="button" ${eligible ? '' : 'disabled'}>Quarantine Safe Cleanup (${eligible})</button></div></div>`;
+}
+
 function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
   if (!activeSummary && !activeMetadata) {
     return `
       <section class="neo-results-block neo-output-inspector-card">
-        <div class="neo-results-block-head"><strong>Output Inspector</strong><span class="neo-muted">Recipe view</span></div>
-        <div class="neo-empty-state"><strong>Select a saved output</strong><p>Neo will show the image, prompt recipe, model, params, source, and extension slots here.</p></div>
+        <div class="neo-results-block-head"><div><strong>Output Inspector</strong><span class="neo-muted">Recipe view</span></div>${imageMetadataRecoveryControlsHtml()}</div>
+        <div class="neo-empty-state"><strong>Select a saved output or load a Neo image</strong><p>Neo can recover embedded output identity and metadata even after an image has been renamed or moved elsewhere.</p></div>
+        ${imageMetadataRecoveryPanelHtml()}
       </section>`;
   }
 
   const metadata = activeMetadata || {};
+  const recoveryActive = Boolean(state.imageMetadataRecovery?.record);
   const prompt = metadata.prompt || {};
   const params = metadata.params || {};
   const model = metadata.model || {};
@@ -37967,6 +38364,7 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
     runTimingLabel ? `Run Time · ${runTimingLabel.replace(/^total\s+/, '')}` : '',
     cleanupSummary.label,
     metadata.lineage?.depth !== undefined ? `Lineage · depth ${Number(metadata.lineage.depth || 0)}` : '',
+    activeFile?.neo_output_id ? `Neo ID · ${activeFile.neo_output_id}` : '',
     conditioningMode ? `Prompt Conditioning · ${conditioningMode}${conditioningChanged ? ' · changed' : ''}` : '',
   ].filter(Boolean);
 
@@ -37974,12 +38372,14 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
     <section class="neo-results-block neo-output-inspector-card">
       <div class="neo-results-block-head">
         <div><strong>Output Inspector</strong><span class="neo-muted neo-block-subtitle">Recipe card with prompt, route, and saved output details</span></div>
-        <div class="neo-results-inline-actions">
+        ${recoveryActive ? '' : `<div class="neo-results-inline-actions">
           <button class="neo-btn secondary" id="imageResultsRefreshBtn" type="button">Refresh Results</button>
           <button class="neo-btn secondary" id="imageResultFolderBtn" type="button">Open Neo_Data Folder</button>
           <button class="neo-btn danger" id="imageResultDeleteBtn" type="button" title="Preview safe delete options before removing this saved Neo_Data output.">Delete Saved Output</button>
-        </div>
+        </div>`}
+        ${imageMetadataRecoveryControlsHtml()}
       </div>
+      ${imageMetadataRecoveryPanelHtml()}
       <div class="neo-output-inspector-top">
         <div class="neo-output-inspector-media">
           <div class="neo-output-inspector-thumb-wrap">
@@ -37993,7 +38393,7 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
           ${chips.length ? `<div class="neo-output-chip-row">${chips.map((chip) => `<span class="neo-output-chip">${escapeHtml(chip)}</span>`).join('')}</div>` : ''}
         </div>
       </div>
-      <div class="neo-output-reuse-action-row neo-output-reuse-action-row--full-width" aria-label="Output reuse actions">
+      ${recoveryActive ? '' : `<div class="neo-output-reuse-action-row neo-output-reuse-action-row--full-width" aria-label="Output reuse actions">
         <span class="neo-output-reuse-label">Reuse selected output as source</span>
         <div class="neo-output-reuse-action-buttons">
           <button class="neo-btn secondary neo-output-reuse-action-btn" type="button" data-send-output-to="img2img" title="Send selected output to Img2Img">↗ Img2Img</button>
@@ -38003,8 +38403,9 @@ function renderOutputInspectorCard(activeSummary, activeMetadata, activeFile) {
         </div>
       </div>
       ${renderOutputReplayRegeneratePanel(activeSummary, metadata, media || activeFile || {})}
-      ${renderOutputLatePassContinuationPanel(activeSummary, metadata)}
+      ${renderOutputLatePassContinuationPanel(activeSummary, metadata)}`}
       ${renderOutputGenerationSetup(metadata)}
+      ${renderOutputKrea2EditReadiness(metadata)}
       ${renderOutputProviderReplayValidation(metadata)}
       ${renderOutputParameterIntegrity(metadata)}
       ${renderOutputAnyPaintRuntimeDiagnostics(metadata)}
@@ -38076,7 +38477,7 @@ function renderImageReplayStorageManager() {
           ${imageReplayStorageUsageTile('Saved outputs', usage.outputs || {})}
           ${imageReplayStorageUsageTile('Metadata', usage.metadata || {})}
           ${imageReplayStorageUsageTile('Latent states', usage.latents || {})}
-          <div class="neo-output-storage-tile"><span>Total</span><strong>${escapeHtml(usage.total_display || '0 B')}</strong><small>${Number(records.metadata_records_scanned || 0)} records scanned</small></div>
+          <div class="neo-output-storage-tile"><span>Total</span><strong>${escapeHtml(usage.total_display || '0 B')}</strong><small>${Number(records.metadata_records_count ?? records.metadata_records_scanned ?? 0)} metadata records${records.metadata_scan_mode === 'skipped_no_latent_files' ? ' · latent scan skipped' : ''}</small></div>
         </div>
         <div class="neo-output-storage-policy">
           <span class="neo-output-chip${orphanCount ? '' : ' is-active'}">${escapeHtml(orphanCount ? `${orphanCount} orphan latent item(s)` : 'No orphan latents')}</span>
@@ -38137,7 +38538,7 @@ function renderImageOutputSaveDetails() {
         <label>Padding<input id="imageOutputPadding" type="number" min="2" max="8" value="${Number(settings.filename_padding || 4)}"></label>
       </div>
       <label class="neo-output-cleanup-toggle"><input id="imageOutputCleanupNative" type="checkbox" ${settings.cleanup_backend_native_outputs !== false ? 'checked' : ''}> After saving to Neo_Data, remove backend duplicate output files</label>
-      <p class="neo-output-safety-copy">Neo-owned saved outputs stay safe. Only backend duplicate files are cleaned.</p>
+      <p class="neo-output-safety-copy">Neo-owned saved outputs stay safe. Only backend duplicate files are cleaned. Filename prefix and padding are remembered separately for each category folder.</p>
       <div class="neo-output-destination-preview">
         <span>Output:</span><code>${escapeHtml(settings.output_dir || 'neo_data/outputs/image/uncategorized')}</code>
         <span>Metadata:</span><code>${escapeHtml(settings.metadata_dir || 'neo_data/outputs/image_metadata/uncategorized')}</code>
@@ -38192,6 +38593,19 @@ async function saveImageOutputSettings(extra = {}) {
   }
 }
 
+async function switchImageOutputCategory(category) {
+  const current = state.imageOutputSettings || {};
+  const wanted = String(category || 'Uncategorized');
+  const entries = current.category_naming && typeof current.category_naming === 'object' ? current.category_naming : {};
+  const matchedKey = Object.keys(entries).find((key) => key.toLowerCase() === wanted.toLowerCase());
+  const savedNaming = matchedKey ? entries[matchedKey] : null;
+  await saveImageOutputSettings({
+    selected_category: wanted,
+    filename_prefix: savedNaming?.filename_prefix || 'NeoStudio',
+    filename_padding: Number(savedNaming?.filename_padding || 4),
+  });
+}
+
 async function addImageOutputCategory() {
   const name = document.getElementById('imageOutputNewCategory')?.value || '';
   if (!name.trim()) {
@@ -38231,41 +38645,42 @@ async function openImageOutputFolder() {
 
 function imageResultsWorkspaceBody() {
   const results = visibleImageSavedResults();
-  const activeSummary = activeSavedResultSummary();
-  const activeMetadata = state.activeSavedResultMetadata;
+  const recovery = state.imageMetadataRecovery || {};
+  const recoveredMetadata = recovery.record && typeof recovery.record === 'object' ? recovery.record : null;
+  const activeMetadata = recoveredMetadata || state.activeSavedResultMetadata;
+  const activeSummary = recoveredMetadata ? { result_id: recoveredMetadata.result_id || recovery.payload?.result_id || recovery.payload?.neo_output_id || 'recovered', save_category: recoveredMetadata.save_details?.category || 'Recovered', active_file: { file_id: recovery.payload?.file_id || recoveredMetadata.outputs?.active_file || 'recovered_image', filename: recovery.filename || 'Recovered image', url: recovery.previewUrl || '', path: 'Loaded from external file' } } : activeSavedResultSummary();
   const metadataFiles = Array.isArray(activeMetadata?.outputs?.files) ? activeMetadata.outputs.files : [];
-  const preferredFileId = state.activeSavedOutputFileId || activeMetadata?.outputs?.active_file || activeSummary?.active_file?.file_id || '';
-  const activeFile = metadataFiles.find((item) => item.file_id === preferredFileId) || activeSummary?.active_file || metadataFiles[0] || {};
+  const preferredFileId = recoveredMetadata ? (recovery.payload?.file_id || activeMetadata?.outputs?.active_file || metadataFiles[0]?.file_id || '') : (state.activeSavedOutputFileId || activeMetadata?.outputs?.active_file || activeSummary?.active_file?.file_id || '');
+  const activeFile = recoveredMetadata ? { ...(metadataFiles.find((item) => item.file_id === preferredFileId) || metadataFiles[0] || {}), file_id: preferredFileId || 'recovered_image', filename: recovery.filename || metadataFiles[0]?.filename || 'Recovered image', url: recovery.previewUrl || '', path: 'Loaded from external file' } : (metadataFiles.find((item) => item.file_id === preferredFileId) || activeSummary?.active_file || metadataFiles[0] || {});
   const outputCards = results.length
     ? results.map((item, index) => {
       const file = item.active_file || {};
       const filename = file.filename || item.result_id || `Saved Output ${index + 1}`;
-      const selected = item.result_id === state.activeSavedResultId;
+      const selected = String(item.result_id || '') === String(state.activeSavedResultId || '') || (!state.activeSavedResultId && index === state.activeSavedResultIndex);
       const imageUrl = imageResultImageUrl(file, item);
       return `
-      <button class="neo-output-card ${selected ? 'active' : ''}" type="button" data-saved-result-id="${escapeAttr(item.result_id || '')}" data-saved-result-index="${index}" title="Inspect saved output ${index + 1}" aria-label="Inspect saved output ${index + 1}">
+      <button class="neo-output-card ${selected ? 'active' : ''}" type="button" data-saved-result-index="${index}" data-saved-result-id="${escapeAttr(item.result_id || '')}" title="Inspect saved output ${index + 1}" aria-label="Inspect saved output ${index + 1}">
         ${imageUrl ? `<img src="${escapeAttr(imageUrl)}" alt="Saved output ${index + 1}" data-result-thumb="${escapeAttr(item.result_id || '')}">` : '<span class="neo-output-card-empty">No preview</span>'}
         <strong>${escapeHtml(filename)}</strong>
         <small>${escapeHtml(item.save_category || item.created_at || item.subtab || 'Neo_Data')}</small>
       </button>`;
     }).join('')
-    : `<div class="neo-empty-state"><strong>${state.imageResultsLoading ? 'Loading saved outputs…' : 'No saved outputs yet'}</strong><p>Completed generations saved into Neo_Data will appear here.</p></div>`;
-  const loadedCount = results.length;
-  const totalCount = Math.max(loadedCount, Number(state.imageResultsTotal || 0));
-  const remainingCount = Math.max(0, totalCount - loadedCount);
-  const paginationControl = state.imageResultsHasMore
-    ? `<button class="neo-btn secondary" id="imageResultsLoadMoreBtn" type="button" ${state.imageResultsLoading ? 'disabled' : ''}>${state.imageResultsLoading ? 'Loading…' : `Load ${escapeHtml(String(Math.min(Number(state.imageResultsPageSize || 60), remainingCount)))} More`}</button>`
-    : (loadedCount ? '<span class="neo-muted">All matching outputs loaded</span>' : '');
+    : `<div class="neo-empty-state"><strong>${state.imageResultsLoading ? 'Loading saved outputs…' : (activeImageResultsCategory() !== 'all' ? `No available outputs in ${escapeHtml(activeImageResultsCategory())}` : 'No saved outputs yet')}</strong><p>${activeImageResultsCategory() !== 'all' ? 'This filter may be empty even when other categories contain saved outputs.' : 'Completed generations saved into Neo_Data will appear here.'}</p>${activeImageResultsCategory() !== 'all' && !state.imageResultsLoading ? '<button class="neo-btn secondary" id="imageResultsShowAllBtn" type="button">Show all categories</button>' : ''}</div>`;
+
+  const resultsCountLabel = state.imageResultsTotalKnown
+    ? `Showing ${results.length} of ${Number(state.imageResultsTotal || results.length)}`
+    : `Showing ${results.length} loaded${state.imageResultsHasMore ? ' · more available' : ''}`;
 
   return `
     <div class="neo-results-shell" data-results-category="${escapeAttr(activeImageResultsCategory())}">
       ${renderImageOutputSaveDetails()}
       <section class="neo-results-block">
-        <div class="neo-results-block-head"><strong>Saved Outputs · ${escapeHtml(String(loadedCount))} of ${escapeHtml(String(totalCount))}</strong><span class="neo-muted">Loaded from /api/image/results · Neo_Data only · ${escapeHtml((state.imageResultsSort || 'newest') === 'newest' ? 'New to old' : 'Old to new')}</span></div>
+        <div class="neo-results-block-head"><strong>Saved Outputs</strong><span class="neo-muted">Loaded from /api/image/results · ${resultsCountLabel} · Neo_Data only · ${escapeHtml((state.imageResultsSort || 'newest') === 'newest' ? 'New to old' : 'Old to new')}</span></div>
         ${imageResultsFilterControls()}
+        ${imageMetadataIntegrityPanelHtml()}
         ${state.imageResultsError ? `<p class="neo-error-text">${escapeHtml(state.imageResultsError)}</p>` : ''}
         <div class="neo-output-card-strip">${outputCards}</div>
-        <div class="neo-results-pagination">${paginationControl}</div>
+        ${state.imageResultsHasMore ? `<div class="neo-results-load-more"><button class="neo-btn secondary" id="imageResultsLoadMoreBtn" type="button" ${state.imageResultsLoading ? 'disabled' : ''}>${state.imageResultsLoading ? 'Loading…' : (state.imageResultsTotalKnown ? `Load more (${Math.max(0, Number(state.imageResultsTotal || 0) - results.length)} remaining)` : 'Load more')}</button></div>` : ''}
       </section>
       ${renderOutputInspectorCard(activeSummary, activeMetadata, activeFile)}
     </div>`;
@@ -38274,45 +38689,49 @@ function imageResultsWorkspaceBody() {
 async function loadImageResults({ force = false, append = false } = {}) {
   const category = activeImageResultsCategory();
   const sort = state.imageResultsSort || 'newest';
-  // Empty category guard: if (!force && state.imageResultsLoadedCategory === category) return;
+  // Legacy empty-category guard contract retained for source-level compatibility:
+  // if (!force && state.imageResultsLoadedCategory === category) return;
   if (!append && !force && state.imageResultsLoadedCategory === category && state.imageResultsLoadedSort === sort) return;
-  if (append && !state.imageResultsHasMore) return;
   if (state.imageResultsLoading) return;
-  if (!append) await guardImageResultsIntegrity({ selectedResultId: activeSavedResultSummary()?.result_id || '' });
+  const selectedBefore = String(state.activeSavedResultId || activeSavedResultSummary()?.result_id || '');
+  if (!append) await guardImageResultsIntegrity({ selectedResultId: selectedBefore });
   state.imageResultsLoading = true;
   state.imageResultsError = '';
   try {
-    const pageSize = Math.max(1, Number(state.imageResultsPageSize || 60));
-    const offset = append ? Math.max(0, Number(state.imageResultsNextOffset || 0)) : 0;
-    const response = await fetch(`/api/image/results?category=${encodeURIComponent(category)}&sort=${encodeURIComponent(sort)}&limit=${encodeURIComponent(pageSize)}&offset=${encodeURIComponent(offset)}`);
+    const limit = Math.max(1, Number(state.imageResultsPageSize || 60));
+    const offset = append ? Math.max(0, Number(state.imageResultsNextOffset ?? state.imageSavedResults.length)) : 0;
+    const response = await fetch(`/api/image/results?category=${encodeURIComponent(category)}&sort=${encodeURIComponent(sort)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`);
     if (!response.ok) throw new Error('Results API failed');
     const payload = await response.json();
-    const page = Array.isArray(payload.results) ? payload.results : [];
+    const incoming = Array.isArray(payload.results) ? payload.results : [];
     if (append) {
-      const merged = new Map((state.imageSavedResults || []).filter((item) => item?.result_id).map((item) => [item.result_id, item]));
-      page.forEach((item) => { if (item?.result_id) merged.set(item.result_id, item); });
-      state.imageSavedResults = Array.from(merged.values());
+      const byId = new Map((state.imageSavedResults || []).filter(Boolean).map((item) => [String(item.result_id || ''), item]));
+      incoming.forEach((item) => { if (item?.result_id) byId.set(String(item.result_id), item); });
+      state.imageSavedResults = Array.from(byId.values());
     } else {
-      state.imageSavedResults = Array.from(new Map(page.filter((item) => item?.result_id).map((item) => [item.result_id, item])).values());
+      state.imageSavedResults = incoming;
       state.imageBrokenResultIds = [];
     }
-    state.imageResultsTotal = Math.max(0, Number(payload.total_matching ?? payload.total ?? state.imageSavedResults.length));
-    state.imageResultsNextOffset = Math.max(0, Number(payload.next_offset ?? (offset + page.length)));
+    state.imageResultsTotal = Number(payload.total ?? state.imageSavedResults.length);
+    state.imageResultsTotalKnown = payload.total_known !== false;
     state.imageResultsHasMore = Boolean(payload.has_more);
-    const visibleResults = visibleImageSavedResults();
-    const activeSummary = reconcileActiveSavedResultSelection();
+    state.imageResultsNextOffset = Number(payload.next_offset ?? state.imageSavedResults.length);
     state.imageResultsLoadedCategory = category;
     state.imageResultsLoadedSort = sort;
+    const selected = syncActiveSavedResultSelection(selectedBefore);
     if (!append) {
-      state.activeSavedResultMetadata = null;
-      state.activeSavedResultReuse = null;
-      state.activeSavedOutputFileId = '';
-      if (visibleResults.length) {
-        await loadImageResultDetail(activeSummary?.result_id || visibleResults[0].result_id, { renderAfter: false });
-      } else {
-        state.activeSavedResultIndex = 0;
-        state.activeSavedResultId = '';
-        state.imageResultsError = '';
+      const loadedMetadataId = String(state.activeSavedResultMetadata?.result_id || '');
+      if (!selected) {
+        state.activeSavedResultMetadata = null;
+        state.activeSavedResultReuse = null;
+        state.activeSavedOutputFileId = '';
+        state.activeSavedInspectorMediaId = '';
+      } else if (loadedMetadataId !== String(selected.result_id || '')) {
+        state.activeSavedResultMetadata = null;
+        state.activeSavedResultReuse = null;
+        state.activeSavedOutputFileId = '';
+        state.activeSavedInspectorMediaId = '';
+        await loadImageResultDetail(selected.result_id, { renderAfter: false });
       }
     }
   } catch (error) {
@@ -38323,22 +38742,22 @@ async function loadImageResults({ force = false, append = false } = {}) {
   }
 }
 
+
 async function loadImageResultDetail(resultId, { renderAfter = true } = {}) {
   if (!resultId) return;
   const category = activeImageResultsCategory();
   try {
     const response = await fetch(`/api/image/results/${encodeURIComponent(resultId)}?category=${encodeURIComponent(category)}`);
     if (response.status === 404) {
-      const removedIndex = Math.max(0, state.imageSavedResults.findIndex((item) => item?.result_id === resultId));
       state.imageSavedResults = state.imageSavedResults.filter((item) => item?.result_id !== resultId);
-      if (state.activeSavedResultId === resultId) state.activeSavedResultId = '';
-      const nextSummary = reconcileActiveSavedResultSelection({ fallbackIndex: removedIndex });
+      if (state.imageResultsTotal > 0) state.imageResultsTotal -= 1;
+      if (String(state.activeSavedResultId || '') === String(resultId)) state.activeSavedResultId = '';
+      syncActiveSavedResultSelection();
       state.activeSavedResultMetadata = null;
       state.activeSavedResultReuse = null;
       state.activeSavedOutputFileId = '';
       state.activeSavedInspectorMediaId = '';
       state.imageResultsError = state.imageSavedResults.length ? 'Selected output is missing from Neo_Data and was removed from the Results list.' : '';
-      if (nextSummary?.result_id) await loadImageResultDetail(nextSummary.result_id, { renderAfter });
       return;
     }
     if (!response.ok) throw new Error('Result detail API failed');
@@ -38493,6 +38912,7 @@ function restoreHighResLabSettingsFromReuse(reuse = {}) {
     ...highResLabSettings(),
     ...cleaned,
     enabled: Boolean(block.enabled && routeEnabled),
+    enable_origin: Boolean(block.enabled && routeEnabled) ? 'user' : (highResLabEnableOrigin(metadata.enable_origin) || ''),
     restored_from_output: reuse.result_id || '',
     restore_policy: metadata.restore_policy || extensions.extension_restore_policies?.[HIGH_RES_LAB_EXTENSION_ID] || 'revalidate_route_nodes_high_res_lab_before_enable',
     restore_state: routeEnabled ? 'restored_for_backend_revalidation' : 'restored_gated_for_review',
@@ -39136,10 +39556,10 @@ async function performImageResultDelete(cascade = 'output_only') {
     const response = await fetch(`/api/image/results/${encodeURIComponent(resultId)}?category=${encodeURIComponent(category)}&cascade=${encodeURIComponent(cascade)}`, { method: 'DELETE' });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok === false) throw new Error(payload.detail || payload.message || 'Delete failed');
-    const removedIndex = Math.max(0, state.imageSavedResults.findIndex((item) => item?.result_id === resultId));
     state.imageSavedResults = state.imageSavedResults.filter((item) => item?.result_id !== resultId);
-    if (state.activeSavedResultId === resultId) state.activeSavedResultId = '';
-    reconcileActiveSavedResultSelection({ fallbackIndex: removedIndex });
+    if (state.imageResultsTotal > 0) state.imageResultsTotal -= 1;
+    if (String(state.activeSavedResultId || '') === String(resultId)) state.activeSavedResultId = '';
+    syncActiveSavedResultSelection();
     state.activeSavedResultMetadata = null;
     state.activeSavedResultReuse = null;
     state.activeSavedOutputFileId = '';
@@ -39282,12 +39702,22 @@ function bindImageZoomTriggers() {
 }
 
 function bindImageResultsWorkspace() {
+  const recoveryBtn = document.getElementById('imageMetadataRecoveryBtn');
+  const recoveryFile = document.getElementById('imageMetadataRecoveryFile');
+  if (recoveryBtn && recoveryFile) recoveryBtn.addEventListener('click', () => recoveryFile.click());
+  if (recoveryFile) recoveryFile.addEventListener('change', () => recoverImageMetadataFromFile(recoveryFile.files?.[0]));
+  const recoveryClear = document.getElementById('imageMetadataRecoveryClearBtn');
+  if (recoveryClear) recoveryClear.addEventListener('click', clearImageMetadataRecovery);
+  const integrityScan = document.getElementById('imageMetadataIntegrityScanBtn');
+  if (integrityScan) integrityScan.addEventListener('click', scanImageMetadataIntegrityUi);
+  const quarantineBtn = document.getElementById('imageMetadataQuarantineBtn');
+  if (quarantineBtn) quarantineBtn.addEventListener('click', quarantineImageMetadataOrphansUi);
   document.querySelectorAll('[data-saved-result-index]').forEach((button) => {
     button.addEventListener('click', async () => {
       const index = Number(button.dataset.savedResultIndex || 0);
-      state.activeSavedResultId = button.dataset.savedResultId || '';
+      const resultId = String(button.dataset.savedResultId || '');
       state.activeSavedResultIndex = Number.isFinite(index) ? index : 0;
-      captureImageResultsScrollPosition();
+      state.activeSavedResultId = resultId || String(visibleImageSavedResults()[state.activeSavedResultIndex]?.result_id || '');
       state.activeSavedOutputFileId = '';
       state.activeSavedInspectorMediaId = '';
       const summary = activeSavedResultSummary();
@@ -39319,17 +39749,16 @@ function bindImageResultsWorkspace() {
     });
   });
   document.querySelectorAll('[data-result-thumb]').forEach((img) => {
-    img.addEventListener('error', async () => {
+    img.addEventListener('error', () => {
       const resultId = img.getAttribute('data-result-thumb');
       if (!resultId) return;
-      const selectedWasBroken = state.activeSavedResultId === resultId;
       const broken = new Set(state.imageBrokenResultIds || []);
       broken.add(resultId);
       state.imageBrokenResultIds = Array.from(broken);
       img.closest('.neo-output-card')?.remove();
       const visibleResults = visibleImageSavedResults();
-      if (selectedWasBroken) state.activeSavedResultId = '';
-      const nextSummary = reconcileActiveSavedResultSelection({ fallbackIndex: state.activeSavedResultIndex });
+      if (String(state.activeSavedResultId || '') === String(resultId)) state.activeSavedResultId = '';
+      syncActiveSavedResultSelection();
       if (!visibleResults.length) {
         state.activeSavedResultMetadata = null;
         state.activeSavedResultReuse = null;
@@ -39337,7 +39766,6 @@ function bindImageResultsWorkspace() {
       state.imageResultsError = visibleResults.length
         ? 'A missing output thumbnail was hidden from this Results view.'
         : 'No available saved outputs found in Neo_Data.';
-      if (selectedWasBroken && nextSummary?.result_id) await loadImageResultDetail(nextSummary.result_id);
       // Do not invalidate loaded category/sort or call render() here. Broken image
       // events can fire during render; re-rendering from the error handler creates
       // a refresh loop if metadata exists but the image file was deleted manually.
@@ -39345,10 +39773,18 @@ function bindImageResultsWorkspace() {
   });
   const refresh = document.getElementById('imageResultsRefreshBtn');
   if (refresh) refresh.addEventListener('click', () => loadImageResults({ force: true }));
-  const resultStrip = document.querySelector('.neo-output-card-strip');
-  if (resultStrip) resultStrip.addEventListener('scroll', () => {
-    state.imageResultsScrollLeft = Math.max(0, Number(resultStrip.scrollLeft || 0));
-  }, { passive: true });
+  const showAllResults = document.getElementById('imageResultsShowAllBtn');
+  if (showAllResults) showAllResults.addEventListener('click', () => {
+    state.imageResultsFilterCategory = 'all';
+    state.activeSavedResultIndex = 0;
+    state.activeSavedResultId = '';
+    state.imageResultsNextOffset = 0;
+    state.imageResultsHasMore = false;
+    state.imageResultsTotalKnown = true;
+    state.imageResultsLoadedCategory = null;
+    state.imageResultsIntegrityChecked = false;
+    loadImageResults({ force: true });
+  });
   const loadMore = document.getElementById('imageResultsLoadMoreBtn');
   if (loadMore) loadMore.addEventListener('click', () => loadImageResults({ append: true }));
   const categoryFilter = document.getElementById('imageResultsCategoryFilter');
@@ -39356,11 +39792,10 @@ function bindImageResultsWorkspace() {
     state.imageResultsFilterCategory = categoryFilter.value || 'all';
     state.activeSavedResultIndex = 0;
     state.activeSavedResultId = '';
-    resetImageResultsScrollPosition();
-    state.imageSavedResults = [];
     state.imageResultsNextOffset = 0;
-    state.imageResultsTotal = 0;
     state.imageResultsHasMore = false;
+    state.imageResultsTotalKnown = true;
+    state.imageResultsStripScrollLeft = 0;
     state.imageResultsLoadedCategory = null;
     state.imageResultsIntegrityChecked = false;
     loadImageResults({ force: true });
@@ -39370,11 +39805,10 @@ function bindImageResultsWorkspace() {
     state.imageResultsSort = sortFilter.value || 'newest';
     state.activeSavedResultIndex = 0;
     state.activeSavedResultId = '';
-    resetImageResultsScrollPosition();
-    state.imageSavedResults = [];
     state.imageResultsNextOffset = 0;
-    state.imageResultsTotal = 0;
     state.imageResultsHasMore = false;
+    state.imageResultsTotalKnown = true;
+    state.imageResultsStripScrollLeft = 0;
     state.imageResultsLoadedSort = null;
     state.imageResultsIntegrityChecked = false;
     loadImageResults({ force: true });
@@ -39418,10 +39852,15 @@ function bindImageResultsWorkspace() {
   if (storageRefresh) storageRefresh.addEventListener('click', () => loadImageReplayStorage({ renderAfter: true }));
   const storageCleanup = document.getElementById('imageReplayStorageCleanupOrphansBtn');
   if (storageCleanup) storageCleanup.addEventListener('click', () => cleanupImageReplayStorageOrphans());
-  ['imageOutputCategory', 'imageOutputPrefix', 'imageOutputPadding', 'imageOutputCleanupNative'].forEach((id) => {
+  const resultStrip = document.querySelector('.neo-output-card-strip');
+  if (resultStrip) resultStrip.addEventListener('scroll', () => { state.imageResultsStripScrollLeft = resultStrip.scrollLeft; }, { passive: true });
+  const outputCategory = document.getElementById('imageOutputCategory');
+  if (outputCategory) outputCategory.addEventListener('change', () => switchImageOutputCategory(outputCategory.value));
+  ['imageOutputPrefix', 'imageOutputPadding', 'imageOutputCleanupNative'].forEach((id) => {
     const node = document.getElementById(id);
     if (node) node.addEventListener('change', () => saveImageOutputSettings());
   });
+  requestAnimationFrame(restoreImageResultsStripScroll);
 }
 
 
@@ -39430,9 +39869,12 @@ function renderQwenSourcePreviewSlot(lane, primaryPreview = '') {
   const url = sourceImageLaneUrl(lane);
   const poseTransfer = controlNetPoseTransferActive();
   const identityEdit = krea2IdentityEditActive();
-  const defaultRoleLabel = identityEdit
-    ? (lane === 1 ? 'Scene / context' : lane === 2 ? 'Subject / identity' : 'Unused')
-    : (poseTransfer ? (lane === 1 ? 'Main subject' : lane === 2 ? 'Pose reference' : 'Generated pose map') : (lane === 1 ? 'Main subject' : lane === 2 ? 'Secondary subject' : 'Composition guide'));
+  const ostrisEdit = krea2OstrisEditActive();
+  const defaultRoleLabel = qwen21MultiReferenceActive()
+    ? (lane === 1 ? 'Primary / Edit Target' : `Ordered reference · <image${lane}>`)
+    : (identityEdit
+      ? (lane === 1 ? 'Scene / context' : lane === 2 ? 'Subject / identity' : 'Unused')
+      : (ostrisEdit ? (lane === 1 ? 'Primary edit reference' : `Extra reference ${lane}`) : (poseTransfer ? (lane === 1 ? 'Main subject' : lane === 2 ? 'Pose reference' : 'Generated pose map') : (lane === 1 ? 'Main subject' : lane === 2 ? 'Secondary subject' : 'Composition guide'))));
   if (lane === 1) {
     return `
       <div class="neo-source-stack-slot is-primary" data-testid="qwen-source-preview-slot-1">
@@ -39458,8 +39900,12 @@ function renderQwenSourcePreviewSlot(lane, primaryPreview = '') {
 
 function renderQwenSourcePreviewStack(primaryPreview) {
   const lanes = [1];
-  if (qwenVisibleSourceSlotCount() >= 2) lanes.push(2);
-  if ((!controlNetPoseTransferActive() && qwenVisibleSourceSlotCount() >= 3) || qwenPoseTransferRuntimeCardVisible()) lanes.push(3);
+  const visible = qwenVisibleSourceSlotCount();
+  for (let lane = 2; lane <= visible; lane += 1) {
+    if (controlNetPoseTransferActive() && lane > 3) break;
+    lanes.push(lane);
+  }
+  if (qwenPoseTransferRuntimeCardVisible() && !lanes.includes(3)) lanes.push(3);
   return `<div class="neo-source-preview-stack-multi" data-testid="qwen-source-preview-stack">${lanes.map((lane) => renderQwenSourcePreviewSlot(lane, primaryPreview)).join('')}</div>`;
 }
 
@@ -39469,9 +39915,13 @@ function renderQwenSourceCard(lane) {
   const poseTransfer = controlNetPoseTransferActive();
   const poseMapReserved = poseTransfer && Number(lane) === 3;
   const poseReference = poseTransfer && Number(lane) === 2;
-  const defaultRole = poseReference ? 'pose_reference' : (poseMapReserved ? 'pose_map' : (lane === 2 ? 'secondary_subject' : 'composition_guide'));
+  const q21 = qwen21MultiReferenceActive();
+  const defaultRole = q21 ? `reference_${lane}` : (poseReference ? 'pose_reference' : (poseMapReserved ? 'pose_map' : (lane === 2 ? 'secondary_subject' : 'composition_guide')));
   const roleKey = `source_image_${lane}_role`;
   const identityEditSubject = krea2IdentityEditActive() && Number(lane) === 2;
+  const ostrisEditReference = krea2OstrisEditActive() && Number(lane) >= 2;
+  const visibleCount = qwenVisibleSourceSlotCount();
+  const q21CanRemove = q21 && Number(lane) === visibleCount;
   if (poseMapReserved) {
     return `
       <article class="neo-qwen-source-card is-reserved-pose-map ${hasImage ? 'has-conflict' : ''}" data-testid="qwen-source-card-${lane}">
@@ -39485,22 +39935,32 @@ function renderQwenSourceCard(lane) {
         </div>
       </article>`;
   }
+  const q21PreviousOccupied = lane > 2 && Boolean(sourceImageLanePath(lane - 1) || sourceImageLaneUrl(lane - 1));
+  const q21NextOccupied = lane < visibleCount && Boolean(sourceImageLanePath(lane + 1) || sourceImageLaneUrl(lane + 1));
+  const q21OrderControls = q21 ? `<div class="neo-source-actions">
+      <button class="neo-btn ghost" id="imageQwenMoveUp${lane}Btn" type="button" ${lane <= 2 || !hasImage || !q21PreviousOccupied ? 'disabled' : ''} title="Move this reference earlier and swap <imageN> prompt tokens">↑ Earlier</button>
+      <button class="neo-btn ghost" id="imageQwenMoveDown${lane}Btn" type="button" ${lane >= visibleCount || !hasImage || !q21NextOccupied ? 'disabled' : ''} title="Move this reference later and swap <imageN> prompt tokens">↓ Later</button>
+    </div>` : '';
+  const removeButton = q21
+    ? `<button class="neo-btn ghost" id="imageRemoveQwenRef${lane}Btn" type="button" ${q21CanRemove ? '' : 'disabled'} title="Qwen 2.1 removes lanes from the end so prompt-token numbering cannot silently shift">Remove lane</button>`
+    : `<button class="neo-btn ghost" id="imageRemoveQwenRef${lane}Btn" type="button">Remove</button>`;
   return `
-    <article class="neo-qwen-source-card ${poseReference ? 'is-pose-reference' : ''}" data-testid="qwen-source-card-${lane}">
+    <article class="neo-qwen-source-card ${poseReference ? 'is-pose-reference' : ''} ${q21 ? 'is-qwen21-reference' : ''}" data-testid="qwen-source-card-${lane}">
       <div class="neo-qwen-source-card-head">
-        <strong>Source Image ${lane}${poseReference ? ' · Pose Reference' : ''}</strong>
-        <button class="neo-btn ghost" id="imageRemoveQwenRef${lane}Btn" type="button">Remove</button>
+        <strong>${q21 ? `Image ${lane} · <image${lane}>` : `Source Image ${lane}${poseReference ? ' · Pose Reference' : ''}`}</strong>
+        ${removeButton}
       </div>
       <div class="neo-qwen-source-fields">
-        ${identityEditSubject ? `<input type="hidden" id="imageQwenSourceRole${lane}" value="main_subject"><div class="neo-source-meta"><span class="neo-badge">Role: Subject / identity</span></div>` : (poseReference ? `<input type="hidden" id="imageQwenSourceRole${lane}" value="pose_reference"><div class="neo-source-meta"><span class="neo-badge">Role: Pose reference</span></div>` : `<label class="neo-source-file-label">Role
+        ${identityEditSubject ? `<input type="hidden" id="imageQwenSourceRole${lane}" value="main_subject"><div class="neo-source-meta"><span class="neo-badge">Role: Subject / identity</span></div>` : (ostrisEditReference ? `<input type="hidden" id="imageQwenSourceRole${lane}" value="ostris_reference_${lane}"><div class="neo-source-meta"><span class="neo-badge">Role: Ostris reference ${lane}</span></div>` : (poseReference ? `<input type="hidden" id="imageQwenSourceRole${lane}" value="pose_reference"><div class="neo-source-meta"><span class="neo-badge">Role: Pose reference</span></div>` : (q21 ? `<input type="hidden" id="imageQwenSourceRole${lane}" value="${escapeAttr(state.imageDraft[roleKey] || defaultRole)}"><div class="neo-source-meta"><span class="neo-badge">Ordered reference ${lane}</span><span class="neo-badge">Prompt token: &lt;image${lane}&gt;</span></div>` : `<label class="neo-source-file-label">Role
           ${optionSelect(`imageQwenSourceRole${lane}`, qwenSourceRoleOptions(lane), state.imageDraft[roleKey] || defaultRole)}
-        </label>`)}
+        </label>`)))}
         <div class="neo-source-actions">
           <label class="neo-source-file-label neo-file-action">Replace
             <input id="imageQwenRef${lane}File" type="file" accept="image/png,image/jpeg,image/webp,image/bmp">
           </label>
           <button class="neo-btn secondary" id="imageClearQwenRef${lane}Btn" type="button" ${hasImage ? '' : 'disabled'}>Clear</button>
         </div>
+        ${q21OrderControls}
         <div class="neo-source-meta"><span class="neo-badge">${escapeHtml(label)}</span></div>
       </div>
     </article>`;
@@ -40196,11 +40656,11 @@ function imageMaskedCropStitchDiagnostics(route = imageLanpaintRouteContext()) {
 
 function imageKrea2AnyPaintEngineRegistration() {
   const report = imageKrea2AnyPaintCapabilityReport();
-  const identityConflict = typeof krea2IdentityEditActive === 'function' && krea2IdentityEditActive();
+  const kreaEditConflict = typeof krea2SpecialEditActive === 'function' && krea2SpecialEditActive();
   if (!report) return { visible: false, selectable: false, ready: false, reason: 'Krea 2 AnyPaint is registered only for Krea 2 Turbo Safetensors/Components inpaint/outpaint routes.' };
   const blockers = Array.isArray(report.blockers) ? report.blockers : [];
   const capabilityReady = report.capability_ready === true && blockers.length === 0;
-  if (identityConflict) return { visible: true, selectable: false, ready: capabilityReady, reason: 'Krea 2 AnyPaint cannot be combined with Krea 2 Identity Edit. Select the native Krea edit engine first.' };
+  if (kreaEditConflict) return { visible: true, selectable: false, ready: capabilityReady, reason: 'Krea 2 AnyPaint cannot be combined with Krea 2 Identity Edit or Ostris Edit. Select Neo Native Adapter first.' };
   return {
     visible: true,
     selectable: capabilityReady,
@@ -40214,14 +40674,16 @@ function imageKrea2AnyPaintEngineRegistration() {
 function imageInpaintEngineOptions(route = imageLanpaintRouteContext()) {
   const reason = route.capability?.blockers?.[0]?.message || 'LanPaint requirements are not available on the selected backend.';
   const identityConflict = typeof krea2IdentityEditActive === 'function' && krea2IdentityEditActive();
+  const ostrisConflict = typeof krea2OstrisEditActive === 'function' && krea2OstrisEditActive();
+  const kreaEditConflict = identityConflict || ostrisConflict;
   const nativeCompat = imageFamilyCompatibilityFeature('native_masked_edit', { engine: 'native' });
   const nativeAvailable = nativeCompat ? nativeCompat.available === true : true;
   const nativeReason = nativeCompat?.reason || 'Native masked workflow availability is determined by the selected family compiler.';
   const lanpaintCompat = imageFamilyCompatibilityFeature('lanpaint', { engine: 'lanpaint' });
   const lanpaintRouteAvailable = lanpaintCompat ? lanpaintCompat.available === true : true;
-  const lanpaintAvailable = Boolean(!identityConflict && route.selectable && lanpaintRouteAvailable);
-  const lanpaintReason = identityConflict
-    ? 'LanPaint cannot be combined with Krea 2 Identity Edit. Use Native Inpaint/Outpaint while Identity Edit is enabled.'
+  const lanpaintAvailable = Boolean(!identityConflict && route.selectable && lanpaintRouteAvailable && !ostrisConflict);
+  const lanpaintReason = kreaEditConflict
+    ? 'LanPaint cannot be combined with Krea 2 Identity Edit or Ostris Edit. Use Native Inpaint/Outpaint while a Krea edit engine is enabled.'
     : (lanpaintCompat?.reason || reason);
   const anypaint = imageKrea2AnyPaintEngineRegistration();
   const rows = [
@@ -40230,7 +40692,7 @@ function imageInpaintEngineOptions(route = imageLanpaintRouteContext()) {
   if (anypaint.visible) rows.push({ id: 'krea2_anypaint', label: anypaint.selectable ? 'Krea 2 AnyPaint' : 'Krea 2 AnyPaint — unavailable', disabled: !anypaint.selectable, title: anypaint.reason });
   rows.push({
     id: 'lanpaint',
-    label: lanpaintAvailable ? 'LanPaint' : (identityConflict ? 'LanPaint — unavailable with Identity Edit' : `LanPaint — ${imageLanpaintCapabilityPolicy(route.route_state).label}`),
+    label: lanpaintAvailable ? 'LanPaint' : (identityConflict ? 'LanPaint — unavailable with Identity Edit' : (ostrisConflict ? 'LanPaint — unavailable with Ostris Edit' : `LanPaint — ${imageLanpaintCapabilityPolicy(route.route_state).label}`)),
     disabled: !lanpaintAvailable,
     title: lanpaintReason,
   });
@@ -40576,15 +41038,15 @@ function renderImageSourcePanelBody() {
         <div class="neo-source-stack-header">
           <div>
             <strong>Source Images</strong>
-            <p class="neo-muted">${krea2IdentityEditActive() ? (krea2IdentitySecondReferenceActive() ? 'Two-reference Identity Edit: Image 1 is scene/context and Image 2 is subject/identity.' : 'Single-reference Identity Edit: Image 1 is the primary edit/identity reference. Add Image 2 for the trained scene + subject workflow.') : (controlNetPoseTransferActive() ? 'Pose Transfer uses Image 1 as the subject, Image 2 as the pose reference, and reserves Image 3 for the generated DWPose map.' : 'Image 1 is the anchor. Add image 2 and image 3 only when they have a clear role in the edit/composition.')}</p>
+            <p class="neo-muted">${qwen21MultiReferenceActive() ? 'Image 1 is the Primary / Edit Target. Add ordered references progressively through Image 10.' : (krea2IdentityEditActive() ? (krea2IdentitySecondReferenceActive() ? 'Two-reference Identity Edit: Image 1 is scene/context and Image 2 is subject/identity.' : 'Single-reference Identity Edit: Image 1 is the primary edit/identity reference. Add Image 2 for the trained scene + subject workflow.') : (krea2OstrisEditActive() ? 'Ostris Edit: Image 1 is the primary edit reference. Image 2 and Image 3 are optional extra reference lanes.' : (controlNetPoseTransferActive() ? 'Pose Transfer uses Image 1 as the subject, Image 2 as the pose reference, and reserves Image 3 for the generated DWPose map.' : 'Image 1 is the anchor. Add image 2 and image 3 only when they have a clear role in the edit/composition.')))}</p>
           </div>
           <span class="neo-badge">${escapeHtml(multiReferenceLabel)}</span>
         </div>
-        ${krea2IdentityEditActive() ? (krea2IdentitySecondReferenceActive() ? '<div class="neo-source-meta"><span class="neo-badge">Image 1: Scene / context</span><span class="neo-badge">Image 2: Subject / identity</span></div>' : '<div class="neo-source-meta"><span class="neo-badge">Image 1: Primary / identity reference</span></div>') : `<label class="neo-source-file-label">Image 1 Role
+        ${qwen21MultiReferenceActive() ? '<div class="neo-source-meta"><span class="neo-badge success">Image 1: Primary / Edit Target</span><span class="neo-badge">Token: &lt;image1&gt;</span></div>' : (krea2IdentityEditActive() ? (krea2IdentitySecondReferenceActive() ? '<div class="neo-source-meta"><span class="neo-badge">Image 1: Scene / context</span><span class="neo-badge">Image 2: Subject / identity</span></div>' : '<div class="neo-source-meta"><span class="neo-badge">Image 1: Primary / identity reference</span></div>') : (krea2OstrisEditActive() ? '<div class="neo-source-meta"><span class="neo-badge">Image 1: Primary edit reference</span><span class="neo-badge">Image 2/3: Optional extra references</span></div>' : `<label class="neo-source-file-label">Image 1 Role
           ${optionSelect('imageQwenSourceRole1', qwenSourceRoleOptions(1), state.imageDraft.source_image_1_role || 'main_subject')}
-        </label>`}
-        ${[2].filter((lane) => qwenVisibleSourceSlotCount() >= lane).map((lane) => renderQwenSourceCard(lane)).join('')}
-        ${(!controlNetPoseTransferActive() && qwenVisibleSourceSlotCount() >= 3) || qwenPoseTransferRuntimeCardVisible() ? renderQwenSourceCard(3) : ''}
+        </label>`))}
+        ${Array.from({ length: Math.max(0, qwenVisibleSourceSlotCount() - 1) }, (_, i) => i + 2).map((lane) => renderQwenSourceCard(lane)).join('')}
+        ${renderQwen21PromptTokenHelpers()}
         ${qwenVisibleSourceSlotCount() < imageMultiReferenceSlotLimit() ? `<button class="neo-btn secondary neo-add-source-btn" id="imageQwenAddSourceBtn" type="button">+ Add source image</button>` : ''}
         <p class="neo-muted">${escapeHtml(imageMultiReferenceHelpText())}</p>
       </div>`
@@ -40672,6 +41134,7 @@ const IMAGE_MODEL_FIELD_CATALOGS = Object.freeze({
   qwen3_text_encoder: 'qwen_text_encoders',
   qwen3vl_text_encoder: 'text_encoders',
   krea2_identity_edit_lora: 'loras',
+  krea2_ostris_edit_lora: 'loras',
 });
 function imageModelCatalogForField(fieldId) {
   return IMAGE_MODEL_FIELD_CATALOGS[fieldId] || '';
@@ -40686,6 +41149,12 @@ function imageOptionsForField(fieldId) {
   }
   if ((state.imageDraft.family || imageCommandValue('family')) === 'flux2_klein' && ['text_encoder_1', 'qwen3_text_encoder'].includes(fieldId)) {
     return flux2KleinTextEncoderOptions();
+  }
+  if ((state.imageDraft.family || imageCommandValue('family')) === 'qwen_image_21' && fieldId === 'qwen_text_encoder') {
+    return imageProfileModelOptionsAny(['qwen_text_encoders', 'text_encoders']);
+  }
+  if ((state.imageDraft.family || imageCommandValue('family')) === 'qwen_image_21' && fieldId === 'vae') {
+    return profileModelOptions('vaes');
   }
   if (isImageGgufRuntimeActive()) {
     if (fieldId === 'text_encoder_1') return imageProfileModelOptionsAny(['gguf_text_encoder_primary', 'gguf_text_encoders', 'text_encoders']);
@@ -40704,9 +41173,46 @@ function imageOptionsForField(fieldId) {
     if (options.length) return options;
     return profileModelOptions('text_encoders');
   }
+  if (fieldId === 'qwen21_output_channels') return [
+    { id: 'auto', label: 'Auto · Preserve native channels' },
+    { id: 'rgb', label: 'RGB · Strip alpha' },
+    { id: 'rgba', label: 'RGBA / Transparent · Preserve alpha' },
+  ];
+  if (fieldId === 'qwen21_cache_device') return [
+    { id: 'auto', label: 'Auto · VRAM then RAM' },
+    { id: 'gpu', label: 'GPU · VRAM' },
+    { id: 'cpu', label: 'CPU · RAM' },
+    { id: 'off', label: 'Off · Recompute prefix' },
+  ];
+  if (fieldId === 'qwen21_cache_dtype') return [
+    { id: 'default', label: 'Default · Lossless' },
+    { id: 'int8', label: 'INT8 · Lower memory' },
+    { id: 'int4', label: 'INT4 · Lowest memory' },
+  ];
+  if (fieldId === 'qwen21_edit_canvas_mode') return [
+    { id: 'source', label: 'Follow Image 1 (recommended)' },
+    { id: 'custom', label: 'Custom width / height' },
+  ];
+  if (fieldId === 'qwen21_inpaint_preservation') return [
+    { id: 'strict', label: 'Strict · Preserve outside mask' },
+    { id: 'native', label: 'Native · Allow edit spill' },
+  ];
+  if (fieldId === 'qwen21_outpaint_source_policy') return [
+    { id: 'preserve', label: 'Preserve original area' },
+    { id: 'redraw', label: 'Allow source redraw' },
+  ];
   if (fieldId === 'krea2_edit_engine') return [
     { id: 'native', label: 'Neo Native Adapter (existing)' },
     { id: 'identity_edit', label: 'Krea 2 Identity Edit v1.2' },
+    { id: 'ostris_edit', label: 'Krea 2 Ostris Edit Engine' },
+  ];
+  if (fieldId === 'krea2_edit_weight_source') return [
+    { id: 'separate_lora', label: 'Separate LoRA' },
+    { id: 'baked_in_model', label: 'Baked into Model' },
+  ];
+  if (fieldId === 'krea2_ostris_kv_cache') return [
+    { id: 'off', label: 'Off (default)' },
+    { id: 'on', label: 'On' },
   ];
   if (fieldId === 'krea2_identity_edit_fit_mode') return [
     { id: 'fit', label: 'Fit (recommended)' },
@@ -40751,7 +41257,11 @@ function imageOptionsForField(fieldId) {
 
 function renderImageParameterField(field, p) {
   const fieldId = field.field_id;
-  if (fieldId.startsWith('krea2_identity_edit_') && fieldId !== 'krea2_identity_edit_engine' && !krea2IdentityEditActive()) return '';
+  if (fieldId === 'krea2_edit_weight_source' && !krea2IdentityEditActive() && !krea2OstrisEditActive()) return '';
+  if (fieldId.startsWith('krea2_identity_edit_') && !krea2IdentityEditActive()) return '';
+  if (fieldId.startsWith('krea2_ostris_') && !krea2OstrisEditActive()) return '';
+  if (krea2IdentityEditBakedWeightsActive() && ['krea2_identity_edit_lora', 'krea2_identity_edit_lora_strength'].includes(fieldId)) return '';
+  if (krea2OstrisEditBakedWeightsActive() && ['krea2_ostris_edit_lora', 'krea2_ostris_edit_lora_strength'].includes(fieldId)) return '';
   if (['positive_prompt', 'negative_prompt', 'source_image', 'mask_image', 'outpaint_padding', 'width', 'height'].includes(fieldId)) return '';
   const key = imageFieldDraftKey(fieldId);
   const id = `imageParam_${fieldId}`;
@@ -40774,11 +41284,11 @@ function renderImageParameterField(field, p) {
   if (field.control_type === 'textarea') {
     return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span><textarea id="${id}" rows="4" aria-label="${escapeAttr(label)}" spellcheck="false">${escapeHtml(value)}</textarea>${required}${helpText}</label>`;
   }
-  const step = fieldId === 'krea2_identity_edit_grounding_px' ? '64' : (['krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId) ? '0.01' : (['flux_guidance', 'cfg', 'krea2_identity_edit_lora_strength'].includes(fieldId) ? '0.1' : '1'));
+  const step = fieldId === 'krea2_identity_edit_grounding_px' ? '64' : (fieldId === 'qwen21_reference_resolution' ? '32' : (['krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId) ? '0.01' : (['flux_guidance', 'cfg', 'krea2_identity_edit_lora_strength', 'krea2_ostris_edit_lora_strength'].includes(fieldId) ? '0.1' : '1')));
   const inputType = field.control_type === 'slider' || field.control_type === 'number' ? 'number' : 'text';
   const kreaRange = ['krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a'].includes(fieldId)
     ? ' min="0" max="1000"'
-    : (fieldId === 'krea2_identity_edit_grounding_px' ? ' min="0" max="4096"' : '');
+    : (fieldId === 'krea2_identity_edit_grounding_px' ? ' min="0" max="4096"' : (fieldId === 'qwen21_reference_resolution' ? ' min="0" max="4096"' : ''));
   return `<label class="neo-param-field" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span><input id="${id}" type="${inputType}" step="${step}"${kreaRange} value="${escapeAttr(value)}" aria-label="${escapeAttr(label)}">${required}${helpText}</label>`;
 }
 function imageComponentTopologyPayload() {
@@ -40861,6 +41371,7 @@ function renderImageComponentParameterRows(p = {}) {
 // conditionally exposed by renderImageParameterField().
 const KREA2_EDIT_PARAMETER_FIELD_IDS = new Set([
   'krea2_edit_engine',
+  'krea2_edit_weight_source',
   'krea2_identity_edit_lora',
   'krea2_identity_edit_lora_strength',
   'krea2_identity_edit_fit_mode',
@@ -40868,10 +41379,13 @@ const KREA2_EDIT_PARAMETER_FIELD_IDS = new Set([
   'krea2_identity_edit_ref_boost_a',
   'krea2_identity_edit_grounding_px',
   'krea2_identity_edit_system_prompt',
+  'krea2_ostris_edit_lora',
+  'krea2_ostris_edit_lora_strength',
+  'krea2_ostris_kv_cache',
 ]);
 
 function activeKrea2EditParameterFields() {
-  if (!krea2RuntimeActive() || !['img2img', 'inpaint', 'outpaint'].includes(activeImageMode())) return [];
+  if (!krea2RuntimeActive() || !['img2img', 'edit', 'inpaint', 'outpaint'].includes(activeImageMode())) return [];
   const hidden = activeParameterProfileHiddenFields();
   return activeImageParameterFields().filter((field) => (
     KREA2_EDIT_PARAMETER_FIELD_IDS.has(field.field_id)
@@ -40881,32 +41395,249 @@ function activeKrea2EditParameterFields() {
   ));
 }
 
+function renderKrea2EditReadiness(readiness = imageKrea2EditReadiness()) {
+  if (!readiness) return '';
+  const tone = readiness.status === 'blocked' ? 'danger' : (readiness.status === 'unverified' || readiness.status === 'ready_with_warnings' ? 'warning' : 'success');
+  const label = readiness.status === 'blocked' ? 'Blocked' : (readiness.status === 'unverified' ? 'Backend not verified' : (readiness.status === 'ready_with_warnings' ? 'Ready with warning' : 'Runtime ready'));
+  const roleRows = readiness.roles.map((row) => {
+    const stateLabel = row.available === true ? 'Ready' : (row.available === false ? 'Missing' : 'Unchecked');
+    const checkState = row.available === true ? 'available' : (row.available === false ? 'blocked' : 'required');
+    return `<div class="neo-output-replay-check" data-replay-check-state="${escapeAttr(checkState)}"><span>${escapeHtml(row.label)}</span><small>${escapeHtml(stateLabel)}</small></div>`;
+  }).join('');
+  const blockerRows = readiness.blockers.map((message) => `<div class="neo-output-replay-check" data-replay-check-state="blocked"><span>Action required</span><small>${escapeHtml(message)}</small></div>`).join('');
+  const warningRows = readiness.warnings.map((message) => `<div class="neo-output-replay-check" data-replay-check-state="required"><span>Note</span><small>${escapeHtml(message)}</small></div>`).join('');
+  const weightLabel = readiness.weight_source === 'baked_in_model' ? 'Baked into Model' : (readiness.weight_source === 'separate_lora' ? 'Separate LoRA' : 'No engine LoRA');
+  return `<div class="neo-output-provider-replay neo-krea2-edit-readiness" data-testid="krea2-edit-readiness" data-krea2-edit-readiness="${escapeAttr(readiness.status)}">
+    <div class="neo-output-provider-replay-head"><strong>Krea Edit Runtime Readiness</strong><span class="neo-state-pill ${escapeAttr(tone)}">${escapeHtml(label)}</span></div>
+    <p class="neo-output-provider-replay-summary">Neo checks the live Comfy node roles required by the selected Krea edit engine. Baked mode removes only the dedicated engine LoRA loader requirement; it never removes the engine runtime nodes.</p>
+    <div class="neo-output-chip-row"><span class="neo-output-chip is-active">Engine · ${escapeHtml(readiness.engine_label)}</span><span class="neo-output-chip">Weights · ${escapeHtml(weightLabel)}</span>${readiness.engine === 'ostris_edit' ? `<span class="neo-output-chip">KV Cache · ${readiness.kv_cache ? 'On' : 'Off'}</span>` : ''}<span class="neo-output-chip">Catalog · ${readiness.object_info_available ? 'Live' : 'Unavailable'}</span></div>
+    <div class="neo-output-replay-check-grid">${roleRows}${blockerRows}${warningRows}</div>
+  </div>`;
+}
+
 function renderKrea2EditParameterRows(p = {}) {
   const fields = activeKrea2EditParameterFields();
   if (!fields.length) return '';
-  const active = krea2IdentityEditActive();
-  const engineFields = fields.filter((field) => field.field_id === 'krea2_edit_engine');
-  const identityGridFields = fields.filter((field) => !['krea2_edit_engine', 'krea2_identity_edit_system_prompt'].includes(field.field_id));
+  const identityActive = krea2IdentityEditActive();
+  const ostrisActive = krea2OstrisEditActive();
+  const readiness = imageKrea2EditReadiness(activeImageProfile(), { ...state.imageDraft, ...p });
+  const weightSource = krea2EditWeightSourceValue(p);
+  const bakedWeights = (identityActive || ostrisActive) && weightSource === 'baked_in_model';
+  const engineFields = fields.filter((field) => ['krea2_edit_engine', 'krea2_edit_weight_source'].includes(field.field_id));
+  const identityGridFields = fields.filter((field) => field.field_id.startsWith('krea2_identity_edit_') && field.field_id !== 'krea2_identity_edit_system_prompt');
   const identityWideFields = fields.filter((field) => field.field_id === 'krea2_identity_edit_system_prompt');
+  const ostrisFields = fields.filter((field) => field.field_id.startsWith('krea2_ostris_'));
   const engineHtml = engineFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
-  const identityGridHtml = active ? identityGridFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('') : '';
-  const identityWideHtml = active ? identityWideFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('') : '';
-  if (!engineHtml && !identityGridHtml && !identityWideHtml) return '';
+  const identityGridHtml = identityActive ? identityGridFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('') : '';
+  const identityWideHtml = identityActive ? identityWideFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('') : '';
+  const ostrisHtml = ostrisActive ? ostrisFields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('') : '';
+  if (!engineHtml && !identityGridHtml && !identityWideHtml && !ostrisHtml) return '';
   const badges = [
-    active ? 'Identity Edit v1.2' : 'Neo Native Adapter',
+    identityActive ? 'Identity Edit v1.2' : (ostrisActive ? 'Ostris Edit' : 'Neo Native Adapter'),
+    ...(identityActive || ostrisActive ? [bakedWeights ? 'Baked edit weights' : 'Separate edit LoRA'] : []),
+    ...(ostrisActive ? [String(p.krea2_ostris_kv_cache || state.imageDraft.krea2_ostris_kv_cache || 'off') === 'on' ? 'KV Cache on' : 'KV Cache off'] : []),
     state.imageDraft.loader === 'gguf' ? 'GGUF transformer' : 'Safetensors / Components',
   ];
+  const help = identityActive
+    ? 'Choose Native editing, Krea 2 Identity Edit, or Krea 2 Ostris Edit depending on the edit LoRA/runtime you need.'
+    : (ostrisActive
+      ? 'Ostris Edit is for Krea 2 edit LoRAs trained with AI Toolkit experimental edit mode (model_kwargs.edit: true). It is not the Identity Edit v1.2 runtime. Neo uses TextEncodeKrea2OstrisEdit + Krea2OstrisEditModelPatch for this engine.'
+      : 'Choose Native editing, Krea 2 Identity Edit, or Krea 2 Ostris Edit depending on the edit LoRA/runtime you need.');
+  const note = identityActive
+    ? (bakedWeights ? 'Edit weights are baked into the selected diffusion model. Neo will not load an additional Identity Edit LoRA; the Identity Edit runtime patch and grounded conditioning still run.' : 'Neo will load the selected Identity Edit LoRA model-only before Krea2EditModelPatch.')
+    : (ostrisActive
+      ? (bakedWeights ? 'AI Toolkit/Ostris edit weights are baked into the selected diffusion model. Neo will not load an additional edit LoRA; Krea2OstrisEditModelPatch and TextEncodeKrea2OstrisEdit still run.' : 'Neo will load the selected AI Toolkit/Ostris Edit LoRA model-only before Krea2OstrisEditModelPatch. Identity Edit v1.2 LoRAs belong to the Identity Edit engine instead.')
+      : '');
   return `<div class="neo-parameter-profile-card neo-krea2-edit-card" data-testid="krea2-edit-parameters">
-    <div class="neo-ui-section-head"><div><strong>Krea 2 Edit Engine</strong><p class="neo-muted">Choose Native editing or Krea 2 Identity Edit for stronger identity-preserving image edits.</p></div>${badgeRow(badges)}</div>
+    <div class="neo-ui-section-head"><div><strong>Krea 2 Edit Engine</strong><p class="neo-muted">${escapeHtml(help)}</p></div>${badgeRow(badges)}</div>
     ${engineHtml ? `<div class="neo-parameter-row neo-krea2-edit-engine-row">${engineHtml}</div>` : ''}
+    ${(identityActive || ostrisActive) ? `<p class="neo-muted neo-krea2-edit-weight-source-note" data-testid="krea2-edit-weight-source-note">${escapeHtml(note)}</p>` : ''}
     ${identityGridHtml ? `<div class="neo-krea2-identity-grid" data-testid="krea2-identity-edit-grid">${identityGridHtml}</div>` : ''}
     ${identityWideHtml ? `<div class="neo-krea2-identity-wide" data-testid="krea2-identity-edit-wide-controls">${identityWideHtml}</div>` : ''}
+    ${ostrisHtml ? `<div class="neo-krea2-identity-grid" data-testid="krea2-ostris-edit-grid">${ostrisHtml}</div>` : ''}
+    ${renderKrea2EditReadiness(readiness)}
+  </div>`;
+}
+
+function qwen21FamilyActive() {
+  const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
+  const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  return family === 'qwen_image_21' && ['diffusion_model', 'gguf'].includes(loader);
+}
+
+function qwen21CacheCapability(profile = activeImageProfile()) {
+  const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  if (!qwen21FamilyActive() || !['diffusion_model', 'gguf'].includes(loader)) {
+    return {
+      available: false,
+      checked: false,
+      live: false,
+      status: 'not_applicable',
+      role: {},
+      reason: 'Qwen Image 2.1 cache controls apply only to Safetensors/Components and GGUF transformer routes.',
+    };
+  }
+  const caps = imageKrea2BackendCapabilities(profile);
+  const checked = caps?.object_info_available === true;
+  const role = caps?.loaders?.[loader]?.roles?.qwen21_cache || {};
+  const available = checked && role?.available === true;
+  const status = available ? 'available' : (checked ? 'unavailable' : 'not_checked');
+  const reason = available
+    ? 'QwenImage21Cache(model, device, dtype) is available on the connected ComfyUI backend.'
+    : (checked
+      ? 'QwenImage21Cache was not detected with a compatible model/device/dtype signature in the last live ComfyUI /object_info scan.'
+      : 'Neo has not confirmed a live ComfyUI /object_info scan for this profile. Use Connect/Test on the provider, then return here to refresh cache support.');
+  return { available, checked, live: checked, status, role, reason };
+}
+
+function qwen21CacheFieldVisible(fieldId = '') {
+  if (!['qwen21_cache_device', 'qwen21_cache_dtype'].includes(String(fieldId || ''))) return true;
+  // Q21-6B.1: keep cache fields discoverable on Qwen 2.1 even when the live
+  // backend node is unavailable. The dedicated card renders them disabled and
+  // explains the discovery state instead of silently removing the feature.
+  return qwen21FamilyActive();
+}
+
+function qwen21CacheParameterFields() {
+  const profile = activeImageParameterProfile();
+  if (!profile) return [];
+  const mode = activeImageMode();
+  const rawFields = [...(profile.shared_fields || []), ...(profile.family_fields || []), ...(profile.fields || [])];
+  return rawFields.filter((field) => (
+    ['qwen21_cache_device', 'qwen21_cache_dtype'].includes(String(field?.field_id || ''))
+    && (!Array.isArray(field.modes) || !field.modes.length || field.modes.includes(mode))
+  ));
+}
+
+function renderQwen21CacheField(field, p = {}, disabled = false) {
+  const fieldId = String(field?.field_id || '');
+  if (!fieldId) return '';
+  const key = imageFieldDraftKey(fieldId);
+  const value = p[key] ?? field.default ?? (fieldId === 'qwen21_cache_device' ? 'auto' : 'default');
+  const label = escapeHtml(field.label || humanize(fieldId));
+  const options = imageOptionsForField(fieldId);
+  let select = optionSelect(`imageParam_${fieldId}`, options, value);
+  if (disabled) select = select.replace('<select ', '<select disabled aria-disabled="true" ');
+  const helpText = field.help_text && state.detailMode !== 'compact' ? `<small class="neo-muted">${escapeHtml(field.help_text)}</small>` : '';
+  return `<label class="neo-param-field${disabled ? ' neo-param-disabled' : ''}" data-profile-field="${escapeAttr(fieldId)}"><span>${label}</span>${select}${helpText}</label>`;
+}
+
+function renderQwen21CacheParameterRows(p = {}) {
+  if (!qwen21FamilyActive()) return '';
+  const capability = qwen21CacheCapability();
+  const fields = qwen21CacheParameterFields();
+  if (!fields.length) return '';
+  const controlsDisabled = !capability.available;
+  const fieldHtml = fields.map((field) => renderQwen21CacheField(field, p, controlsDisabled)).filter(Boolean).join('');
+  if (!fieldHtml) return '';
+  const device = String(state.imageDraft.qwen21_cache_device || p.qwen21_cache_device || 'auto').trim().toLowerCase();
+  const dtype = String(state.imageDraft.qwen21_cache_dtype || p.qwen21_cache_dtype || 'default').trim().toLowerCase();
+  const deviceLabel = device === 'gpu' ? 'GPU / VRAM' : device === 'cpu' ? 'CPU / RAM' : device === 'off' ? 'Cache off' : 'Auto placement';
+  const dtypeLabel = dtype === 'int8' ? 'INT8 cache' : dtype === 'int4' ? 'INT4 cache' : 'Default precision';
+  const statusLabel = capability.available ? 'Available' : (capability.checked ? 'Unavailable' : 'Not checked');
+  const help = device === 'off'
+    ? 'Disables the Qwen Image 2.1 prefix cache and recomputes it every step. Useful for diagnostics, but normally slower.'
+    : device === 'gpu'
+      ? 'Keeps the Qwen Image 2.1 cache in VRAM. Fastest when enough VRAM is available, but increases GPU memory pressure.'
+      : device === 'cpu'
+        ? 'Stores the Qwen Image 2.1 cache in system RAM. This reduces VRAM pressure while Comfy can prefetch cache data behind compute.'
+        : 'Lets Qwen Image 2.1 place cache data automatically, preferring spare VRAM and then system RAM.';
+  const precisionNote = dtype === 'int8'
+    ? 'INT8 lowers cache memory without changing model-weight precision.'
+    : dtype === 'int4'
+      ? 'INT4 minimizes cache memory but has the largest cache approximation trade-off. Model weights are not changed.'
+      : 'Default keeps native cache storage precision.';
+  const availabilityNote = capability.available
+    ? 'Live node detected. Cache controls are enabled.'
+    : `${capability.reason} Cache controls stay visible but disabled until support is confirmed.`;
+  return `<div class="neo-parameter-profile-card neo-qwen21-cache-card${controlsDisabled ? ' neo-qwen21-cache-unavailable' : ''}" data-testid="qwen21-cache-controls" data-cache-status="${escapeAttr(capability.status)}">
+    <div class="neo-ui-section-head"><div><strong>Qwen 2.1 Inference Cache</strong><p class="neo-muted">Q21-6B controls Comfy's QwenImage21Cache inference optimization. This is separate from Krea/Ostris training KV-cache settings.</p></div>${badgeRow([statusLabel, deviceLabel, dtypeLabel])}</div>
+    <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+    <p class="neo-muted neo-qwen21-cache-discovery-note"><strong>${escapeHtml(statusLabel)}:</strong> ${escapeHtml(availabilityNote)}</p>
+    ${capability.available ? `<p class="neo-muted neo-qwen21-cache-note">${escapeHtml(help)} ${escapeHtml(precisionNote)}</p>` : `<p class="neo-muted neo-qwen21-cache-note">Update/restart ComfyUI if needed, then use the provider Connect/Test action to refresh Neo's live node catalog.</p>`}
+  </div>`;
+}
+
+function renderQwen21OutputParameterRows(p = {}) {
+  if (!qwen21FamilyActive()) return '';
+  const hidden = activeParameterProfileHiddenFields();
+  const field = activeImageParameterFields().find((item) => item.field_id === 'qwen21_output_channels' && !hidden.has(item.field_id));
+  if (!field) return '';
+  const fieldHtml = renderImageParameterField(field, p);
+  if (!fieldHtml) return '';
+  const mode = String(state.imageDraft.qwen21_output_channels || p.qwen21_output_channels || 'auto').trim().toLowerCase();
+  const policy = mode === 'rgba' ? 'RGBA / Transparent' : mode === 'rgb' ? 'RGB only' : 'Auto / native';
+  const help = mode === 'rgba'
+    ? 'Preserves Qwen Image 2.1 native alpha-capable output and reconstructs alpha from loaded source images before Qwen reference encoding. Provider output remains PNG.'
+    : mode === 'rgb'
+      ? 'Explicitly strips alpha before the final PNG output. RGB-only model upscalers are also protected from accidental four-channel input.'
+      : 'Keeps Qwen Image 2.1 native output channels. Use RGBA / Transparent when alpha is intentional, or RGB when the downstream workflow must be three-channel.';
+  return `<div class="neo-parameter-profile-card neo-qwen21-output-card" data-testid="qwen21-output-channel-controls">
+    <div class="neo-ui-section-head"><div><strong>Qwen 2.1 Output Channels</strong><p class="neo-muted">Q21-6A makes alpha handling explicit instead of relying on accidental four-channel behavior.</p></div>${badgeRow([policy, 'PNG alpha-safe'])}</div>
+    <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+    <p class="neo-muted neo-qwen21-output-note">${escapeHtml(help)}</p>
+  </div>`;
+}
+
+const QWEN21_EDIT_PARAMETER_FIELD_IDS = new Set([
+  'qwen21_reference_resolution',
+  'qwen21_edit_canvas_mode',
+  'qwen21_inpaint_preservation',
+  'qwen21_outpaint_source_policy',
+]);
+
+function activeQwen21EditParameterFields() {
+  if (!qwen21MultiReferenceActive()) return [];
+  const hidden = activeParameterProfileHiddenFields();
+  return activeImageParameterFields().filter((field) => (
+    QWEN21_EDIT_PARAMETER_FIELD_IDS.has(field.field_id) && !hidden.has(field.field_id)
+  ));
+}
+
+function renderQwen21EditParameterRows(p = {}) {
+  if (!qwen21MultiReferenceActive()) return '';
+  const fields = activeQwen21EditParameterFields();
+  if (!fields.length) return '';
+  const fieldHtml = fields.map((field) => renderImageParameterField(field, p)).filter(Boolean).join('');
+  if (!fieldHtml) return '';
+  const mode = activeImageMode();
+  const referenceResolution = Number(state.imageDraft.qwen21_reference_resolution ?? p.qwen21_reference_resolution ?? 0);
+  const referenceSummary = referenceResolution > 0 ? `Refs normalized around ${referenceResolution}px budget` : 'Refs keep native size';
+  if (mode === 'inpaint') {
+    const policy = String(state.imageDraft.qwen21_inpaint_preservation || p.qwen21_inpaint_preservation || 'strict').trim().toLowerCase() === 'native' ? 'native' : 'strict';
+    return `<div class="neo-parameter-profile-card neo-qwen21-edit-card" data-testid="qwen21-edit-canvas-controls">
+      <div class="neo-ui-section-head"><div><strong>Qwen 2.1 Inpaint</strong><p class="neo-muted">Qwen keeps semantic edit conditioning from Image 1–10 while Neo's mask controls the latent edit region. Strict mode restores the original pixels outside the final mask.</p></div>${badgeRow([policy === 'strict' ? 'Strict preservation' : 'Native spill allowed', referenceSummary, '1–10 ordered refs'])}</div>
+      <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+      <p class="neo-muted neo-qwen21-canvas-note">The mask remains authoritative for sampling. Strict adds a final pixel composite guard; Native returns Qwen's unguarded result.</p>
+    </div>`;
+  }
+  if (mode === 'outpaint') {
+    const policy = String(state.imageDraft.qwen21_outpaint_source_policy || p.qwen21_outpaint_source_policy || 'preserve').trim().toLowerCase() === 'redraw' ? 'redraw' : 'preserve';
+    return `<div class="neo-parameter-profile-card neo-qwen21-edit-card" data-testid="qwen21-edit-canvas-controls">
+      <div class="neo-ui-section-head"><div><strong>Qwen 2.1 Outpaint</strong><p class="neo-muted">Neo pads Image 1 into the requested canvas and passes that padded image to Qwen as the primary edit target. Choose whether the original center is restored after generation.</p></div>${badgeRow([policy === 'preserve' ? 'Original preserved' : 'Source redraw allowed', referenceSummary, '1–10 ordered refs'])}</div>
+      <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+      <p class="neo-muted neo-qwen21-canvas-note">Preserve Original composites the source center back after Qwen generates the expanded canvas. Allow Source Redraw keeps the model's native full-canvas result.</p>
+    </div>`;
+  }
+  const canvasMode = String(state.imageDraft.qwen21_edit_canvas_mode || p.qwen21_edit_canvas_mode || 'source').trim().toLowerCase() === 'custom' ? 'custom' : 'source';
+  const width = Number(state.imageDraft.width ?? p.width ?? 1024);
+  const height = Number(state.imageDraft.height ?? p.height ?? 1024);
+  const canvasSummary = canvasMode === 'custom' ? `Custom canvas · ${width}×${height}` : 'Source canvas · follows Image 1';
+  const canvasHelp = canvasMode === 'custom'
+    ? 'Custom canvas uses the Width and Height controls below for the generated result. Image 1 remains the primary edit target; references keep their ordered roles. A different aspect ratio can shift composition because Qwen reference conditioning is still based on Image 1.'
+    : 'Source canvas uses the latent returned by TextEncodeQwenImage21, so the generated canvas follows Image 1 after Qwen reference preprocessing. Width/Height are preserved but not used until Custom canvas is selected.';
+  return `<div class="neo-parameter-profile-card neo-qwen21-edit-card" data-testid="qwen21-edit-canvas-controls">
+    <div class="neo-ui-section-head"><div><strong>Qwen 2.1 Edit Canvas</strong><p class="neo-muted">Choose whether the output follows Image 1 or uses Neo's explicit Width / Height. Reference Resolution controls how Qwen preprocesses Image 1–10 before conditioning.</p></div>${badgeRow([canvasSummary, referenceSummary, '1–10 ordered refs'])}</div>
+    <div class="neo-parameter-row neo-dynamic-profile-row">${fieldHtml}</div>
+    <p class="neo-muted neo-qwen21-canvas-note" data-testid="qwen21-edit-canvas-note">${escapeHtml(canvasHelp)}</p>
   </div>`;
 }
 
 function qwenNativeEditParityActive() {
   const family = String(state.imageDraft.family || imageCommandValue('family') || '').trim().toLowerCase();
   const loader = String(state.imageDraft.loader || imageCommandValue('loader') || '').trim().toLowerCase();
+  // Qwen Image 2.1 has its own TextEncodeQwenImage21 path and does not use the
+  // legacy Qwen AuraFlow / CFGNorm parity controls.
   return ['qwen_image', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(family) && ['diffusion_model', 'unet'].includes(loader);
 }
 
@@ -40987,7 +41718,7 @@ function renderDynamicImageParameterRows(p) {
 
 
 function imageUsesTrueCfgSemantic(family = state.imageDraft.family || imageCommandValue('family') || '') {
-  return ['qwen_image', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(String(family || '').trim().toLowerCase());
+  return ['qwen_image', 'qwen_image_21', 'qwen_image_edit_2509', 'qwen_image_edit_2511'].includes(String(family || '').trim().toLowerCase());
 }
 
 function imageCfgUiContract(p = {}) {
@@ -41170,11 +41901,13 @@ function imageModelComponentRouteNote() {
   if (loader === 'diffusion_model' || loader === 'unet') {
     if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea component route. Uses the FLUX.1 dual encoder stack (T5XXL + CLIP-L); masked modes keep the selected Krea model and pass through the selected Native or LanPaint masked-edit engine.';
     if (family === 'krea2' || family === 'krea2_turbo') return `${family === 'krea2_turbo' ? 'Krea 2 Turbo' : 'Krea 2 RAW'} native route. Uses Qwen3-VL-4B through CLIPLoader(type=krea2) + Qwen Image VAE. Image modes can use the existing Neo adapter or opt into Krea 2 Identity Edit v1.2; Identity Edit owns its inpaint/outpaint graph instead of LanPaint.`;
+    if (family === 'qwen_image_21') return 'Qwen Image 2.1 experimental Safetensors/components route. Q21-2 supports txt2img plus unified Img2Img/Edit with Image 1 as target and ordered Image 2–10 references through TextEncodeQwenImage21; Q21-3 adds the matching GGUF transformer route.';
     return family === 'flux2_klein' ? 'Flux 2 Klein component route. P4 enables native img2img/edit/inpaint/outpaint with one Qwen3 encoder, Flux2 VAE, and Image 1 latent-anchor mask/canvas workflows.' : (family === 'flux1_fill' ? 'Flux 1 Fill is now an internal Flux 1 fill route. Use a FLUX.1 Fill-dev compatible model for inpaint/outpaint.' : (family === 'qwen_image_edit_2511' ? 'Qwen Image Edit 2511 component route. Supports Image 1 plus optional Image 2/Image 3 for img2img/edit; inpaint/outpaint use Image 1 as the canvas.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 component route. P3 promotes Image 1 plus optional Image 2/Image 3 for multi-source img2img/edit; inpaint/outpaint use single-source mask/canvas.' : 'Component route. Encoder and AE/VAE fields appear only when this family needs them.')));
   }
   if (loader === 'gguf') {
     if (family === 'flux' && flux1KreaRuntimeActive()) return 'FLUX.1 Krea GGUF route. Uses a Krea GGUF diffusion model with the FLUX.1 T5XXL + CLIP-L dual encoder stack; image modes retain Krea through the Flux GGUF latent/mask branch.';
     if (family === 'krea2' || family === 'krea2_turbo') return 'Krea 2 GGUF route (Experimental). Quantizes the diffusion transformer only; Qwen3-VL-4B stays native/safetensors via CLIPLoader(type=krea2). Image modes can opt into Krea 2 Identity Edit v1.2; its model-only LoRA remains safetensors and patches after the GGUF loader.';
+    if (family === 'qwen_image_21') return 'Qwen Image 2.1 GGUF route (Experimental). Q21-3 quantizes only the diffusion transformer. Qwen3-VL 8B stays native/safetensors through CLIPLoader(type=qwen_image), the Qwen 2.1 VAE stays native, and Image 1–10 edit conditioning remains owned by TextEncodeQwenImage21. No MMProj is required.';
     return family === 'flux2_klein' ? 'Flux 2 Klein GGUF route. Single Qwen3 encoder; Image 1 plus optional Image 2/Image 3 appear for image-conditioned modes.' : (family === 'qwen_rapid_aio' ? 'Qwen Rapid AIO GGUF route. Uses one Qwen text encoder; MMProj appears for image-conditioned routes; Image 2/Image 3 appear only for img2img/edit.' : (family === 'qwen_image_edit_2511' ? 'Qwen Image Edit 2511 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for edit modes and requires matching Qwen2.5-VL MMProj for image-conditioned routes.' : (family === 'qwen_image_edit_2509' ? 'Qwen Image Edit 2509 GGUF route. Supports Image 1 plus optional Image 2/Image 3 for multi-source edit modes; MMProj appears for image-conditioned routes.' : 'GGUF route. Neo resolves backend architecture automatically from family + model type.')));
   }
   return 'Checkpoint route. Extra model components stay hidden unless this family needs them.';
@@ -41676,6 +42409,9 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
     const primaryModelRow = renderImagePrimaryModelRow(p);
     const componentParameterRows = renderImageComponentParameterRows(p);
     const krea2EditParameterRows = renderKrea2EditParameterRows(p);
+    const qwen21EditParameterRows = renderQwen21EditParameterRows(p);
+    const qwen21OutputParameterRows = renderQwen21OutputParameterRows(p);
+    const qwen21CacheParameterRows = renderQwen21CacheParameterRows(p);
     const cfgContract = imageCfgUiContract(p);
     const clipSkipVisible = shouldShowProfileField('clip_skip');
     const denoiseVisible = shouldShowProfileField('denoise');
@@ -41694,6 +42430,9 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
       ${componentParameterRows}
       ${ggufRuntime}
       ${krea2EditParameterRows}
+      ${qwen21EditParameterRows}
+      ${qwen21OutputParameterRows}
+      ${qwen21CacheParameterRows}
       ${renderQwenNativeEditParityRows(p)}
       <div class="neo-parameter-row neo-sampler-scheduler-row" data-sampler-backend="${escapeAttr(imageSamplerBackendValue(p))}">
         <label>Sampler Engine${optionSelect('imageSamplerBackend', imageSamplerBackendOptions(p), imageSamplerBackendValue(p))}</label>
@@ -57471,7 +58210,7 @@ async function uploadImageSourceLaneFile(lane, file) {
   if (!file) return;
   const numericLane = Number(lane || 1);
   if (numericLane === 1) return uploadImageSourceFile(file);
-  if (![2, 3].includes(numericLane)) return;
+  if (numericLane < 2 || numericLane > imageMultiReferenceSlotLimit()) return;
   const form = new FormData();
   form.append('file', file);
   const response = await fetch('/api/image/source-image', { method: 'POST', body: form });
@@ -57521,16 +58260,18 @@ async function uploadQwenStitchImageFile(groupId, side, file) {
 
 function clearQwenReferenceSource(lane, options = {}) {
   const numericLane = Number(lane);
-  if (![2, 3].includes(numericLane)) return;
+  if (numericLane < 2 || numericLane > imageMultiReferenceSlotLimit()) return;
   state.imageDraft[`source_image_${numericLane}`] = '';
   state.imageDraft[`source_image_${numericLane}_url`] = '';
   state.imageDraft[`source_image_${numericLane}_name`] = '';
   delete state.imageDraft[`comfy_source_image_${numericLane}_name`];
   delete state.imageDraft[`source_image_${numericLane}_uploaded_to_comfy`];
-  if (numericLane === 3) state.imageDraft.qwen_composition_source_mode = 'source_image';
+  if (numericLane === 3 && !qwen21MultiReferenceActive()) state.imageDraft.qwen_composition_source_mode = 'source_image';
   if (options.remove) {
-    const higherLaneHasImage = numericLane === 2 && !controlNetPoseTransferActive() && Boolean(state.imageDraft.source_image_3 || state.imageDraft.source_image_3_url);
-    if (!higherLaneHasImage) state.imageDraft.qwen_source_slot_count = Math.max(1, numericLane - 1);
+    const visible = qwenVisibleSourceSlotCount();
+    const higherLaneHasImage = Array.from({ length: Math.max(0, visible - numericLane) }, (_, i) => numericLane + i + 1)
+      .some((higher) => Boolean(state.imageDraft[`source_image_${higher}`] || state.imageDraft[`source_image_${higher}_url`]));
+    if (!higherLaneHasImage && numericLane === visible) state.imageDraft.qwen_source_slot_count = Math.max(1, numericLane - 1);
   }
   if (numericLane === 2) {
     syncKrea2IdentityReferenceRoles();
@@ -57549,9 +58290,72 @@ function addQwenSourceImageSlot() {
 
 function updateQwenSourceRole(lane, role) {
   const numericLane = Number(lane);
-  if (![1, 2, 3].includes(numericLane)) return;
-  state.imageDraft[`source_image_${numericLane}_role`] = role || (numericLane === 1 ? 'main_subject' : numericLane === 2 ? 'secondary_subject' : 'composition_guide');
+  if (numericLane < 1 || numericLane > imageMultiReferenceSlotLimit()) return;
+  state.imageDraft[`source_image_${numericLane}_role`] = role || (numericLane === 1 ? (qwen21MultiReferenceActive() ? 'primary_edit_target' : 'main_subject') : (qwen21MultiReferenceActive() ? `reference_${numericLane}` : numericLane === 2 ? 'secondary_subject' : 'composition_guide'));
   saveUiState();
+}
+
+function qwen21SwapPromptTokens(text, laneA, laneB) {
+  const input = String(text || '');
+  const a = `<image${laneA}>`;
+  const b = `<image${laneB}>`;
+  const marker = `__NEO_Q21_SWAP_${Date.now()}_${laneA}_${laneB}__`;
+  return input.split(a).join(marker).split(b).join(a).split(marker).join(b);
+}
+
+function qwen21SwapLaneState(laneA, laneB) {
+  const suffixes = ['', '_url', '_name', '_role'];
+  suffixes.forEach((suffix) => {
+    const keyA = `source_image_${laneA}${suffix}`;
+    const keyB = `source_image_${laneB}${suffix}`;
+    const temp = state.imageDraft[keyA];
+    state.imageDraft[keyA] = state.imageDraft[keyB];
+    state.imageDraft[keyB] = temp;
+  });
+  [`comfy_source_image_${laneA}_name`, `source_image_${laneA}_uploaded_to_comfy`].forEach((keyA, index) => {
+    const keyB = index === 0 ? `comfy_source_image_${laneB}_name` : `source_image_${laneB}_uploaded_to_comfy`;
+    const temp = state.imageDraft[keyA];
+    state.imageDraft[keyA] = state.imageDraft[keyB];
+    state.imageDraft[keyB] = temp;
+  });
+}
+
+function moveQwen21ReferenceLane(lane, direction) {
+  if (!qwen21MultiReferenceActive()) return;
+  const from = Number(lane);
+  const to = from + Number(direction);
+  const visible = qwenVisibleSourceSlotCount();
+  if (from < 2 || from > visible || to < 2 || to > visible) return;
+  const fromHasImage = Boolean(sourceImageLanePath(from) || sourceImageLaneUrl(from));
+  const toHasImage = Boolean(sourceImageLanePath(to) || sourceImageLaneUrl(to));
+  if (!fromHasImage || !toHasImage) return;
+  qwen21SwapLaneState(from, to);
+  state.imageDraft.positive_prompt = qwen21SwapPromptTokens(state.imageDraft.positive_prompt, from, to);
+  state.imageDraft.negative_prompt = qwen21SwapPromptTokens(state.imageDraft.negative_prompt, from, to);
+  saveUiState();
+  render();
+}
+
+function insertQwen21PromptToken(lane) {
+  const numericLane = Number(lane);
+  if (!qwen21MultiReferenceActive() || numericLane < 1 || numericLane > 10) return;
+  const token = `<image${numericLane}>`;
+  const input = document.getElementById('imagePositivePrompt') || document.getElementById('imageParam_positive_prompt');
+  const current = String(state.imageDraft.positive_prompt || input?.value || '');
+  if (current.includes(token)) return;
+  state.imageDraft.positive_prompt = `${current}${current && !/\s$/.test(current) ? ' ' : ''}${token} `.trimStart();
+  saveUiState();
+  render();
+}
+
+function renderQwen21PromptTokenHelpers() {
+  if (!qwen21MultiReferenceActive()) return '';
+  const count = qwenVisibleSourceSlotCount();
+  const buttons = Array.from({ length: count }, (_, index) => index + 1).map((lane) => {
+    const ready = lane === 1 ? Boolean(sourceImageLanePath(1) || sourceImageLaneUrl(1)) : Boolean(sourceImageLanePath(lane) || sourceImageLaneUrl(lane));
+    return `<button class="neo-btn ghost" type="button" data-qwen21-prompt-token="${lane}" ${ready ? '' : 'disabled'} title="${ready ? `Insert &lt;image${lane}&gt; into the positive prompt` : `Load Image ${lane} before inserting its prompt token`}">&lt;image${lane}&gt;</button>`;
+  }).join('');
+  return `<div class="neo-source-meta neo-qwen21-token-helpers" data-testid="qwen21-prompt-token-helpers"><span class="neo-muted">Prompt image tokens</span>${buttons}</div>`;
 }
 
 
@@ -59601,30 +60405,6 @@ async function materializePreviewActionSource(source = {}) {
   };
 }
 
-async function preflightPreviewActionSource(source = {}, evaluation = {}) {
-  const profileId = String(evaluation.profileId || evaluation.profile_id || selectedBackendProfileIdForSurface('image') || '').trim();
-  const providerId = String(evaluation.providerId || evaluation.provider_id || activeImageProfile()?.provider_id || activeImageProfile()?.backend || '').trim().toLowerCase();
-  if (!profileId || !providerId) throw new Error('Select an Image backend profile before staging this output.');
-  const response = await fetch('/api/image/source-handoff/preflight', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source: previewActionSourceRecord(source), profile_id: profileId, provider_id: providerId }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) {
-    const detail = payload?.detail;
-    throw new Error(detail?.message || detail || payload.message || 'The selected output could not be prepared as an Image source.');
-  }
-  if (String(payload.profile_id || '') !== profileId || String(payload.provider_id || '').toLowerCase() !== providerId) {
-    throw new Error('Source preflight returned a different backend profile. The handoff was blocked.');
-  }
-  return {
-    ...source,
-    ...(payload.canonical_source || {}),
-    canonical_source: payload.canonical_source || {},
-  };
-}
-
 function buildPreviewSourceHandoffContract(action = {}, evaluation = {}, source = {}, replayInfo = {}) {
   const mode = previewSourceActionMode(action, evaluation.targetMode || 'img2img');
   return {
@@ -59743,8 +60523,7 @@ async function sendOutputToSourceMode(mode, sourceOverride = null, options = {})
   const lockedProfileId = evaluation.profileId;
   clearImageLatePassContinuation();
   setWorkspaceStatus(`Staging ${previewActionSourceName(source)} for ${cleanMode}…`, 'info');
-  const materializedSource = await materializePreviewActionSource(source);
-  const stagedSource = await preflightPreviewActionSource(materializedSource, evaluation);
+  const stagedSource = await materializePreviewActionSource(source);
   let replayInfo = { replaySource: 'none', applied: null, branch: null };
   replayInfo = await applySelectedReplaySourceForOutputHandoff(`send_output_to_${cleanMode}`, {
     source: stagedSource,
@@ -59904,7 +60683,7 @@ function previewFinishStageGenerationSource(actionId = '', source = {}, evaluati
   state.imageDraft._preview_action_finish_pass = actionId;
   state.imageDraft.output_policy = 'append_derived';
   if (actionId === 'extension.high_res_lab') {
-    updateHighResLabSettings({ enabled: true, source_mode: 'preview_action_selected_output', preview_action_source: contract, preserve_prompt_context: true, preserve_reference_context: true, upscale_lab_source_only: true });
+    updateHighResLabSettings({ enabled: true, enable_origin: 'preview_action', source_mode: 'preview_action_selected_output', preview_action_source: contract, preserve_prompt_context: true, preserve_reference_context: true, upscale_lab_source_only: true });
   } else if (actionId === 'extension.adetailer') {
     updateAdetailerSettings({ enabled: true, source_mode: 'preview_action_selected_output', preview_action_source: contract, detailer_output_pass: true });
   }
@@ -59912,8 +60691,7 @@ function previewFinishStageGenerationSource(actionId = '', source = {}, evaluati
 }
 
 async function previewActionRunSelectedProviderDerived(actionId = '', source = {}, evaluation = {}, label = '') {
-  const materializedRaw = await materializePreviewActionSource(source);
-  const materialized = await preflightPreviewActionSource(materializedRaw, evaluation);
+  const materialized = await materializePreviewActionSource(source);
   const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
   const selectedProfileBefore = String(selectedBackendProfileIdForSurface('image') || '').trim();
   const cleanSource = previewFinishStageGenerationSource(actionId, materialized, evaluation, contract);
@@ -59936,8 +60714,7 @@ async function previewActionRunSelectedProviderDerived(actionId = '', source = {
 }
 
 async function previewActionRunForgeNativeHires(actionId = '', source = {}, evaluation = {}, label = '') {
-  const materializedRaw = await materializePreviewActionSource(source);
-  const materialized = await preflightPreviewActionSource(materializedRaw, evaluation);
+  const materialized = await materializePreviewActionSource(source);
   const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
   const selectedProfileBefore = String(selectedBackendProfileIdForSurface('image') || '').trim();
   const previousHighResSettings = { ...highResLabSettings() };
@@ -59999,8 +60776,7 @@ async function previewActionRunForgeNativeHires(actionId = '', source = {}, eval
 }
 
 async function previewActionRunSelectedProviderUpscale(actionId = '', source = {}, evaluation = {}, label = '') {
-  const materializedRaw = await materializePreviewActionSource(source);
-  const materialized = await preflightPreviewActionSource(materializedRaw, evaluation);
+  const materialized = await materializePreviewActionSource(source);
   const contract = previewActionBuildDerivedContract(actionId, materialized, evaluation, label);
   imageUpscaleStagePreviewSource(materialized, { renderPanel: false });
   updateImageUpscaleSettings({ preview_derived_action: contract, staged_preview_source: imageUpscaleStagedPreviewSource, source_mode: 'preview_action_selected_output' });
@@ -61995,7 +62771,13 @@ function bindHighResLabControls() {
   const clearPreviewSource = document.getElementById('highResLabClearPreviewSource');
   if (clearPreviewSource) clearPreviewSource.addEventListener('click', () => highResLabClearStagedPreviewSource());
   const enabled = document.getElementById('highResLabEnabled');
-  if (enabled) enabled.addEventListener('change', (event) => { updateHighResLabSettings({ enabled: Boolean(event.target.checked), enable_origin: 'user' }); render(); });
+  if (enabled) enabled.addEventListener('change', (event) => {
+    const nextEnabled = Boolean(event.target.checked);
+    updateHighResLabSettings({ enabled: nextEnabled, enable_origin: 'user' });
+    // Keep the generic workflow-application ledger and High-Res payload state in
+    // lockstep so either UI path expresses one execution intent.
+    setWorkflowExtensionApplied(HIGH_RES_LAB_EXTENSION_ID, nextEnabled);
+  });
   const profile = document.getElementById('highResLabProfile');
   if (profile) profile.addEventListener('change', (event) => { highResLabApplyProfile(event.target.value); render(); });
   const map = [
@@ -62414,7 +63196,7 @@ function bindImageDraftInputs() {
     const key = imageFieldDraftKey(fieldId);
     const sync = (event) => {
       const raw = event.target.value;
-      const numeric = ['width', 'height', 'steps', 'seed', 'batch_count', 'cfg', 'clip_skip', 'flux_guidance', 'denoise', 'mask_grow', 'mask_blur', 'qwen_inpaint_composite_feather', 'krea2_identity_edit_lora_strength', 'krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a', 'krea2_identity_edit_grounding_px'].includes(key);
+      const numeric = ['width', 'height', 'steps', 'seed', 'batch_count', 'cfg', 'clip_skip', 'flux_guidance', 'denoise', 'mask_grow', 'mask_blur', 'qwen_inpaint_composite_feather', 'qwen21_reference_resolution', 'krea2_identity_edit_lora_strength', 'krea2_identity_edit_ref_boost', 'krea2_identity_edit_ref_boost_a', 'krea2_identity_edit_grounding_px', 'krea2_ostris_edit_lora_strength'].includes(key);
       updateDraftValue(key, numeric ? Number(raw) : raw);
       if (fieldId === 'gguf_model') {
         updateDraftValue('gguf_unet', raw);
@@ -62451,15 +63233,70 @@ function bindImageDraftInputs() {
       if (['krea2', 'krea2_turbo'].includes(state.imageDraft.family || imageCommandValue('family')) && ['diffusion_model', 'gguf_model', 'qwen3vl_text_encoder', 'text_encoder_1'].includes(fieldId)) {
         syncKrea2State({ persist: false });
       }
+      if (['krea2', 'krea2_turbo'].includes(state.imageDraft.family || imageCommandValue('family'))
+        && ['diffusion_model', 'gguf_model'].includes(fieldId)
+        && (krea2IdentityEditActive() || krea2OstrisEditActive())) {
+        // Weight source belongs to the selected model package. A manual model
+        // switch must not silently assume the next model also has baked edit weights.
+        updateDraftValue('krea2_edit_weight_source', 'separate_lora');
+      }
       if (['flux_variant', 'diffusion_model', 'gguf_model', 'checkpoint', 'qwen_rapid_aio_checkpoint'].includes(fieldId)) {
         reapplyActiveImageBuiltInPresetForRoute(`component_${fieldId}_change`);
       }
       if (fieldId === 'krea2_edit_engine') {
+        // Manual engine changes fail safe to the legacy separate-LoRA contract.
+        // Replay hydration does not trigger this handler, so recorded baked
+        // mode is preserved when a result is loaded for replay.
+        updateDraftValue('krea2_edit_weight_source', 'separate_lora');
         if (raw === 'identity_edit') {
           updateDraftValue('inpaint_engine', 'native');
           state.imageDraft.qwen_source_slot_count = Math.min(2, qwenVisibleSourceSlotCount());
           syncKrea2IdentityReferenceRoles();
+        } else if (raw === 'ostris_edit') {
+          updateDraftValue('inpaint_engine', 'native');
+          state.imageDraft.qwen_source_slot_count = Math.max(1, Math.min(3, qwenVisibleSourceSlotCount()));
         }
+        saveUiState();
+        render();
+        return;
+      }
+      if (fieldId === 'krea2_edit_weight_source') {
+        updateDraftValue('krea2_edit_weight_source', krea2EditWeightSourceValue({ krea2_edit_weight_source: raw }));
+        saveUiState();
+        render();
+        return;
+      }
+      if (fieldId === 'qwen21_edit_canvas_mode') {
+        updateDraftValue('qwen21_edit_canvas_mode', raw === 'custom' ? 'custom' : 'source');
+        saveUiState();
+        render();
+        return;
+      }
+      if (fieldId === 'qwen21_inpaint_preservation') {
+        updateDraftValue('qwen21_inpaint_preservation', raw === 'native' ? 'native' : 'strict');
+        saveUiState();
+        render();
+        return;
+      }
+      if (fieldId === 'qwen21_outpaint_source_policy') {
+        updateDraftValue('qwen21_outpaint_source_policy', raw === 'redraw' ? 'redraw' : 'preserve');
+        saveUiState();
+        render();
+        return;
+      }
+      if (fieldId === 'qwen21_cache_device') {
+        updateDraftValue('qwen21_cache_device', ['gpu', 'cpu', 'off'].includes(raw) ? raw : 'auto');
+        saveUiState();
+        render();
+        return;
+      }
+      if (fieldId === 'qwen21_cache_dtype') {
+        updateDraftValue('qwen21_cache_dtype', ['int8', 'int4'].includes(raw) ? raw : 'default');
+        saveUiState();
+        render();
+        return;
+      }
+      if (fieldId === 'qwen21_reference_resolution' && event.type === 'change') {
         saveUiState();
         render();
         return;
@@ -62484,6 +63321,9 @@ function bindImageDraftInputs() {
   }
 
   const updateFamilyOrLoader = (key, value) => {
+    // A route switch can point at a different model package. Require an explicit
+    // baked selection again instead of carrying that assumption across routes.
+    updateDraftValue('krea2_edit_weight_source', 'separate_lora');
     if (key === 'family') {
       const pair = coerceFamilyLoaderPair(value, state.imageDraft.loader);
       updateDraftValue('family', pair.family);
@@ -62531,7 +63371,12 @@ function bindImageDraftInputs() {
     if (removeQwenRef) removeQwenRef.addEventListener('click', () => clearQwenReferenceSource(lane, { remove: true }));
     const role = document.getElementById(`imageQwenSourceRole${lane}`);
     if (role) role.addEventListener('change', (event) => updateQwenSourceRole(lane, event.target.value));
+    const moveUp = document.getElementById(`imageQwenMoveUp${lane}Btn`);
+    if (moveUp) moveUp.addEventListener('click', () => moveQwen21ReferenceLane(lane, -1));
+    const moveDown = document.getElementById(`imageQwenMoveDown${lane}Btn`);
+    if (moveDown) moveDown.addEventListener('click', () => moveQwen21ReferenceLane(lane, 1));
   });
+  document.querySelectorAll('[data-qwen21-prompt-token]').forEach((button) => button.addEventListener('click', () => insertQwen21PromptToken(Number(button.dataset.qwen21PromptToken || 0))));
   const qwenRole1 = document.getElementById('imageQwenSourceRole1');
   if (qwenRole1) qwenRole1.addEventListener('change', (event) => updateQwenSourceRole(1, event.target.value));
   const addQwenSource = document.getElementById('imageQwenAddSourceBtn');
@@ -63195,6 +64040,16 @@ function parameterProfileParams() {
     const key = imageFieldDraftKey(field.field_id);
     if (state.imageDraft[key] !== undefined) params[key] = state.imageDraft[key];
   });
+  if (krea2IdentityEditBakedWeightsActive()) {
+    // Baked mode may keep a prior LoRA selection in the local draft so users can
+    // switch back conveniently, but those hidden values are never executable.
+    delete params.krea2_identity_edit_lora;
+    delete params.krea2_identity_edit_lora_strength;
+  }
+  if (krea2OstrisEditBakedWeightsActive()) {
+    delete params.krea2_ostris_edit_lora;
+    delete params.krea2_ostris_edit_lora_strength;
+  }
   applyImageComponentTopologyParams(params);
   if (qwenNativeEditParityActive()) {
     const loaderMode = qwenClipLoaderModeValue(state.imageDraft || {});
@@ -63215,17 +64070,18 @@ function parameterProfileParams() {
     const clipMode = activeGgufClipMode();
     const ggufModel = state.imageDraft.gguf_model || state.imageDraft.gguf_unet || primaryValue;
     const isQwenGguf = architecture === 'qwen_image';
+    const isQwen21Gguf = architecture === 'qwen_image_21';
     const isZImageGguf = architecture === 'z_image';
     const isFlux2KleinGguf = architecture === 'flux2_klein';
     const isKrea2Gguf = architecture === 'krea2';
-    const encoderA = isQwenGguf
+    const encoderA = (isQwenGguf || isQwen21Gguf)
       ? (state.imageDraft.qwen_text_encoder || state.imageDraft.text_encoder_1 || '')
       : (isKrea2Gguf
         ? (state.imageDraft.qwen3vl_text_encoder || state.imageDraft.text_encoder_1 || '')
         : ((isZImageGguf || isFlux2KleinGguf)
           ? (state.imageDraft.qwen3_text_encoder || state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')
           : (state.imageDraft.text_encoder_1 || state.imageDraft.gguf_text_encoder_1 || '')));
-    const ggufClipTypeForPayload = isFlux2KleinGguf ? 'flux2' : (isZImageGguf ? 'lumina2' : (isKrea2Gguf ? 'krea2' : architecture));
+    const ggufClipTypeForPayload = isFlux2KleinGguf ? 'flux2' : (isZImageGguf ? 'lumina2' : (isKrea2Gguf ? 'krea2' : (isQwen21Gguf ? 'qwen_image' : architecture)));
     const encoderB = state.imageDraft.text_encoder_2 || state.imageDraft.gguf_text_encoder_2 || '';
     Object.assign(params, {
       model: ggufModel,
@@ -63237,7 +64093,7 @@ function parameterProfileParams() {
       text_encoder_1: encoderA,
       gguf_text_encoder_1: encoderA,
       gguf_text_encoder_primary: encoderA,
-      qwen_text_encoder: isQwenGguf ? encoderA : '',
+      qwen_text_encoder: (isQwenGguf || isQwen21Gguf) ? encoderA : '',
       qwen3_text_encoder: (isZImageGguf || isFlux2KleinGguf) ? encoderA : (state.imageDraft.qwen3_text_encoder || ''),
       qwen3vl_text_encoder: isKrea2Gguf ? encoderA : (state.imageDraft.qwen3vl_text_encoder || ''),
       qwen_mmproj: isQwenGguf ? (state.imageDraft.qwen_mmproj || '') : '',
@@ -63252,6 +64108,17 @@ function parameterProfileParams() {
       delete params.gguf_text_encoder_primary;
       delete params.flux_guidance;
       params.text_encoder_primary = encoderA;
+    }
+    if (isQwen21Gguf) {
+      // Q21-3 is intentionally mixed-format: GGUF transformer + native Qwen3-VL 8B + native VAE.
+      // Never reinterpret the native encoder as CLIPLoaderGGUF or request an MMProj sidecar.
+      delete params.gguf_text_encoder_1;
+      delete params.gguf_text_encoder_primary;
+      delete params.qwen_mmproj;
+      delete params.flux_guidance;
+      params.text_encoder_primary = encoderA;
+      params.clip_type = 'qwen_image';
+      params.gguf_clip_type = 'qwen_image';
     }
     if (clipMode === 'dual') {
       Object.assign(params, {
@@ -63518,6 +64385,32 @@ function buildImageJobPayload() {
         qwen_composition_source_mode: draft.qwen_composition_source_mode || 'source_image',
         composition_source_mode: draft.qwen_composition_source_mode || 'source_image',
       });
+      if (qwen21MultiReferenceActive()) {
+        params.source_image_1_role = 'primary_edit_target';
+        const q21Order = [{ lane: 1, token: '<image1>', role: 'primary_edit_target', name: draft.source_image_name || '' }];
+        for (let lane = 2; lane <= 10; lane += 1) {
+          const path = draft[`source_image_${lane}`] || '';
+          const url = draft[`source_image_${lane}_url`] || '';
+          const name = draft[`source_image_${lane}_name`] || '';
+          const role = draft[`source_image_${lane}_role`] || `reference_${lane}`;
+          params[`source_image_${lane}`] = path || url || '';
+          params[`source_image_${lane}_path`] = path;
+          params[`source_image_${lane}_url`] = url;
+          params[`source_image_${lane}_name`] = name;
+          params[`source_image_${lane}_role`] = role;
+          const comfyName = imageStableComfyHandoffName(draft[`comfy_source_image_${lane}_name`]);
+          if (comfyName) params[`comfy_source_image_${lane}_name`] = comfyName;
+          if (path || url) q21Order.push({ lane, token: `<image${lane}>`, role, name });
+        }
+        params.qwen21_reference_order = q21Order;
+        params.qwen21_reference_count = q21Order.length;
+        params.qwen21_reference_resolution = Number(draft.qwen21_reference_resolution ?? 0);
+        const qwen21CanvasMode = qwen21EditCanvasModeSubmissionValue();
+        state.imageDraft.qwen21_edit_canvas_mode = qwen21CanvasMode;
+        params.qwen21_edit_canvas_mode = qwen21CanvasMode;
+        params.qwen21_inpaint_preservation = String(draft.qwen21_inpaint_preservation || 'strict');
+        params.qwen21_outpaint_source_policy = String(draft.qwen21_outpaint_source_policy || 'preserve');
+      }
       if (kreaIdentityPayload && krea2RefBoostMaskReady()) {
         Object.assign(params, {
           krea2_identity_edit_ref_boost_mask: draft.krea2_identity_edit_ref_boost_mask || draft.krea2_identity_edit_ref_boost_mask_url || '',
@@ -64169,6 +65062,7 @@ async function reportImageClientGenerationError(error, payload = null, stage = '
       has_source_image: Boolean(state.imageDraft?.source_image || state.imageDraft?.source_image_url),
       has_source_image_2: Boolean(state.imageDraft?.source_image_2 || state.imageDraft?.source_image_2_url),
       has_source_image_3: Boolean(state.imageDraft?.source_image_3 || state.imageDraft?.source_image_3_url),
+      qwen21_reference_count: qwen21MultiReferenceActive() ? Array.from({ length: 10 }, (_, i) => i + 1).filter((lane) => lane === 1 ? Boolean(state.imageDraft?.source_image || state.imageDraft?.source_image_url) : Boolean(state.imageDraft?.[`source_image_${lane}`] || state.imageDraft?.[`source_image_${lane}_url`])).length : 0,
     },
     request_payload_summary: payload ? {
       profile_id: payload.profile_id || '',
@@ -64664,7 +65558,6 @@ function renderSurfaceUpdate(surfaceId, { deferWhileEditing = true } = {}) {
 }
 
 function render() {
-  captureImageResultsScrollPosition();
   document.body.classList.add('neo-modern-shell');
   document.body.dataset.detailMode = state.detailMode || 'guided';
   const surface = activeSurface();
@@ -64720,7 +65613,6 @@ function render() {
     bindStyleStackControls();
     bindExtensionCardOpenState();
     bindImageResultsWorkspace();
-    restoreImageResultsScrollPosition();
     bindImageZoomTriggers();
     bindOutputImageFallbacks();
     restoreImageLivePreviewAfterRender();

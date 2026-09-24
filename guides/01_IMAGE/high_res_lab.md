@@ -19,8 +19,8 @@ tags:
   - diffusion refine
   - selected output
 priority: 111
-version: 2
-updated: 2026-08-06
+version: 5
+updated: 2026-09-23
 ---
 
 # Image High-Res Lab
@@ -57,6 +57,21 @@ Krea-specific safeguards:
 - Pixel refine, latent refine, and upscale-only remain available with conservative Krea presets.
 - GGUF routes quantize only the selected transformer; Qwen3-VL stays native/safetensors.
 - ComfyUI and ComfyUI Portable use the same profile rules.
+
+## Qwen Image 2.1 High-Res target — Q21-0
+
+Qwen Image 2.1 has native 2K-oriented generation, but native output size and Neo High-Res Lab are separate features. Q21-0 records the future High-Res target only; no Q21 High-Res route is currently executable.
+
+Q21-5 must provide a family-specific second pass that keeps Qwen3-VL/VAE/reference semantics instead of converting the workflow into an SD-style refine graph.
+
+Required design locks:
+
+- try native Qwen size first when the user only needs a 2K-oriented result;
+- preserve Qwen cache and compatible LoRA intent across the finish route;
+- preserve the ordered reference set;
+- define an explicit Stage-2 role map for edit jobs, because the Stage-1 output, original Image 1 target, and Images 2–10 are not interchangeable;
+- keep Ultimate SD Upscale gated unless a dedicated Qwen-safe adapter is proven;
+- test Generate, Img2Img/Edit, Inpaint, and Outpaint separately before claiming all-mode support.
 
 ## Main controls
 
@@ -178,3 +193,76 @@ The frontend submit snapshot records user intent as `workflow_requested`; it doe
 The proof includes the active route/profile, base sampler, added upscale/encode/refine/decode nodes, source dimensions, target dimensions, and final patched output reference.
 
 If High-Res Lab is explicitly enabled on an active route but no applied High-Res workflow patch exists after compilation, Neo fails closed before `/prompt` instead of silently queueing the base-resolution graph.
+
+## Comfy polling recovery for repeated High-Res runs — 2026-08-22
+
+Krea 2 High-Res jobs are long-running Img2Img jobs. A temporary HTTP history-poll disconnect must not be interpreted as a Comfy execution failure when the prompt is already queued.
+
+Current recovery contract:
+
+```text
+queued High-Res prompt
+→ websocket preview may continue independently
+→ /history poll temporarily times out/resets
+→ Neo keeps the job in running state
+→ retry /history
+→ explicit Comfy history success/failure decides the terminal state
+→ import the completed output into Neo_Data
+```
+
+The selected-profile **Connect/Test gate applies to starting a new task**. Once a job is queued, Preview, Poll, Recover, and Cancel bind to the durable job record and the exact backend URL that accepted that prompt. A stale UI/runtime connection badge must not orphan an already-running High-Res job.
+
+This is especially important for repeated Krea 2 High-Res passes where Comfy can continue sampling after a preview/progress transport closes. Neo should keep polling instead of converting a transient transport interruption into `failed`.
+
+## Qwen Image Edit 2511 High-Res Lab parity + repeated-run cache diagnostics — 2026-08-24
+
+Qwen Image Edit 2511 is now explicitly onboarded into High-Res Lab for both **Safetensors / Components** (`diffusion_model`) and **GGUF** routes. The extension no longer falls through to a generic `Not ready` implementation target when the base 2511 route is available.
+
+2511 follows the existing Qwen-native High-Res safety rules:
+
+- family-specific model / sampler / VAE anchors are reused instead of rebuilding the route as SDXL;
+- Qwen-style low-CFG refinement policy is applied;
+- pixel refine, standard diffusion refine, upscale-only, and Qwen re-edit remain eligible where the live route profile allows them;
+- **Ultimate SD Upscale remains blocked** for Qwen edit routes because it assumes SD-style conditioning semantics;
+- Native and GGUF have separate 2511 route profiles rather than borrowing a 2509 profile at runtime.
+
+Repeated Qwen edit generations also publish a cache-diagnostics contract. Neo keeps normal model residency policy unchanged: ordinary Image generation does **not** issue Comfy `/free` or `unload_models`. Instead, Neo now preserves content-addressed Comfy source handoff names across normal repeats and surfaces Comfy's `execution_cached` evidence when available.
+
+For an unchanged source / prompt / model / conditioning route with only seed changed, the expected diagnostic is:
+
+```text
+source handoff: neo_img2img_cache_<content hash>
+cache contract: same as previous
+execution_cached: Qwen conditioning node present
+UI: Qwen conditioning cache hit — reusing encoder output
+```
+
+The upload handoff uses `overwrite=true` for the deterministic content-addressed filename. This prevents a duplicate upload collision from silently changing the Comfy `LoadImage` name and invalidating downstream Qwen conditioning cache identity.
+
+A 2511 diffusion model that is larger than available VRAM may still be dynamically staged by Comfy. That is expected and is distinct from Neo explicitly unloading the model. If the cache contract is unchanged but Comfy does not emit an `execution_cached` hit for the Qwen conditioning node, investigate Comfy's cache mode / eviction or VRAM pressure rather than reintroducing a Neo `/free` workaround.
+
+## Qwen Image 2.1 High-Res Lab — Q21-5
+
+Q21-5 adds experimental High-Res profiles for `qwen_image_21`.
+
+**Q21-6B cache interaction:** when `QwenImage21Cache` is enabled, High-Res Stage 2 reuses the Stage-1 sampler model path (including cache and any DifferentialDiffusion wrapper) and does not create a second cache node.
+
+### Components/Safetensors
+
+Txt2Img, Img2Img/Edit, Inpaint, and Outpaint can use pixel refine, standard/latent refine, or upscale-only. Target size snaps to 32-pixel multiples. Q21 blocks Ultimate SD Upscale and legacy Qwen re-edit because those paths do not own the 1–10-reference Q21 conditioning contract.
+
+High-Res preserves the base Q21 KSampler CFG (True-CFG) and reuses the existing positive/negative conditioning refs instead of rebuilding `TextEncodeQwenImage21`.
+
+### Masked routes
+
+For Q21 Inpaint/Outpaint, Stage 2:
+
+1. obtains the Stage-1 `SetLatentNoiseMask` mask;
+2. resizes it with core `MaskToImage → ImageScale → ImageToMask`;
+3. reapplies it with `SetLatentNoiseMask` to the refinement latent;
+4. preserves the Stage-1 model chain, including model-only LoRA and `DifferentialDiffusion`;
+5. when Stage 1 used strict pixel preservation, composites the Stage-2 masked result over the scaled Stage-1 preserved image.
+
+### GGUF
+
+The existing Q21-3 GGUF txt2img/img2img/edit routes receive an experimental High-Res profile, but remain physically unqualified. GGUF Inpaint/Outpaint stays unavailable because the base Q21 route itself remains unsupported.

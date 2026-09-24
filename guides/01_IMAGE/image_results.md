@@ -24,8 +24,8 @@ tags:
   - reuse
   - delete
 priority: 112
-version: 4
-updated: 2026-09-18
+version: 3
+updated: 2026-08-02
 ---
 
 # Image Results Workspace
@@ -53,8 +53,8 @@ Provider capability and action enablement are evaluated by `GET /api/image/previ
 |---|---|
 | **Category** | Current Neo output category. Saved outputs are organized under category folders. |
 | **New Category** | Adds a new output category. Use client/project-friendly names. |
-| **Filename Prefix** | Prefix used when Neo names saved output files. |
-| **Padding** | Numeric padding for output filenames. |
+| **Filename Prefix** | Prefix used when Neo names saved output files. | Saved independently for the currently selected category. Switching back to that category restores its prefix. |
+| **Padding** | Numeric padding for output filenames. | Saved independently for the currently selected category. |
 | **After saving to Neo_Data, remove backend duplicate output files** | When enabled, Neo keeps the canonical saved output in `neo_data` and deletes safe backend duplicate outputs after persistence. |
 | **Output path preview** | Shows where Neo saves generated images. |
 | **Metadata path preview** | Shows where Neo saves sidecar metadata. |
@@ -78,17 +78,11 @@ Do not confuse orphan latent cleanup with deleting a saved output. Saved output 
 |---|---|
 | **Category filter** | Shows all categories or one category. |
 | **Date sort** | New-to-old or old-to-new. |
-| **Saved output cards** | Click a card to load its metadata into Output Inspector. |
-| **Load More** | Loads the next page and appends it without discarding already loaded cards or the active Inspector. |
-| **Refresh Results** | Reloads the list and active metadata from `/api/image/results`. |
+| **Saved output cards** | Click a card to load its metadata into Output Inspector. The selection is tracked by stable result ID, and the horizontal strip restores its scroll position instead of jumping back to the first card after re-render. |
+| **Load more** | Appends the next page of older/newer records according to the selected sort. | The Results API is pageable; the UI is no longer limited to the initial 60 records. |
+| **Refresh Results** | Reloads the first page and active metadata from `/api/image/results`. |
 
-If a saved file is missing, Neo hides/removes the broken entry from the Results view instead of crashing the UI.
-
-The header shows **loaded count of total matching count**. Results are paginated in 60-item pages by default. Category or date-sort changes restart paging from the first matching page; repeated result IDs are deduplicated before display. Continue with **Load More** until Neo reports that all matching outputs are loaded.
-
-Selection is stored by stable Result ID rather than card position. Opening an Inspector, loading another page, refreshing the current collection, or hiding a broken thumbnail keeps the same result selected whenever that ID is still present. If the selected result was removed, Neo chooses the nearest remaining card instead of silently jumping to an unrelated array position.
-
-The Saved Outputs strip also preserves its horizontal scroll position through Results renders. Selecting a card does not automatically scroll it into view or return the strip to the first card. Changing category or date sort intentionally resets both selection and scroll because it creates a different visible collection.
+If a saved file is missing, Neo hides/removes the broken entry from the Results view instead of crashing the UI. Results paging publishes `total`, `offset`, `limit`, `has_more`, and `next_offset` while retaining the existing `neo.image.results_api.v1` compatibility identifier.
 
 ## Output Inspector
 
@@ -195,3 +189,18 @@ Preview and Output Inspector now show the selected Image provider/profile direct
 Unavailable actions now explain missing Bridge capabilities, extensions, models, preprocessors, detectors, upscalers, runtime connectivity, or family/loader/mode mappings. Provider-unsupported actions stay hidden in Guided mode and remain available as diagnostics in Expert mode.
 
 Output Inspector also exposes a visible output-lineage chain with parent, root, source, depth, action, and dispatch information. Replay binding and restored-extension revalidation notices use the same status language as the live Preview toolbar. See `provider_aware_preview_diagnostics.md`.
+
+## 2026-09-23 — large-library performance behavior
+
+Image Results pagination is now lazy for large histories. Neo first enumerates and timestamp-sorts metadata file paths, then opens only enough valid sidecars to fill the requested page plus one lookahead result. Parsed summaries are cached by metadata file mtime and size, so later pages reuse earlier work.
+
+Important behavior:
+
+- libraries with 250 sidecars or fewer still compute an exact total immediately;
+- larger libraries may show **more available** until the final page is reached;
+- workflow filters such as `generate` inspect save folders because workflow metadata can live under a user category folder;
+- user save-category filters such as `MoodPixel1` read that category's metadata folder directly;
+- an empty custom category shows a **Show all categories** recovery action;
+- Replay Storage does not deserialize metadata just to look for latent references when the latent store contains zero latent files.
+
+This is a read-only performance change. Existing output and metadata files are not deleted or rewritten.

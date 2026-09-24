@@ -927,6 +927,11 @@ def create_background_removal_api_router(
     native_result_persister: NativeResultPersister | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/extensions/background-removal", tags=["background-removal"])
+    from .fast_fill_api import create_fast_fill_router
+    router.include_router(create_fast_fill_router(
+        root_dir, save_source=_save_upload, save_mask=_save_mask_upload,
+        persister=native_result_persister,
+    ))
     catalog_resolver = model_catalog_provider_resolver or profile_provider_resolver
     workflow_builder = workflow_builder or build_background_removal_workflow
     native_runner = native_runner or run_native_rembg

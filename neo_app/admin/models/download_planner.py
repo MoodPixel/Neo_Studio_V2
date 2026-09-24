@@ -114,14 +114,15 @@ def _file_info_for_plan(record: dict[str, Any], payload: dict[str, Any], variant
     if not filename and source_path:
         filename = _filename_from_path(source_path)
     safe_filename = _safe_filename(filename)
+    matches_static_source = record.get("source_mode") == "static_file" and safe_filename == source.get("filename") and source_path == source.get("filename")
     return {
         "filename": safe_filename,
         "source_path": source_path or safe_filename,
         "extension": _extension(safe_filename),
         "size_bytes": variant.get("size_bytes") if isinstance(variant.get("size_bytes"), int) else payload.get("size_bytes"),
-        "download_url": _clean(payload.get("download_url") or metadata.get("download_url") or variant.get("download_url")),
+        "download_url": _clean(payload.get("download_url") or metadata.get("download_url") or variant.get("download_url") or (source.get("download_url") if matches_static_source else "")),
         "source_url": _clean(payload.get("source_url") or metadata.get("source_url") or variant.get("source_url")),
-        "hashes": _as_dict(payload.get("hashes")) or _as_dict(metadata.get("hashes")),
+        "hashes": (_as_dict(source.get("hashes")) if matches_static_source else {}) or _as_dict(payload.get("hashes")) or _as_dict(metadata.get("hashes")),
         "provider_file_id": _clean(metadata.get("file_id") or variant.get("file_id") or payload.get("file_id")),
         "provider_version_id": _clean(metadata.get("version_id") or variant.get("version_id") or payload.get("version_id")),
     }
@@ -285,7 +286,7 @@ def build_download_plan(payload: dict[str, Any] | None = None) -> dict[str, Any]
         errors.append("A discovered file variant is required for dynamic source download planning.")
     if not filename:
         errors.append("No safe filename could be resolved for this download plan.")
-    if provider not in {"huggingface", "civitai", ""}:
+    if provider not in {"huggingface", "civitai", "url", ""}:
         warnings.append(f"download_provider_not_supported_yet:{provider}")
 
     warnings.extend(_license_warnings(record, source))
@@ -320,6 +321,15 @@ def build_download_plan(payload: dict[str, Any] | None = None) -> dict[str, Any]
 
     final_path = _join_path(_clean(resolution.get("resolved_path")), filename) if bool(resolution.get("ok")) else ""
     source_ref = _source_download_reference(provider, source, file_info)
+    if record.get("artifact") and source_mode == "static_file":
+        declared = _as_dict(record.get("source"))
+        if (any(source.get(key) != declared.get(key) for key in ("provider", "repo", "revision"))
+                or filename != declared.get("filename")
+                or file_info.get("source_path") != declared.get("filename")
+                or source_ref.get("download_url") != declared.get("download_url")):
+            errors.append("Artifact download must use its declared filename, source and revision.")
+    if provider == "url" and not _clean(source_ref.get("download_url")):
+        errors.append("URL download planning requires a concrete download URL.")
     if provider == "huggingface" and not _clean(source_ref.get("repo")):
         errors.append("Hugging Face download planning requires a repo id.")
     if provider == "civitai" and not _clean(source_ref.get("download_url")):

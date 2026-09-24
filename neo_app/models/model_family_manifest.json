@@ -1394,6 +1394,171 @@
       }
     },
     {
+      "family_id": "qwen_image_21",
+      "display_name": "Qwen Image 2.1",
+      "surfaces": [
+        "image"
+      ],
+      "category": "image",
+      "status": "extension_ready",
+      "description": "Qwen Image 2.1 unified image family. Q21-4 adds Safetensors/components inpaint and outpaint with Qwen semantic edit conditioning plus Neo mask/canvas authority and optional strict preservation; GGUF masked workflows remain gated.",
+      "supported_modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "mode_support": {
+        "txt2img": "experimental_available",
+        "img2img": "experimental_available",
+        "edit": "experimental_available",
+        "inpaint": "experimental_available",
+        "outpaint": "experimental_available"
+      },
+      "supported_backends": [
+        "comfyui",
+        "comfyui_portable"
+      ],
+      "supported_loaders": [
+        "diffusion_model",
+        "gguf"
+      ],
+      "default_loader": "diffusion_model",
+      "runtime_profiles": [
+        "qwen21_native",
+        "qwen21_gguf"
+      ],
+      "parameter_profiles": [
+        "qwen21_native",
+        "qwen21_gguf"
+      ],
+      "required_roles": {
+        "diffusion_model": [
+          "diffusion_model",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_diffusion_loader",
+          "qwen21_text_encoder_loader",
+          "qwen21_vae_loader",
+          "qwen21_conditioning",
+          "qwen21_empty_latent",
+          "qwen21_sampler",
+          "qwen21_decode"
+        ],
+        "gguf": [
+          "gguf_unet",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_gguf_diffusion_loader",
+          "qwen21_text_encoder_loader",
+          "qwen21_vae_loader",
+          "qwen21_conditioning",
+          "qwen21_empty_latent",
+          "qwen21_sampler",
+          "qwen21_decode"
+        ]
+      },
+      "backend_requirements": {
+        "comfyui": {
+          "diffusion_model": [
+            "UNETLoader",
+            "CLIPLoader(type=qwen_image)",
+            "VAELoader",
+            "TextEncodeQwenImage21",
+            "EmptyLatentImage",
+            "KSampler",
+            "VAEDecode"
+          ],
+          "gguf": [
+            "UnetLoaderGGUF or LoaderGGUF",
+            "CLIPLoader(type=qwen_image)",
+            "VAELoader",
+            "TextEncodeQwenImage21",
+            "EmptyLatentImage",
+            "KSampler",
+            "VAEDecode"
+          ]
+        }
+      },
+      "readiness_gates": {
+        "txt2img": [
+          "model",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_conditioning"
+        ],
+        "img2img": [
+          "model",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_conditioning",
+          "source_image"
+        ],
+        "edit": [
+          "model",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_conditioning",
+          "source_image"
+        ],
+        "inpaint": [
+          "model",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_conditioning",
+          "source_image",
+          "mask_image"
+        ],
+        "outpaint": [
+          "model",
+          "qwen21_text_encoder",
+          "qwen21_vae",
+          "qwen21_conditioning",
+          "source_image",
+          "outpaint_padding"
+        ]
+      },
+      "default_params": {
+        "width": 1024,
+        "height": 1024,
+        "steps": 25,
+        "cfg": 1.0,
+        "denoise": 1.0,
+        "sampler": "euler",
+        "scheduler": "simple",
+        "batch_count": 1,
+        "qwen21_output_channels": "auto",
+        "qwen21_cache_device": "auto",
+        "qwen21_cache_dtype": "default"
+      },
+      "required_extensions": [],
+      "loader_mode_support": {
+        "diffusion_model": {
+          "txt2img": "experimental_available",
+          "img2img": "experimental_available",
+          "edit": "experimental_available",
+          "inpaint": "experimental_available",
+          "outpaint": "experimental_available"
+        },
+        "gguf": {
+          "txt2img": "experimental_available",
+          "img2img": "experimental_available",
+          "edit": "experimental_available"
+        }
+      },
+      "notes": [
+        "Q21-1: Safetensors/components txt2img.",
+        "Q21-2: unified img2img/edit uses Image 1 as primary target and ordered Images 2–10 as references through TextEncodeQwenImage21.",
+        "Reference order and <image1>…<image10> prompt tokens are replay truth; gaps are rejected.",
+        "Default edit canvas follows Image 1; custom canvas override is explicit.",
+        "Q21-4: Safetensors/components inpaint uses TextEncodeQwenImage21 + source VAEEncode + SetLatentNoiseMask + DifferentialDiffusion. Strict mode composites generated pixels only inside the requested mask.",
+        "Q21-4: Safetensors/components outpaint uses ImagePadForOutpaint as Qwen Image 1 and latent anchor. Preserve Original restores the original center after generation; Allow Redraw returns the native Qwen result.",
+        "Q21-6A: Auto/RGB/RGBA output-channel control is available on native and GGUF routes; explicit RGBA source edits reconstruct LoadImage alpha before TextEncodeQwenImage21/VAE reference encoding.",
+        "Q21-6B: QwenImage21Cache controls are available when the connected Comfy backend exposes the compatible model/device/dtype node; cache settings remain optional and replay-safe."
+      ]
+    },
+    {
       "family_id": "qwen_image_edit_2509",
       "display_name": "Qwen Image Edit 2509",
       "surfaces": [
@@ -2766,7 +2931,25 @@
         "ae_or_vae",
         "qwen3vl_4b_text_encoder",
         "qwen_image_vae",
-        "krea2_clip_loader"
+        "krea2_clip_loader",
+        "qwen21_text_encoder",
+        "qwen21_vae",
+        "qwen21_diffusion_loader",
+        "qwen21_text_encoder_loader",
+        "qwen21_vae_loader",
+        "qwen21_conditioning",
+        "qwen21_empty_latent",
+        "qwen21_sampler",
+        "qwen21_decode",
+        "qwen21_cache",
+        "qwen21_mask_loader",
+        "qwen21_mask_grow",
+        "qwen21_outpaint_pad",
+        "qwen21_vae_encode",
+        "qwen21_latent_mask",
+        "qwen21_differential",
+        "qwen21_composite",
+        "qwen21_invert_mask"
       ],
       "allowed_roles": [
         "diffusion_model",
@@ -2791,7 +2974,25 @@
         "hidream_variant",
         "qwen3vl_4b_text_encoder",
         "qwen_image_vae",
-        "krea2_clip_loader"
+        "krea2_clip_loader",
+        "qwen21_text_encoder",
+        "qwen21_vae",
+        "qwen21_diffusion_loader",
+        "qwen21_text_encoder_loader",
+        "qwen21_vae_loader",
+        "qwen21_conditioning",
+        "qwen21_empty_latent",
+        "qwen21_sampler",
+        "qwen21_decode",
+        "qwen21_cache",
+        "qwen21_mask_loader",
+        "qwen21_mask_grow",
+        "qwen21_outpaint_pad",
+        "qwen21_vae_encode",
+        "qwen21_latent_mask",
+        "qwen21_differential",
+        "qwen21_composite",
+        "qwen21_invert_mask"
       ],
       "role_definitions": {
         "diffusion_model": {
@@ -2977,6 +3178,150 @@
           "kind": "capability",
           "required_by_default": false,
           "backend_neutral": true
+        },
+        "qwen21_text_encoder": {
+          "role_id": "qwen21_text_encoder",
+          "display_name": "Qwen3-VL 8B Text Encoder",
+          "description": "Qwen Image 2.1 primary Qwen3-VL 8B encoder asset.",
+          "kind": "asset",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_vae": {
+          "role_id": "qwen21_vae",
+          "display_name": "Qwen Image 2.1 VAE",
+          "description": "Qwen Image 2.1 VAE asset.",
+          "kind": "asset",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_diffusion_loader": {
+          "role_id": "qwen21_diffusion_loader",
+          "display_name": "Qwen 2.1 Diffusion Loader",
+          "description": "Capability proving a compatible UNETLoader route.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_text_encoder_loader": {
+          "role_id": "qwen21_text_encoder_loader",
+          "display_name": "Qwen 2.1 Text Encoder Loader",
+          "description": "Capability proving CLIPLoader(type=qwen_image).",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_vae_loader": {
+          "role_id": "qwen21_vae_loader",
+          "display_name": "Qwen 2.1 VAE Loader",
+          "description": "Capability proving VAELoader.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_conditioning": {
+          "role_id": "qwen21_conditioning",
+          "display_name": "Qwen 2.1 Conditioning",
+          "description": "Capability proving TextEncodeQwenImage21 with Neo-required sockets.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_empty_latent": {
+          "role_id": "qwen21_empty_latent",
+          "display_name": "Qwen 2.1 T2I Latent",
+          "description": "Capability proving EmptyLatentImage for Q21 T2I canvas ownership.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_sampler": {
+          "role_id": "qwen21_sampler",
+          "display_name": "Qwen 2.1 Sampler",
+          "description": "Capability proving KSampler inputs required by Q21.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_decode": {
+          "role_id": "qwen21_decode",
+          "display_name": "Qwen 2.1 Decode",
+          "description": "Capability proving VAEDecode.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_cache": {
+          "role_id": "qwen21_cache",
+          "display_name": "Qwen 2.1 Cache",
+          "description": "Optional QwenImage21Cache inference capability reserved for Q21-6.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_mask_loader": {
+          "role_id": "qwen21_mask_loader",
+          "display_name": "Qwen 2.1 Mask Loader",
+          "description": "Q21-4 masked workflow runtime capability.",
+          "kind": "runtime",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_mask_grow": {
+          "role_id": "qwen21_mask_grow",
+          "display_name": "Qwen 2.1 Mask Grow",
+          "description": "Q21-4 masked workflow runtime capability.",
+          "kind": "runtime",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_outpaint_pad": {
+          "role_id": "qwen21_outpaint_pad",
+          "display_name": "Qwen 2.1 Outpaint Pad",
+          "description": "Q21-4 masked workflow runtime capability.",
+          "kind": "runtime",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_vae_encode": {
+          "role_id": "qwen21_vae_encode",
+          "display_name": "Qwen 2.1 Vae Encode",
+          "description": "Q21-4 masked workflow runtime capability.",
+          "kind": "runtime",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_latent_mask": {
+          "role_id": "qwen21_latent_mask",
+          "display_name": "Qwen 2.1 Latent Mask",
+          "description": "Q21-4 masked workflow runtime capability.",
+          "kind": "runtime",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_differential": {
+          "role_id": "qwen21_differential",
+          "display_name": "Qwen 2.1 Differential",
+          "description": "Q21-4 masked workflow runtime capability.",
+          "kind": "runtime",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_composite": {
+          "role_id": "qwen21_composite",
+          "display_name": "Qwen 2.1 Composite",
+          "description": "Q21-4 masked workflow runtime capability.",
+          "kind": "runtime",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_invert_mask": {
+          "role_id": "qwen21_invert_mask",
+          "display_name": "Qwen 2.1 Invert Mask",
+          "description": "Q21-4 masked workflow runtime capability.",
+          "kind": "runtime",
+          "required_by_default": false,
+          "backend_neutral": true
         }
       },
       "provider_translation_required": true,
@@ -3060,7 +3405,17 @@
         "flux_guidance",
         "qwen3vl_4b_text_encoder",
         "qwen_image_vae",
-        "krea2_clip_loader"
+        "krea2_clip_loader",
+        "qwen21_text_encoder",
+        "qwen21_vae",
+        "qwen21_gguf_diffusion_loader",
+        "qwen21_text_encoder_loader",
+        "qwen21_vae_loader",
+        "qwen21_conditioning",
+        "qwen21_empty_latent",
+        "qwen21_sampler",
+        "qwen21_decode",
+        "qwen21_cache"
       ],
       "allowed_roles": [
         "gguf_unet",
@@ -3085,7 +3440,17 @@
         "hidream_variant",
         "qwen3vl_4b_text_encoder",
         "qwen_image_vae",
-        "krea2_clip_loader"
+        "krea2_clip_loader",
+        "qwen21_text_encoder",
+        "qwen21_vae",
+        "qwen21_gguf_diffusion_loader",
+        "qwen21_text_encoder_loader",
+        "qwen21_vae_loader",
+        "qwen21_conditioning",
+        "qwen21_empty_latent",
+        "qwen21_sampler",
+        "qwen21_decode",
+        "qwen21_cache"
       ],
       "role_definitions": {
         "gguf_unet": {
@@ -3268,6 +3633,86 @@
           "role_id": "krea2_clip_loader",
           "display_name": "Krea 2 CLIP Loader",
           "description": "Backend capability role proving CLIPLoader advertises type=krea2.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_text_encoder": {
+          "role_id": "qwen21_text_encoder",
+          "display_name": "Qwen3-VL 8B Text Encoder",
+          "description": "Native/safetensors Qwen3-VL 8B encoder asset used by the Q21-3 mixed GGUF route.",
+          "kind": "asset",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_vae": {
+          "role_id": "qwen21_vae",
+          "display_name": "Qwen Image 2.1 VAE",
+          "description": "Native/safetensors Qwen Image 2.1 VAE used by Q21-3.",
+          "kind": "asset",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_gguf_diffusion_loader": {
+          "role_id": "qwen21_gguf_diffusion_loader",
+          "display_name": "Qwen 2.1 GGUF Diffusion Loader",
+          "description": "Capability proving a compatible UnetLoaderGGUF/LoaderGGUF diffusion-transformer route.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_text_encoder_loader": {
+          "role_id": "qwen21_text_encoder_loader",
+          "display_name": "Qwen 2.1 Text Encoder Loader",
+          "description": "Capability proving native CLIPLoader(type=qwen_image) on the mixed GGUF route.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_vae_loader": {
+          "role_id": "qwen21_vae_loader",
+          "display_name": "Qwen 2.1 VAE Loader",
+          "description": "Capability proving native VAELoader for Q21-3.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_conditioning": {
+          "role_id": "qwen21_conditioning",
+          "display_name": "Qwen 2.1 Conditioning",
+          "description": "Capability proving TextEncodeQwenImage21 with Neo-required sockets.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_empty_latent": {
+          "role_id": "qwen21_empty_latent",
+          "display_name": "Qwen 2.1 T2I Latent",
+          "description": "Capability proving EmptyLatentImage for Q21 T2I/custom edit canvas ownership.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_sampler": {
+          "role_id": "qwen21_sampler",
+          "display_name": "Qwen 2.1 Sampler",
+          "description": "Capability proving KSampler inputs required by Q21.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_decode": {
+          "role_id": "qwen21_decode",
+          "display_name": "Qwen 2.1 Decode",
+          "description": "Capability proving VAEDecode.",
+          "kind": "capability",
+          "required_by_default": false,
+          "backend_neutral": true
+        },
+        "qwen21_cache": {
+          "role_id": "qwen21_cache",
+          "display_name": "Qwen 2.1 Cache",
+          "description": "Optional QwenImage21Cache inference capability reserved for Q21-6.",
           "kind": "capability",
           "required_by_default": false,
           "backend_neutral": true
@@ -3880,6 +4325,21 @@
           "backend_neutral": true,
           "advanced": false,
           "help_text": "Internal Flux 1 variant metadata. Krea model filenames resolve canonically to krea_dev; Klein belongs to the separate FLUX.2 Klein family."
+        },
+        {
+          "field_id": "img2img_source_resolution_mode",
+          "label": "Img2Img Source Resolution",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "img2img_source_resolution_mode",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "keep_source_resolution",
+          "help_text": "Controls how Neo prepares Image 1 before VAEEncode in source-latent img2img/edit workflows. Keep source resolution preserves current behavior. Fit resizes directly to the requested width/height. Crop scales to cover and center-crops to the requested size. Pad scales to fit and center-pads to the requested size."
         }
       ],
       "readiness_fields": [
@@ -5173,6 +5633,21 @@
             "edit"
           ],
           "help_text": "Normal Qwen Image Edit in Neo accepts one source image only. Use Qwen Image Edit 2509 for multi-source edits."
+        },
+        {
+          "field_id": "img2img_source_resolution_mode",
+          "label": "Img2Img Source Resolution",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "img2img_source_resolution_mode",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "keep_source_resolution",
+          "help_text": "Controls how Neo prepares Image 1 before VAEEncode in source-latent img2img/edit workflows. Keep source resolution preserves current behavior. Fit resizes directly to the requested width/height. Crop scales to cover and center-crops to the requested size. Pad scales to fit and center-pads to the requested size."
         }
       ],
       "readiness_fields": [
@@ -5192,6 +5667,705 @@
         "MMProj is not exposed for the native/safetensors component route; it is only required by the GGUF image-conditioned route.",
         "source_image_2/source_image_3 are hidden/ignored for qwen_image because Qwen Image Edit 2509 owns multi-source editing.",
         "IR-4: the single visible CFG control is editable and labeled True CFG; submission mirrors it to true_cfg plus compiler-compatible cfg."
+      ]
+    },
+    {
+      "profile_id": "qwen21_native",
+      "display_name": "Qwen Image 2.1 Safetensors",
+      "description": "Q21-4 native split-component profile for Qwen Image 2.1 txt2img, unified 1–10-reference edit, inpaint, and outpaint.",
+      "families": [
+        "qwen_image_21"
+      ],
+      "loaders": [
+        "diffusion_model"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit",
+        "inpaint",
+        "outpaint"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "negative_prompt",
+          "label": "Negative Prompt",
+          "control_type": "textarea",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 25
+        },
+        {
+          "field_id": "cfg",
+          "label": "True CFG",
+          "control_type": "slider",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "euler"
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "simple"
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "diffusion_model",
+          "label": "Qwen Image 2.1 Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "diffusion_model"
+        },
+        {
+          "field_id": "qwen_text_encoder",
+          "label": "Qwen3-VL 8B Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "qwen21_text_encoder",
+          "help_text": "Select the Qwen3-VL 8B text/vision encoder used by Qwen Image 2.1."
+        },
+        {
+          "field_id": "vae",
+          "label": "Qwen Image 2.1 VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "qwen21_vae"
+        },
+        {
+          "field_id": "qwen21_output_channels",
+          "label": "Output Channels",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "auto",
+          "options": [
+            {
+              "id": "auto",
+              "label": "Auto · Preserve native channels"
+            },
+            {
+              "id": "rgb",
+              "label": "RGB · Strip alpha"
+            },
+            {
+              "id": "rgba",
+              "label": "RGBA / Transparent · Preserve alpha"
+            }
+          ],
+          "help_text": "Q21-6A channel policy. Auto preserves the native Qwen VAE output. RGB explicitly strips alpha before PNG save. RGBA preserves native alpha and reconstructs source alpha for edit/reference inputs. PNG is the alpha-safe provider output; physical transparency quality remains pending Q21-7."
+        },
+        {
+          "field_id": "qwen21_cache_device",
+          "label": "Cache Device",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "auto",
+          "options": [
+            {
+              "id": "auto",
+              "label": "Auto · VRAM then RAM"
+            },
+            {
+              "id": "gpu",
+              "label": "GPU · VRAM"
+            },
+            {
+              "id": "cpu",
+              "label": "CPU · RAM"
+            },
+            {
+              "id": "off",
+              "label": "Off · Recompute prefix"
+            }
+          ],
+          "help_text": "Q21-6B inference cache placement. Auto lets Qwen Image 2.1 use spare VRAM then RAM; GPU pins the cache to VRAM, CPU keeps it in system RAM, and Off disables the cache/recomputes the prefix. Shown only when QwenImage21Cache is live on the connected Comfy backend."
+        },
+        {
+          "field_id": "qwen21_cache_dtype",
+          "label": "Cache Precision",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "default",
+          "options": [
+            {
+              "id": "default",
+              "label": "Default · Lossless"
+            },
+            {
+              "id": "int8",
+              "label": "INT8 · Lower memory"
+            },
+            {
+              "id": "int4",
+              "label": "INT4 · Lowest memory"
+            }
+          ],
+          "help_text": "Q21-6B cache storage precision. Default keeps native cache precision; INT8 reduces cache memory with small accuracy trade-off; INT4 minimizes cache memory with a larger approximation trade-off. This does not quantize the model weights."
+        },
+        {
+          "field_id": "source_image",
+          "label": "Image 1 · Primary / Edit Target",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "help_text": "Primary image to edit. Qwen Image 2.1 derives the default edit canvas from this image."
+        },
+        {
+          "field_id": "qwen21_reference_resolution",
+          "label": "Reference Resolution",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": 0,
+          "help_text": "TextEncodeQwenImage21 reference resize budget. 0 keeps each reference near its own size rounded to multiples of 32; positive values use that square-pixel budget while preserving aspect ratio."
+        },
+        {
+          "field_id": "qwen21_edit_canvas_mode",
+          "label": "Edit Canvas",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "source",
+          "options": [
+            {
+              "id": "source",
+              "label": "Follow Image 1"
+            },
+            {
+              "id": "custom",
+              "label": "Custom width / height"
+            }
+          ],
+          "help_text": "Follow Image 1 uses TextEncodeQwenImage21 latent output. Custom uses Neo width/height as an explicit EmptyLatentImage override."
+        },
+        {
+          "field_id": "qwen21_inpaint_preservation",
+          "label": "Inpaint Preservation",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": "strict",
+          "options": [
+            {
+              "id": "strict",
+              "label": "Strict · Preserve outside mask"
+            },
+            {
+              "id": "native",
+              "label": "Native · Allow edit spill"
+            }
+          ],
+          "help_text": "Strict restores the original pixels outside the final mask after Qwen generation. Native returns the unguarded Qwen result."
+        },
+        {
+          "field_id": "qwen21_outpaint_source_policy",
+          "label": "Original Area",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "outpaint"
+          ],
+          "default": "preserve",
+          "options": [
+            {
+              "id": "preserve",
+              "label": "Preserve original area"
+            },
+            {
+              "id": "redraw",
+              "label": "Allow source redraw"
+            }
+          ],
+          "help_text": "Preserve Original composites the untouched center back after Qwen expands the canvas. Allow Redraw returns Qwen’s native full-canvas result."
+        },
+        {
+          "field_id": "mask",
+          "label": "Mask",
+          "control_type": "mask",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "mask",
+          "modes": [
+            "inpaint"
+          ],
+          "help_text": "Required for Qwen Image 2.1 inpaint. White/active mask pixels define the editable latent region."
+        },
+        {
+          "field_id": "mask_grow",
+          "label": "Mask Grow",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0,
+          "help_text": "Expand the inpaint mask with Comfy core GrowMask before sampling."
+        },
+        {
+          "field_id": "mask_blur",
+          "label": "Mask Blur",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "modes": [
+            "inpaint"
+          ],
+          "default": 0,
+          "help_text": "Recorded for replay. Q21-4 keeps the graph core-only, so mask blur is not applied by the compiler yet."
+        },
+        {
+          "field_id": "outpaint_padding",
+          "label": "Outpaint Padding",
+          "control_type": "padding",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "outpaint_padding",
+          "modes": [
+            "outpaint"
+          ],
+          "help_text": "Padding added around Image 1 before Qwen Image 2.1 expands the scene."
+        }
+      ],
+      "readiness_fields": [
+        "route_readiness"
+      ],
+      "hidden_fields": [
+        "gguf_model",
+        "qwen_mmproj",
+        "qwen_edit_mode",
+        "source_image_2",
+        "source_image_3",
+        "source_image_4",
+        "source_image_5",
+        "source_image_6",
+        "source_image_7",
+        "source_image_8",
+        "source_image_9",
+        "source_image_10"
+      ],
+      "disabled_fields": [
+        "clip_skip",
+        "denoise"
+      ],
+      "notes": [
+        "Q21-1 txt2img remains available.",
+        "Q21-2 img2img/edit exposes a dedicated progressive Source Images panel with Image 1–10; generic hidden source_image_2…10 fields prevent duplicate parameter widgets.",
+        "Image 1 is fixed as Primary/Edit Target. Images 2–10 are ordered references and must remain contiguous.",
+        "True CFG defaults to 1.0; negative prompt becomes effective only above the route CFG threshold.",
+        "Edit reference resolution defaults to 0; default canvas follows Image 1.",
+        "Reference lane count is owned by the dedicated Qwen 2.1 Source Images panel; no duplicate generic numeric lane control is rendered.",
+        "Q21-4 inpaint/outpaint reuse the same ordered Image 1–10 reference panel; Image 1 is mask/canvas target, Images 2–10 remain semantic references.",
+        "Q21-4 Strict inpaint and Preserve Original outpaint add final ImageCompositeMasked pixel guards; Native/Allow Redraw return the unguarded Qwen result.",
+        "Q21-6A exposes Output Channels: Auto preserves native Qwen channels, RGB strips alpha, and RGBA preserves/reconstructs alpha through PNG-safe output.",
+        "Q21-6B exposes Cache Device and Cache Precision only when live capability discovery reports QwenImage21Cache; the compiler inserts the cache after compatible global model-only LoRAs and before route-specific model patches/sampling."
+      ]
+    },
+    {
+      "profile_id": "qwen21_gguf",
+      "display_name": "Qwen Image 2.1 GGUF",
+      "description": "Q21-3 mixed GGUF profile: GGUF diffusion transformer with native/safetensors Qwen3-VL 8B + Qwen Image 2.1 VAE for txt2img and unified 1–10-reference edit.",
+      "families": [
+        "qwen_image_21"
+      ],
+      "loaders": [
+        "gguf"
+      ],
+      "modes": [
+        "txt2img",
+        "img2img",
+        "edit"
+      ],
+      "shared_fields": [
+        {
+          "field_id": "positive_prompt",
+          "label": "Positive Prompt",
+          "control_type": "textarea",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "negative_prompt",
+          "label": "Negative Prompt",
+          "control_type": "textarea",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false
+        },
+        {
+          "field_id": "width",
+          "label": "Width",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "height",
+          "label": "Height",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1024
+        },
+        {
+          "field_id": "steps",
+          "label": "Steps",
+          "control_type": "number",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 25
+        },
+        {
+          "field_id": "cfg",
+          "label": "True CFG",
+          "control_type": "slider",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1.0
+        },
+        {
+          "field_id": "sampler",
+          "label": "Sampler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "euler"
+        },
+        {
+          "field_id": "scheduler",
+          "label": "Scheduler",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "simple"
+        },
+        {
+          "field_id": "batch_count",
+          "label": "Batch Count",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": 1
+        },
+        {
+          "field_id": "seed",
+          "label": "Seed",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": -1
+        }
+      ],
+      "family_fields": [
+        {
+          "field_id": "gguf_model",
+          "label": "Qwen Image 2.1 GGUF Model",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "gguf_unet",
+          "help_text": "Select the Qwen Image 2.1 GGUF diffusion transformer. Q21-3 keeps the Qwen3-VL 8B encoder and VAE native/safetensors."
+        },
+        {
+          "field_id": "qwen_text_encoder",
+          "label": "Qwen3-VL 8B Text Encoder",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "qwen21_text_encoder",
+          "help_text": "Select the native/safetensors Qwen3-VL 8B encoder. Q21-3 does not require a GGUF text encoder or MMProj."
+        },
+        {
+          "field_id": "vae",
+          "label": "Qwen Image 2.1 VAE",
+          "control_type": "select",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "qwen21_vae"
+        },
+        {
+          "field_id": "qwen21_output_channels",
+          "label": "Output Channels",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "auto",
+          "options": [
+            {
+              "id": "auto",
+              "label": "Auto · Preserve native channels"
+            },
+            {
+              "id": "rgb",
+              "label": "RGB · Strip alpha"
+            },
+            {
+              "id": "rgba",
+              "label": "RGBA / Transparent · Preserve alpha"
+            }
+          ],
+          "help_text": "Q21-6A channel policy. Auto preserves the native Qwen VAE output. RGB explicitly strips alpha before PNG save. RGBA preserves native alpha and reconstructs source alpha for edit/reference inputs. PNG is the alpha-safe provider output; physical transparency quality remains pending Q21-7."
+        },
+        {
+          "field_id": "qwen21_cache_device",
+          "label": "Cache Device",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "auto",
+          "options": [
+            {
+              "id": "auto",
+              "label": "Auto · VRAM then RAM"
+            },
+            {
+              "id": "gpu",
+              "label": "GPU · VRAM"
+            },
+            {
+              "id": "cpu",
+              "label": "CPU · RAM"
+            },
+            {
+              "id": "off",
+              "label": "Off · Recompute prefix"
+            }
+          ],
+          "help_text": "Q21-6B inference cache placement. Auto lets Qwen Image 2.1 use spare VRAM then RAM; GPU pins the cache to VRAM, CPU keeps it in system RAM, and Off disables the cache/recomputes the prefix. Shown only when QwenImage21Cache is live on the connected Comfy backend."
+        },
+        {
+          "field_id": "qwen21_cache_dtype",
+          "label": "Cache Precision",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "default": "default",
+          "options": [
+            {
+              "id": "default",
+              "label": "Default · Lossless"
+            },
+            {
+              "id": "int8",
+              "label": "INT8 · Lower memory"
+            },
+            {
+              "id": "int4",
+              "label": "INT4 · Lowest memory"
+            }
+          ],
+          "help_text": "Q21-6B cache storage precision. Default keeps native cache precision; INT8 reduces cache memory with small accuracy trade-off; INT4 minimizes cache memory with a larger approximation trade-off. This does not quantize the model weights."
+        },
+        {
+          "field_id": "source_image",
+          "label": "Image 1 · Primary / Edit Target",
+          "control_type": "image",
+          "required": true,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "source_image",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "help_text": "Primary image to edit. Qwen Image 2.1 derives the default edit canvas from this image."
+        },
+        {
+          "field_id": "qwen21_reference_resolution",
+          "label": "Reference Resolution",
+          "control_type": "number",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": 0,
+          "help_text": "TextEncodeQwenImage21 reference resize budget. 0 keeps each reference near its own size rounded to multiples of 32; positive values use that square-pixel budget while preserving aspect ratio."
+        },
+        {
+          "field_id": "qwen21_edit_canvas_mode",
+          "label": "Edit Canvas",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": true,
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "source",
+          "options": [
+            {
+              "id": "source",
+              "label": "Follow Image 1"
+            },
+            {
+              "id": "custom",
+              "label": "Custom width / height"
+            }
+          ],
+          "help_text": "Follow Image 1 uses TextEncodeQwenImage21 latent output. Custom uses Neo width/height as an explicit EmptyLatentImage override."
+        }
+      ],
+      "readiness_fields": [
+        "route_readiness"
+      ],
+      "hidden_fields": [
+        "qwen_mmproj",
+        "mask",
+        "outpaint_padding",
+        "qwen_edit_mode",
+        "source_image_2",
+        "source_image_3",
+        "source_image_4",
+        "source_image_5",
+        "source_image_6",
+        "source_image_7",
+        "source_image_8",
+        "source_image_9",
+        "source_image_10",
+        "diffusion_model"
+      ],
+      "disabled_fields": [
+        "clip_skip",
+        "denoise"
+      ],
+      "notes": [
+        "Q21-1 txt2img remains available.",
+        "Q21-2 img2img/edit exposes a dedicated progressive Source Images panel with Image 1–10; generic hidden source_image_2…10 fields prevent duplicate parameter widgets.",
+        "Image 1 is fixed as Primary/Edit Target. Images 2–10 are ordered references and must remain contiguous.",
+        "True CFG defaults to 1.0; negative prompt becomes effective only above the route CFG threshold.",
+        "Edit reference resolution defaults to 0; default canvas follows Image 1.",
+        "Reference lane count is owned by the dedicated Qwen 2.1 Source Images panel; no duplicate generic numeric lane control is rendered.",
+        "Q21-6A exposes Output Channels: Auto preserves native Qwen channels, RGB strips alpha, and RGBA preserves/reconstructs alpha through PNG-safe output.",
+        "Q21-6B exposes Cache Device and Cache Precision only when live capability discovery reports QwenImage21Cache; the compiler inserts the cache after compatible global model-only LoRAs and before route-specific model patches/sampling."
       ]
     },
     {
@@ -5459,6 +6633,21 @@
             "edit"
           ],
           "help_text": "Qwen Image Edit 2509 accepts Image 1 plus optional Image 2/Image 3 for multi-source composition/editing."
+        },
+        {
+          "field_id": "img2img_source_resolution_mode",
+          "label": "Img2Img Source Resolution",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "img2img_source_resolution_mode",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "keep_source_resolution",
+          "help_text": "Controls how Neo prepares Image 1 before VAEEncode in source-latent img2img/edit workflows. Keep source resolution preserves current behavior. Fit resizes directly to the requested width/height. Crop scales to cover and center-crops to the requested size. Pad scales to fit and center-pads to the requested size."
         }
       ],
       "readiness_fields": [
@@ -6512,11 +7701,29 @@
           "role_id": "krea2_edit_engine",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "native",
-          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning."
+          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning. Ostris Edit keeps Neo’s latent adapters but swaps prompt conditioning to TextEncodeKrea2OstrisEdit and patches the model with Krea2OstrisEditModelPatch."
+        },
+        {
+          "field_id": "krea2_edit_weight_source",
+          "label": "Edit Weight Source",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_edit_weight_source",
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "separate_lora",
+          "help_text": "Separate LoRA loads the engine’s dedicated model-only edit LoRA. Baked into Model skips that dedicated edit-LoRA loader because the selected diffusion model already contains those weights."
         },
         {
           "field_id": "krea2_identity_edit_lora",
@@ -6528,11 +7735,12 @@
           "role_id": "krea2_identity_edit_lora",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "",
-          "help_text": "Required when Identity Edit is selected. Recommended current file: krea2_identity_edit_v1_2.safetensors. This LoRA remains safetensors/model-only for both native and GGUF Krea 2."
+          "help_text": "Required only when Identity Edit uses Separate LoRA. Recommended current file: krea2_identity_edit_v1_2.safetensors. Baked into Model intentionally skips this loader."
         },
         {
           "field_id": "krea2_identity_edit_lora_strength",
@@ -6544,11 +7752,12 @@
           "role_id": "krea2_identity_edit_lora_strength",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": 1.0,
-          "help_text": "Strength for the dedicated Identity Edit LoRA. Neo applies it model-only before Krea2EditModelPatch."
+          "help_text": "Strength for the dedicated Identity Edit LoRA when Edit Weight Source is Separate LoRA. Hidden and non-executable for Baked into Model."
         },
         {
           "field_id": "krea2_identity_edit_fit_mode",
@@ -6560,6 +7769,7 @@
           "role_id": "krea2_identity_edit_fit_mode",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -6576,6 +7786,7 @@
           "role_id": "krea2_identity_edit_ref_boost",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -6592,6 +7803,7 @@
           "role_id": "krea2_identity_edit_ref_boost_a",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -6608,6 +7820,7 @@
           "role_id": "krea2_identity_edit_grounding_px",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -6617,18 +7830,70 @@
         {
           "field_id": "krea2_identity_edit_system_prompt",
           "label": "Grounding System Prompt",
-          "control_type": "text",
+          "control_type": "textarea",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_system_prompt",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "",
-          "help_text": "Expert override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to attend to a specific kind of visual detail."
+          "help_text": "Optional override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to focus on specific visual details."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_edit_lora",
+          "label": "AI Toolkit Edit LoRA",
+          "control_type": "select",
+          "role_id": "krea2_ostris_edit_lora",
+          "default": "",
+          "help_text": "Required only for Krea 2 Ostris Edit + Separate LoRA. Select a Krea 2 edit LoRA trained with AI Toolkit experimental edit mode (model_kwargs.edit: true). This is not the Identity Edit v1.2 LoRA. If the same Ostris/AI-Toolkit edit weights are already merged into the selected diffusion model, choose Baked into Model instead."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_edit_lora_strength",
+          "label": "Ostris Edit LoRA Strength",
+          "control_type": "number",
+          "role_id": "krea2_ostris_edit_lora_strength",
+          "default": 1.0,
+          "help_text": "Strength for the dedicated Ostris Edit LoRA when Edit Weight Source is Separate LoRA. Hidden and non-executable for Baked into Model."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_kv_cache",
+          "label": "KV Cache",
+          "control_type": "select",
+          "role_id": "krea2_ostris_kv_cache",
+          "default": "off",
+          "help_text": "Controls Krea2OstrisEditModelPatch.kv_cache. Leave Off for normal Ostris/AI Toolkit edit LoRAs. Turn On only when the selected LoRA/model documentation explicitly says it was trained with AI Toolkit KV Cache support. This is a training-contract switch, not a VRAM preset."
         },
         {
           "field_id": "source_image",
@@ -6644,6 +7909,21 @@
             "outpaint"
           ],
           "help_text": "Required for Krea 2 image-conditioned adapter modes."
+        },
+        {
+          "field_id": "img2img_source_resolution_mode",
+          "label": "Img2Img Source Resolution",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "img2img_source_resolution_mode",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "keep_source_resolution",
+          "help_text": "Controls how Neo prepares Image 1 before VAEEncode in source-latent img2img/edit workflows. Keep source resolution preserves current behavior. Fit resizes directly to the requested width/height. Crop scales to cover and center-crops to the requested size. Pad scales to fit and center-pads to the requested size."
         },
         {
           "field_id": "mask",
@@ -6722,7 +8002,7 @@
         "No FLUX, Klein, Qwen Image Edit, or SD checkpoint fallback is allowed.",
         "RAW defaults to 52 steps / CFG 3.5 and uses encoded negative conditioning.",
         "Phase M17: image-conditioned modes can opt into ComfyUI-Krea2Edit v1.2 for appearance/identity-preserving instruction edits.",
-        "Identity Edit requires Krea2EditModelPatch + Krea2EditGroundedEncode + LoraLoaderModelOnly + EmptySD3LatentImage and a selected Identity Edit LoRA.",
+        "Identity Edit always requires Krea2EditModelPatch + Krea2EditGroundedEncode + EmptySD3LatentImage. LoraLoaderModelOnly + a selected Identity Edit LoRA are required only for Separate LoRA weight source; Baked into Model skips the engine-owned LoRA loader.",
         "Two-reference Identity Edit is training-ordered as Image 1 scene/context, Image 2 subject/identity; Image 3 is not routed."
       ],
       "readiness_gates": [
@@ -6891,11 +8171,29 @@
           "role_id": "krea2_edit_engine",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "native",
-          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning."
+          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning. Ostris Edit keeps Neo’s latent adapters but swaps prompt conditioning to TextEncodeKrea2OstrisEdit and patches the model with Krea2OstrisEditModelPatch."
+        },
+        {
+          "field_id": "krea2_edit_weight_source",
+          "label": "Edit Weight Source",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_edit_weight_source",
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "separate_lora",
+          "help_text": "Separate LoRA loads the engine’s dedicated model-only edit LoRA. Baked into Model skips that dedicated edit-LoRA loader because the selected diffusion model already contains those weights."
         },
         {
           "field_id": "krea2_identity_edit_lora",
@@ -6907,11 +8205,12 @@
           "role_id": "krea2_identity_edit_lora",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "",
-          "help_text": "Required when Identity Edit is selected. Recommended current file: krea2_identity_edit_v1_2.safetensors. This LoRA remains safetensors/model-only for both native and GGUF Krea 2."
+          "help_text": "Required only when Identity Edit uses Separate LoRA. Recommended current file: krea2_identity_edit_v1_2.safetensors. Baked into Model intentionally skips this loader."
         },
         {
           "field_id": "krea2_identity_edit_lora_strength",
@@ -6923,11 +8222,12 @@
           "role_id": "krea2_identity_edit_lora_strength",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": 1.0,
-          "help_text": "Strength for the dedicated Identity Edit LoRA. Neo applies it model-only before Krea2EditModelPatch."
+          "help_text": "Strength for the dedicated Identity Edit LoRA when Edit Weight Source is Separate LoRA. Hidden and non-executable for Baked into Model."
         },
         {
           "field_id": "krea2_identity_edit_fit_mode",
@@ -6939,6 +8239,7 @@
           "role_id": "krea2_identity_edit_fit_mode",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -6955,6 +8256,7 @@
           "role_id": "krea2_identity_edit_ref_boost",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -6971,6 +8273,7 @@
           "role_id": "krea2_identity_edit_ref_boost_a",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -6987,6 +8290,7 @@
           "role_id": "krea2_identity_edit_grounding_px",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -6996,18 +8300,70 @@
         {
           "field_id": "krea2_identity_edit_system_prompt",
           "label": "Grounding System Prompt",
-          "control_type": "text",
+          "control_type": "textarea",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_system_prompt",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "",
-          "help_text": "Expert override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to attend to a specific kind of visual detail."
+          "help_text": "Optional override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to focus on specific visual details."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_edit_lora",
+          "label": "AI Toolkit Edit LoRA",
+          "control_type": "select",
+          "role_id": "krea2_ostris_edit_lora",
+          "default": "",
+          "help_text": "Required only for Krea 2 Ostris Edit + Separate LoRA. Select a Krea 2 edit LoRA trained with AI Toolkit experimental edit mode (model_kwargs.edit: true). This is not the Identity Edit v1.2 LoRA. If the same Ostris/AI-Toolkit edit weights are already merged into the selected diffusion model, choose Baked into Model instead."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_edit_lora_strength",
+          "label": "Ostris Edit LoRA Strength",
+          "control_type": "number",
+          "role_id": "krea2_ostris_edit_lora_strength",
+          "default": 1.0,
+          "help_text": "Strength for the dedicated Ostris Edit LoRA when Edit Weight Source is Separate LoRA. Hidden and non-executable for Baked into Model."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_kv_cache",
+          "label": "KV Cache",
+          "control_type": "select",
+          "role_id": "krea2_ostris_kv_cache",
+          "default": "off",
+          "help_text": "Controls Krea2OstrisEditModelPatch.kv_cache. Leave Off for normal Ostris/AI Toolkit edit LoRAs. Turn On only when the selected LoRA/model documentation explicitly says it was trained with AI Toolkit KV Cache support. This is a training-contract switch, not a VRAM preset."
         },
         {
           "field_id": "source_image",
@@ -7102,7 +8458,7 @@
         "GGUF is transformer-only in M16: use a Krea2-capable GGUF loader plus native/safetensors Qwen3-VL-4B. GGUF text encoders are gated.",
         "RAW defaults to 52 steps / CFG 3.5 and uses encoded negative conditioning.",
         "Phase M17: image-conditioned modes can opt into ComfyUI-Krea2Edit v1.2 for appearance/identity-preserving instruction edits.",
-        "Identity Edit requires Krea2EditModelPatch + Krea2EditGroundedEncode + LoraLoaderModelOnly + EmptySD3LatentImage and a selected Identity Edit LoRA.",
+        "Identity Edit always requires Krea2EditModelPatch + Krea2EditGroundedEncode + EmptySD3LatentImage. LoraLoaderModelOnly + a selected Identity Edit LoRA are required only for Separate LoRA weight source; Baked into Model skips the engine-owned LoRA loader.",
         "Two-reference Identity Edit is training-ordered as Image 1 scene/context, Image 2 subject/identity; Image 3 is not routed.",
         "Identity Edit on GGUF quantizes only the Krea 2 diffusion transformer; Qwen3-VL, VAE, grounded encoder, and the Identity Edit LoRA remain native/safetensors."
       ],
@@ -7263,11 +8619,29 @@
           "role_id": "krea2_edit_engine",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "native",
-          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning."
+          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning. Ostris Edit keeps Neo’s latent adapters but swaps prompt conditioning to TextEncodeKrea2OstrisEdit and patches the model with Krea2OstrisEditModelPatch."
+        },
+        {
+          "field_id": "krea2_edit_weight_source",
+          "label": "Edit Weight Source",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_edit_weight_source",
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "separate_lora",
+          "help_text": "Separate LoRA loads the engine’s dedicated model-only edit LoRA. Baked into Model skips that dedicated edit-LoRA loader because the selected diffusion model already contains those weights."
         },
         {
           "field_id": "krea2_identity_edit_lora",
@@ -7279,11 +8653,12 @@
           "role_id": "krea2_identity_edit_lora",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "",
-          "help_text": "Required when Identity Edit is selected. Recommended current file: krea2_identity_edit_v1_2.safetensors. This LoRA remains safetensors/model-only for both native and GGUF Krea 2."
+          "help_text": "Required only when Identity Edit uses Separate LoRA. Recommended current file: krea2_identity_edit_v1_2.safetensors. Baked into Model intentionally skips this loader."
         },
         {
           "field_id": "krea2_identity_edit_lora_strength",
@@ -7295,11 +8670,12 @@
           "role_id": "krea2_identity_edit_lora_strength",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": 1.0,
-          "help_text": "Strength for the dedicated Identity Edit LoRA. Neo applies it model-only before Krea2EditModelPatch."
+          "help_text": "Strength for the dedicated Identity Edit LoRA when Edit Weight Source is Separate LoRA. Hidden and non-executable for Baked into Model."
         },
         {
           "field_id": "krea2_identity_edit_fit_mode",
@@ -7311,6 +8687,7 @@
           "role_id": "krea2_identity_edit_fit_mode",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -7327,6 +8704,7 @@
           "role_id": "krea2_identity_edit_ref_boost",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -7343,6 +8721,7 @@
           "role_id": "krea2_identity_edit_ref_boost_a",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -7359,6 +8738,7 @@
           "role_id": "krea2_identity_edit_grounding_px",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -7368,18 +8748,70 @@
         {
           "field_id": "krea2_identity_edit_system_prompt",
           "label": "Grounding System Prompt",
-          "control_type": "text",
+          "control_type": "textarea",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_system_prompt",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "",
-          "help_text": "Expert override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to attend to a specific kind of visual detail."
+          "help_text": "Optional override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to focus on specific visual details."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_edit_lora",
+          "label": "AI Toolkit Edit LoRA",
+          "control_type": "select",
+          "role_id": "krea2_ostris_edit_lora",
+          "default": "",
+          "help_text": "Required only for Krea 2 Ostris Edit + Separate LoRA. Select a Krea 2 edit LoRA trained with AI Toolkit experimental edit mode (model_kwargs.edit: true). This is not the Identity Edit v1.2 LoRA. If the same Ostris/AI-Toolkit edit weights are already merged into the selected diffusion model, choose Baked into Model instead."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_edit_lora_strength",
+          "label": "Ostris Edit LoRA Strength",
+          "control_type": "number",
+          "role_id": "krea2_ostris_edit_lora_strength",
+          "default": 1.0,
+          "help_text": "Strength for the dedicated Ostris Edit LoRA when Edit Weight Source is Separate LoRA. Hidden and non-executable for Baked into Model."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_kv_cache",
+          "label": "KV Cache",
+          "control_type": "select",
+          "role_id": "krea2_ostris_kv_cache",
+          "default": "off",
+          "help_text": "Controls Krea2OstrisEditModelPatch.kv_cache. Leave Off for normal Ostris/AI Toolkit edit LoRAs. Turn On only when the selected LoRA/model documentation explicitly says it was trained with AI Toolkit KV Cache support. This is a training-contract switch, not a VRAM preset."
         },
         {
           "field_id": "source_image",
@@ -7395,6 +8827,21 @@
             "outpaint"
           ],
           "help_text": "Required for Krea 2 image-conditioned adapter modes."
+        },
+        {
+          "field_id": "img2img_source_resolution_mode",
+          "label": "Img2Img Source Resolution",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "img2img_source_resolution_mode",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "keep_source_resolution",
+          "help_text": "Controls how Neo prepares Image 1 before VAEEncode in source-latent img2img/edit workflows. Keep source resolution preserves current behavior. Fit resizes directly to the requested width/height. Crop scales to cover and center-crops to the requested size. Pad scales to fit and center-pads to the requested size."
         },
         {
           "field_id": "mask",
@@ -7475,7 +8922,7 @@
         "Turbo recommends 8 steps / CFG 1.0 and uses ConditioningZeroOut; explicit user Steps/CFG remain authoritative under Parameter Truth.",
         "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time.",
         "Phase M17: image-conditioned modes can opt into ComfyUI-Krea2Edit v1.2 for appearance/identity-preserving instruction edits.",
-        "Identity Edit requires Krea2EditModelPatch + Krea2EditGroundedEncode + LoraLoaderModelOnly + EmptySD3LatentImage and a selected Identity Edit LoRA.",
+        "Identity Edit always requires Krea2EditModelPatch + Krea2EditGroundedEncode + EmptySD3LatentImage. LoraLoaderModelOnly + a selected Identity Edit LoRA are required only for Separate LoRA weight source; Baked into Model skips the engine-owned LoRA loader.",
         "Two-reference Identity Edit is training-ordered as Image 1 scene/context, Image 2 subject/identity; Image 3 is not routed."
       ],
       "readiness_gates": [
@@ -7635,11 +9082,29 @@
           "role_id": "krea2_edit_engine",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "native",
-          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning."
+          "help_text": "Native preserves Neo’s existing source-latent/mask/canvas workflow. Identity Edit v1.2 switches to the ComfyUI-Krea2Edit appearance path + image-grounded Qwen3-VL conditioning. Ostris Edit keeps Neo’s latent adapters but swaps prompt conditioning to TextEncodeKrea2OstrisEdit and patches the model with Krea2OstrisEditModelPatch."
+        },
+        {
+          "field_id": "krea2_edit_weight_source",
+          "label": "Edit Weight Source",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "krea2_edit_weight_source",
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "default": "separate_lora",
+          "help_text": "Separate LoRA loads the engine’s dedicated model-only edit LoRA. Baked into Model skips that dedicated edit-LoRA loader because the selected diffusion model already contains those weights."
         },
         {
           "field_id": "krea2_identity_edit_lora",
@@ -7651,11 +9116,12 @@
           "role_id": "krea2_identity_edit_lora",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "",
-          "help_text": "Required when Identity Edit is selected. Recommended current file: krea2_identity_edit_v1_2.safetensors. This LoRA remains safetensors/model-only for both native and GGUF Krea 2."
+          "help_text": "Required only when Identity Edit uses Separate LoRA. Recommended current file: krea2_identity_edit_v1_2.safetensors. Baked into Model intentionally skips this loader."
         },
         {
           "field_id": "krea2_identity_edit_lora_strength",
@@ -7667,11 +9133,12 @@
           "role_id": "krea2_identity_edit_lora_strength",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": 1.0,
-          "help_text": "Strength for the dedicated Identity Edit LoRA. Neo applies it model-only before Krea2EditModelPatch."
+          "help_text": "Strength for the dedicated Identity Edit LoRA when Edit Weight Source is Separate LoRA. Hidden and non-executable for Baked into Model."
         },
         {
           "field_id": "krea2_identity_edit_fit_mode",
@@ -7683,6 +9150,7 @@
           "role_id": "krea2_identity_edit_fit_mode",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -7699,6 +9167,7 @@
           "role_id": "krea2_identity_edit_ref_boost",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -7715,6 +9184,7 @@
           "role_id": "krea2_identity_edit_ref_boost_a",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -7731,6 +9201,7 @@
           "role_id": "krea2_identity_edit_grounding_px",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
@@ -7740,18 +9211,70 @@
         {
           "field_id": "krea2_identity_edit_system_prompt",
           "label": "Grounding System Prompt",
-          "control_type": "text",
+          "control_type": "textarea",
           "required": false,
           "backend_neutral": true,
-          "advanced": true,
+          "advanced": false,
           "role_id": "krea2_identity_edit_system_prompt",
           "modes": [
             "img2img",
+            "edit",
             "inpaint",
             "outpaint"
           ],
           "default": "",
-          "help_text": "Expert override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to attend to a specific kind of visual detail."
+          "help_text": "Optional override for Krea2EditGroundedEncode.system_prompt. Leave empty to use the upstream training default. Use only when you intentionally need the Qwen3-VL grounding encoder to focus on specific visual details."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_edit_lora",
+          "label": "AI Toolkit Edit LoRA",
+          "control_type": "select",
+          "role_id": "krea2_ostris_edit_lora",
+          "default": "",
+          "help_text": "Required only for Krea 2 Ostris Edit + Separate LoRA. Select a Krea 2 edit LoRA trained with AI Toolkit experimental edit mode (model_kwargs.edit: true). This is not the Identity Edit v1.2 LoRA. If the same Ostris/AI-Toolkit edit weights are already merged into the selected diffusion model, choose Baked into Model instead."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_edit_lora_strength",
+          "label": "Ostris Edit LoRA Strength",
+          "control_type": "number",
+          "role_id": "krea2_ostris_edit_lora_strength",
+          "default": 1.0,
+          "help_text": "Strength for the dedicated Ostris Edit LoRA when Edit Weight Source is Separate LoRA. Hidden and non-executable for Baked into Model."
+        },
+        {
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "modes": [
+            "img2img",
+            "edit",
+            "inpaint",
+            "outpaint"
+          ],
+          "field_id": "krea2_ostris_kv_cache",
+          "label": "KV Cache",
+          "control_type": "select",
+          "role_id": "krea2_ostris_kv_cache",
+          "default": "off",
+          "help_text": "Controls Krea2OstrisEditModelPatch.kv_cache. Leave Off for normal Ostris/AI Toolkit edit LoRAs. Turn On only when the selected LoRA/model documentation explicitly says it was trained with AI Toolkit KV Cache support. This is a training-contract switch, not a VRAM preset."
         },
         {
           "field_id": "source_image",
@@ -7848,7 +9371,7 @@
         "Turbo recommends 8 steps / CFG 1.0 and uses ConditioningZeroOut; explicit user Steps/CFG remain authoritative under Parameter Truth.",
         "Explicit user sampling values are authoritative; family recommendations are defaults only and are never enforced at queue time.",
         "Phase M17: image-conditioned modes can opt into ComfyUI-Krea2Edit v1.2 for appearance/identity-preserving instruction edits.",
-        "Identity Edit requires Krea2EditModelPatch + Krea2EditGroundedEncode + LoraLoaderModelOnly + EmptySD3LatentImage and a selected Identity Edit LoRA.",
+        "Identity Edit always requires Krea2EditModelPatch + Krea2EditGroundedEncode + EmptySD3LatentImage. LoraLoaderModelOnly + a selected Identity Edit LoRA are required only for Separate LoRA weight source; Baked into Model skips the engine-owned LoRA loader.",
         "Two-reference Identity Edit is training-ordered as Image 1 scene/context, Image 2 subject/identity; Image 3 is not routed.",
         "Identity Edit on GGUF quantizes only the Krea 2 diffusion transformer; Qwen3-VL, VAE, grounded encoder, and the Identity Edit LoRA remain native/safetensors."
       ],
@@ -8023,6 +9546,21 @@
             "edit"
           ],
           "help_text": "Required for image-conditioned modes."
+        },
+        {
+          "field_id": "img2img_source_resolution_mode",
+          "label": "Img2Img Source Resolution",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "img2img_source_resolution_mode",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "keep_source_resolution",
+          "help_text": "Controls how Neo prepares Image 1 before VAEEncode in source-latent img2img/edit workflows. Keep source resolution preserves current behavior. Fit resizes directly to the requested width/height. Crop scales to cover and center-crops to the requested size. Pad scales to fit and center-pads to the requested size."
         },
         {
           "field_id": "mask",
@@ -9690,6 +11228,21 @@
           "help_text": "Required for image-conditioned modes."
         },
         {
+          "field_id": "img2img_source_resolution_mode",
+          "label": "Img2Img Source Resolution",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "img2img_source_resolution_mode",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "keep_source_resolution",
+          "help_text": "Controls how Neo prepares Image 1 before VAEEncode in source-latent img2img/edit workflows. Keep source resolution preserves current behavior. Fit resizes directly to the requested width/height. Crop scales to cover and center-crops to the requested size. Pad scales to fit and center-pads to the requested size."
+        },
+        {
           "field_id": "mask",
           "label": "Mask",
           "control_type": "mask",
@@ -10695,6 +12248,21 @@
             "edit"
           ],
           "help_text": "Qwen Image Edit 2511 accepts Image 1 plus optional Image 2/Image 3 for multi-source composition/editing."
+        },
+        {
+          "field_id": "img2img_source_resolution_mode",
+          "label": "Img2Img Source Resolution",
+          "control_type": "select",
+          "required": false,
+          "backend_neutral": true,
+          "advanced": false,
+          "role_id": "img2img_source_resolution_mode",
+          "modes": [
+            "img2img",
+            "edit"
+          ],
+          "default": "keep_source_resolution",
+          "help_text": "Controls how Neo prepares Image 1 before VAEEncode in source-latent img2img/edit workflows. Keep source resolution preserves current behavior. Fit resizes directly to the requested width/height. Crop scales to cover and center-crops to the requested size. Pad scales to fit and center-pads to the requested size."
         }
       ],
       "readiness_fields": [

@@ -90,6 +90,22 @@ DEFAULT_LOCAL_TEST_ASSETS: dict[tuple[str, str], dict[str, Any]] = {
         "asset_status": "available_on_tester_machine",
         "notes": ["V25.9.20 Pass O1 records Flux 2 Klein GGUF as manually testable on the active machine; img2img/edit uses Image 1 as the latent anchor while Image 2/Image 3 remain replay/reference lanes."],
     },
+    ("krea2", "diffusion_model"): {
+        "asset_status": "manual_asset_required",
+        "notes": ["Krea 2 Safetensors/Components routes are manually testable when the exact Krea diffusion model, Qwen3-VL-4B encoder, Qwen Image VAE, source images, and any engine-specific edit LoRA are configured. Engine-specific physical evidence belongs to the Krea-4 qualification report."],
+    },
+    ("krea2", "gguf"): {
+        "asset_status": "manual_asset_required",
+        "notes": ["Krea 2 GGUF routes are manually testable when the GGUF diffusion model is paired with the native Qwen3-VL-4B encoder and Qwen Image VAE. Identity/Ostris separate or baked qualification is recorded separately by Krea-4."],
+    },
+    ("krea2_turbo", "diffusion_model"): {
+        "asset_status": "manual_asset_required",
+        "notes": ["Krea 2 Turbo Safetensors/Components can be physically qualified with local assets; edit-engine qualification must preserve the selected LoRA training contract, including Ostris KV Cache when applicable."],
+    },
+    ("krea2_turbo", "gguf"): {
+        "asset_status": "manual_asset_required",
+        "notes": ["Krea 2 Turbo GGUF can be physically qualified with local assets; Qwen3-VL-4B and Qwen Image VAE stay native, while Identity/Ostris edit evidence is captured in the Krea-4 qualification report."],
+    },
     ("z_image", "diffusion_model"): {
         "asset_status": "manual_asset_required",
         "notes": ["V25.9.20 P5 records ZImage Safetensors / Components as manually testable for txt2img/img2img/inpaint/outpaint; requires ZImage diffusion model, Qwen3 text encoder, and AE/VAE assets."],

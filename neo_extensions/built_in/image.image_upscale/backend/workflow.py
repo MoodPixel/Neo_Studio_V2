@@ -11,6 +11,8 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from neo_app.admin.models.artifact_compatibility import match_upscale_artifact
+
 from .constants import EXTENSION_ID, EXTENSION_VERSION, SEEDVR2_ENGINE_ID
 from .payload_schema import DEFAULTS, normalize_settings
 
@@ -261,6 +263,10 @@ def build_image_upscale_workflow(
     next_id, current_image_ref, source_alpha_ref = _add_load_image_node(graph, next_id, clean["source_image_name"])
 
     native_scale = 1.0
+    native_scale_source = "not_applicable"
+    artifact_record = match_upscale_artifact(upscale_model) if upscale_engine == "basic" and upscale_model else None
+    requested_width = max(1, round(clean["source_width"] * scale_by)) if clean.get("source_width") else 0
+    requested_height = max(1, round(clean["source_height"] * scale_by)) if clean.get("source_height") else 0
     applied_model_scale_correction = False
     seedvr2_applied = False
     seedvr2_alpha_applied = False
@@ -301,9 +307,22 @@ def build_image_upscale_workflow(
         }
         current_image_ref = [upscale_id, 0]
         next_id += 2
-        native_scale = infer_upscale_model_native_scale(upscale_model)
+        native_scale = float(artifact_record["artifact"]["io"]["native_scale"]) if artifact_record else infer_upscale_model_native_scale(upscale_model)
+        native_scale_source = "catalog_declaration" if artifact_record else "legacy_filename_hint"
         extra_scale = scale_by / native_scale if native_scale > 0 else scale_by
-        if abs(extra_scale - 1.0) > 0.01:
+        if requested_width and requested_height:
+            # The user's target is authoritative, including requests smaller
+            # than the model's native output. Exact final sizing also works for
+            # renamed/custom models whose native factor cannot be inferred.
+            size_id = str(next_id)
+            graph[size_id] = {"class_type": "ImageScale", "inputs": {
+                "image": list(current_image_ref), "upscale_method": resize_method,
+                "width": requested_width, "height": requested_height, "crop": "disabled",
+            }}
+            current_image_ref = [size_id, 0]
+            next_id += 1
+            applied_model_scale_correction = True
+        elif abs(extra_scale - 1.0) > 0.01:
             next_id, current_image_ref = _add_image_scale_by_node(
                 graph,
                 next_id,
@@ -386,6 +405,11 @@ def build_image_upscale_workflow(
         "_neo_processing_output_policy": "append_derived",
         "_neo_processing_uses_prompt_context": False,
         "_neo_upscale_native_model_scale": native_scale,
+        "_neo_upscale_native_scale_source": native_scale_source,
+        "_neo_upscale_catalog_id": (artifact_record or {}).get("id", ""),
+        "_neo_upscale_sizing_policy": "user_target",
+        "_neo_upscale_requested_width": requested_width if upscale_engine == "basic" else 0,
+        "_neo_upscale_requested_height": requested_height if upscale_engine == "basic" else 0,
         "_neo_upscale_model_scale_correction": applied_model_scale_correction,
         "_neo_codeformer_applied": restore_applied,
         "_neo_seedvr2_applied": seedvr2_applied,

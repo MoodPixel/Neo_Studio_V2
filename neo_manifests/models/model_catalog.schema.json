@@ -131,6 +131,15 @@
               },
               "discovery": {
                 "type": "boolean"
+              },
+              "hashes": {
+                "type": "object",
+                "properties": {
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-fA-F]{64}$"
+                  }
+                }
               }
             }
           },
@@ -193,6 +202,175 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "artifact": {
+            "type": "object",
+            "required": [
+              "schema_id",
+              "family_id",
+              "architecture",
+              "variant",
+              "format",
+              "precision",
+              "tasks",
+              "runtime",
+              "io",
+              "provenance"
+            ],
+            "properties": {
+              "schema_id": {
+                "const": "neo.models.artifact.v1"
+              },
+              "family_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "architecture": {
+                "type": "string",
+                "minLength": 1
+              },
+              "variant": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "type": "string",
+                "minLength": 1
+              },
+              "precision": {
+                "type": "string",
+                "minLength": 1
+              },
+              "tasks": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "runtime": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "providers",
+                  "platforms",
+                  "platform_validation",
+                  "node_inputs"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "providers": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "platforms": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "uniqueItems": true
+                  },
+                  "platform_validation": {
+                    "const": "not_tested"
+                  },
+                  "node_inputs": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    }
+                  }
+                }
+              },
+              "io": {
+                "type": "object",
+                "required": [
+                  "input",
+                  "output",
+                  "native_scale",
+                  "sizing_policy",
+                  "size_constraints",
+                  "tiling"
+                ],
+                "properties": {
+                  "input": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "output": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "size_constraints": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tiling": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "native_scale": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16
+                  },
+                  "sizing_policy": {
+                    "const": "user_target"
+                  }
+                }
+              },
+              "provenance": {
+                "type": "object",
+                "required": [
+                  "upstream_url",
+                  "revision_kind",
+                  "checksum_state",
+                  "reviewed_at"
+                ],
+                "properties": {
+                  "upstream_url": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "revision_kind": {
+                    "enum": [
+                      "commit",
+                      "release_tag",
+                      "unresolved"
+                    ]
+                  },
+                  "checksum_state": {
+                    "enum": [
+                      "published",
+                      "not_published",
+                      "unresolved"
+                    ]
+                  },
+                  "reviewed_at": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
             }
           }
         },

@@ -28,8 +28,8 @@ tags:
   - route aware
   - loader aware
 priority: 119
-version: 3
-updated: 2026-08-02
+version: 4
+updated: 2026-09-23
 ---
 
 # Image Reference Workspace
@@ -57,6 +57,17 @@ The registry defines what the action is. `GET /api/image/preview-actions/evaluat
 For Forge, ControlNet and Standard IP Adapter preview actions now stage into the selected Forge profile through the live Integrated ControlNet catalogs. They do not switch to Comfy. ControlNet and IP Adapter share Forge's discovered unit-slot limit, so Neo refuses a new reference when every shared slot is occupied. Comfy reference actions keep their existing node/workflow route.
 
 Every Preview/Output Inspector reference handoff uses `neo.image.preview_reference_handoff.v1`. The contract binds the source, selected profile/provider, target extension, and target unit. Backend validation rejects stale cross-provider/profile contracts, source/asset mismatches, overwrite requests, and auto-run requests. Disabled extensions may retain the staged contract without blocking unrelated generation.
+
+## Qwen Image 2.1 family-native references — Q21-2
+
+Qwen Image 2.1's Image 1–10 lanes are **family-native edit inputs**, not ControlNet/IP Adapter units. Q21-2 exposes them in the base Image source/edit controls and compiles them directly into `TextEncodeQwenImage21`.
+
+- Image 1 = primary edit target.
+- Images 2–10 = ordered semantic references.
+- `<image1>` … `<image10>` prompt tokens refer to those exact lanes.
+- Reference-workspace tools such as ControlNet/IP Adapter remain independent extensions and must not consume these ten slots by assumption.
+
+The family is still gated in Q21-0; this note prevents future UI ownership from being placed in the wrong workspace.
 
 ## Reference vs Generation vs Assets
 

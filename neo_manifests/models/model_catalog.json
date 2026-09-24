@@ -1,11 +1,11 @@
 {
   "schema_id": "neo.models.catalog.v1",
-  "version": "0.9.0-voice-lifecycle-unification",
+  "version": "0.10.0-image1-artifact-compatibility",
   "catalog": {
     "id": "neo-model-guide-public-preview",
     "display_name": "Neo Model Guide",
     "status": "phase4_6_voice_model_lifecycle_unification",
-    "updated_at": "2026-08-21",
+    "updated_at": "2026-09-18",
     "description": "Curated Neo Studio model source manifest for Image, Video, LLM, Voice, ControlNet/IPAdapter, VAE, text encoders, GGUF variants, repository snapshots, and utility assets. Voice repository snapshots may declare a minimal provider-required materialization through allow_patterns.",
     "policy": "The manifest declares model identity, grouping, source intent, install strategy, and optional provider-required snapshot materialization. Machine-specific cache state, tokens, installed scans, and download state remain runtime data under neo_data or Hugging Face cache ownership; Generate never installs model weights."
   },
@@ -5231,7 +5231,7 @@
     {
       "id": "chatterbox_turbo",
       "display_name": "Chatterbox Turbo",
-      "description": "English low-compute Chatterbox model with paralinguistic tags and zero-shot cloning. Neo installs the provider-required Hugging Face snapshot materialization through Admin \u2192 Models and loads it locally only.",
+      "description": "English low-compute Chatterbox model with paralinguistic tags and zero-shot cloning. Neo installs the provider-required Hugging Face snapshot materialization through Admin → Models and loads it locally only.",
       "category": "voice",
       "base_model": "chatterbox",
       "model_type": "tts_transformers",
@@ -5372,6 +5372,391 @@
         "The catalog id intentionally matches the Voice Engine model id.",
         "The allow_patterns list matches the current V3 local loader contract and prevents Admin from downloading unrelated historical checkpoints from the large shared Chatterbox repository.",
         "Existing upstream-created Hugging Face cache snapshots are eligible when the authoritative content probe passes."
+      ]
+    },
+    {
+      "id": "clearreality-v1-normal-safetensors",
+      "display_name": "ClearReality V1 Normal (4x)",
+      "category": "image",
+      "base_model": "clearreality_v1",
+      "model_type": "upscaler",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "revision": "6bfd32e08342ad5d8ae5ac2fd6629a72d525c76e",
+        "filename": "4x-ClearRealityV1.safetensors",
+        "source_url": "https://huggingface.co/Kim2091/ClearRealityV1/blob/6bfd32e08342ad5d8ae5ac2fd6629a72d525c76e/4x-ClearRealityV1.safetensors",
+        "download_url": "https://huggingface.co/Kim2091/ClearRealityV1/resolve/6bfd32e08342ad5d8ae5ac2fd6629a72d525c76e/4x-ClearRealityV1.safetensors",
+        "hashes": {
+          "sha256": "83a9c8e279e3d07548e2b0d736dc2c73c1736a07072a748ed4fafbba99b44693"
+        },
+        "repo": "Kim2091/ClearRealityV1"
+      },
+      "install": {
+        "target_type": "upscaler",
+        "backend_targets": [
+          "comfyui"
+        ],
+        "comfyui_subdir": "models/upscale_models"
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "general",
+          "realistic"
+        ],
+        "badges": [
+          "image-1",
+          "upscale",
+          "inference-unverified"
+        ],
+        "filter_group": "Image / Upscale / Curated"
+      },
+      "license": {
+        "id": "Apache-2.0",
+        "state": "upstream_declared",
+        "requires_user_review": true,
+        "source_url": "https://huggingface.co/Kim2091/ClearRealityV1"
+      },
+      "artifact": {
+        "schema_id": "neo.models.artifact.v1",
+        "family_id": "clearreality_v1",
+        "architecture": "SPAN",
+        "variant": "normal",
+        "format": "safetensors",
+        "precision": "unspecified",
+        "tasks": [
+          "image.upscale"
+        ],
+        "runtime": {
+          "id": "comfy.upscale_model",
+          "providers": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "platforms": [
+            "windows",
+            "linux",
+            "macos"
+          ],
+          "platform_validation": "not_tested",
+          "node_inputs": {
+            "UpscaleModelLoader": [
+              "model_name"
+            ],
+            "ImageUpscaleWithModel": [
+              "upscale_model",
+              "image"
+            ]
+          }
+        },
+        "io": {
+          "input": "IMAGE_RGB",
+          "output": "IMAGE_RGB",
+          "native_scale": 4,
+          "sizing_policy": "user_target",
+          "size_constraints": "runtime_owned; validate installed loader support",
+          "tiling": "runtime_owned"
+        },
+        "provenance": {
+          "upstream_url": "https://huggingface.co/Kim2091/ClearRealityV1",
+          "revision_kind": "commit",
+          "checksum_state": "published",
+          "reviewed_at": "2026-09-18"
+        }
+      },
+      "notes": [
+        "Optional download. The requested output size remains authoritative.",
+        "Architecture and source metadata reviewed; physical inference and platform compatibility are not verified.",
+        "Filename matching does not verify installed file identity."
+      ]
+    },
+    {
+      "id": "clearreality-v1-soft-safetensors",
+      "display_name": "ClearReality V1 Soft (4x)",
+      "category": "image",
+      "base_model": "clearreality_v1",
+      "model_type": "upscaler",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "huggingface",
+        "revision": "6bfd32e08342ad5d8ae5ac2fd6629a72d525c76e",
+        "filename": "4x-ClearRealityV1_Soft.safetensors",
+        "source_url": "https://huggingface.co/Kim2091/ClearRealityV1/blob/6bfd32e08342ad5d8ae5ac2fd6629a72d525c76e/4x-ClearRealityV1_Soft.safetensors",
+        "download_url": "https://huggingface.co/Kim2091/ClearRealityV1/resolve/6bfd32e08342ad5d8ae5ac2fd6629a72d525c76e/4x-ClearRealityV1_Soft.safetensors",
+        "hashes": {
+          "sha256": "e5c1fff3a5ed01f0661f562abe1df43f41dbbf02b98ccacb98d6f31169f898c0"
+        },
+        "repo": "Kim2091/ClearRealityV1"
+      },
+      "install": {
+        "target_type": "upscaler",
+        "backend_targets": [
+          "comfyui"
+        ],
+        "comfyui_subdir": "models/upscale_models"
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "general",
+          "realistic"
+        ],
+        "badges": [
+          "image-1",
+          "upscale",
+          "inference-unverified"
+        ],
+        "filter_group": "Image / Upscale / Curated"
+      },
+      "license": {
+        "id": "Apache-2.0",
+        "state": "upstream_declared",
+        "requires_user_review": true,
+        "source_url": "https://huggingface.co/Kim2091/ClearRealityV1"
+      },
+      "artifact": {
+        "schema_id": "neo.models.artifact.v1",
+        "family_id": "clearreality_v1",
+        "architecture": "SPAN",
+        "variant": "soft",
+        "format": "safetensors",
+        "precision": "unspecified",
+        "tasks": [
+          "image.upscale"
+        ],
+        "runtime": {
+          "id": "comfy.upscale_model",
+          "providers": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "platforms": [
+            "windows",
+            "linux",
+            "macos"
+          ],
+          "platform_validation": "not_tested",
+          "node_inputs": {
+            "UpscaleModelLoader": [
+              "model_name"
+            ],
+            "ImageUpscaleWithModel": [
+              "upscale_model",
+              "image"
+            ]
+          }
+        },
+        "io": {
+          "input": "IMAGE_RGB",
+          "output": "IMAGE_RGB",
+          "native_scale": 4,
+          "sizing_policy": "user_target",
+          "size_constraints": "runtime_owned; validate installed loader support",
+          "tiling": "runtime_owned"
+        },
+        "provenance": {
+          "upstream_url": "https://huggingface.co/Kim2091/ClearRealityV1",
+          "revision_kind": "commit",
+          "checksum_state": "published",
+          "reviewed_at": "2026-09-18"
+        }
+      },
+      "notes": [
+        "Optional download. The requested output size remains authoritative.",
+        "Architecture and source metadata reviewed; physical inference and platform compatibility are not verified.",
+        "Filename matching does not verify installed file identity."
+      ]
+    },
+    {
+      "id": "realesrgan-x4plus-pth",
+      "display_name": "Real-ESRGAN x4plus",
+      "category": "image",
+      "base_model": "realesrgan",
+      "model_type": "upscaler",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "url",
+        "revision": "v0.1.0",
+        "filename": "RealESRGAN_x4plus.pth",
+        "source_url": "https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.1.0",
+        "download_url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+        "hashes": {}
+      },
+      "install": {
+        "target_type": "upscaler",
+        "backend_targets": [
+          "comfyui"
+        ],
+        "comfyui_subdir": "models/upscale_models"
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "general",
+          "realistic"
+        ],
+        "badges": [
+          "image-1",
+          "upscale",
+          "inference-unverified"
+        ],
+        "filter_group": "Image / Upscale / Curated"
+      },
+      "license": {
+        "id": "BSD-3-Clause",
+        "state": "upstream_declared",
+        "requires_user_review": true,
+        "source_url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE"
+      },
+      "artifact": {
+        "schema_id": "neo.models.artifact.v1",
+        "family_id": "realesrgan",
+        "architecture": "RRDBNet",
+        "variant": "x4plus",
+        "format": "pth",
+        "precision": "unspecified",
+        "tasks": [
+          "image.upscale"
+        ],
+        "runtime": {
+          "id": "comfy.upscale_model",
+          "providers": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "platforms": [
+            "windows",
+            "linux",
+            "macos"
+          ],
+          "platform_validation": "not_tested",
+          "node_inputs": {
+            "UpscaleModelLoader": [
+              "model_name"
+            ],
+            "ImageUpscaleWithModel": [
+              "upscale_model",
+              "image"
+            ]
+          }
+        },
+        "io": {
+          "input": "IMAGE_RGB",
+          "output": "IMAGE_RGB",
+          "native_scale": 4,
+          "sizing_policy": "user_target",
+          "size_constraints": "runtime_owned; validate installed loader support",
+          "tiling": "runtime_owned"
+        },
+        "provenance": {
+          "upstream_url": "https://github.com/xinntao/Real-ESRGAN",
+          "revision_kind": "release_tag",
+          "checksum_state": "not_published",
+          "reviewed_at": "2026-09-18"
+        }
+      },
+      "notes": [
+        "Optional download. The requested output size remains authoritative.",
+        "Architecture and source metadata reviewed; physical inference and platform compatibility are not verified.",
+        "Filename matching does not verify installed file identity.",
+        "Release URL is versioned, but an expected upstream SHA256 has not been recorded. Download digest is recorded without claiming upstream checksum verification."
+      ]
+    },
+    {
+      "id": "realesrgan-general-x4v3-pth",
+      "display_name": "Real-ESRGAN General x4v3",
+      "category": "image",
+      "base_model": "realesrgan",
+      "model_type": "upscaler",
+      "source_mode": "static_file",
+      "source": {
+        "provider": "url",
+        "revision": "v0.2.5.0",
+        "filename": "realesr-general-x4v3.pth",
+        "source_url": "https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0",
+        "download_url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+        "hashes": {}
+      },
+      "install": {
+        "target_type": "upscaler",
+        "backend_targets": [
+          "comfyui"
+        ],
+        "comfyui_subdir": "models/upscale_models"
+      },
+      "ui": {
+        "recommended": false,
+        "creative_categories": [
+          "general",
+          "realistic"
+        ],
+        "badges": [
+          "image-1",
+          "upscale",
+          "inference-unverified"
+        ],
+        "filter_group": "Image / Upscale / Curated"
+      },
+      "license": {
+        "id": "BSD-3-Clause",
+        "state": "upstream_declared",
+        "requires_user_review": true,
+        "source_url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE"
+      },
+      "artifact": {
+        "schema_id": "neo.models.artifact.v1",
+        "family_id": "realesrgan",
+        "architecture": "SRVGGNetCompact",
+        "variant": "general_x4v3",
+        "format": "pth",
+        "precision": "unspecified",
+        "tasks": [
+          "image.upscale"
+        ],
+        "runtime": {
+          "id": "comfy.upscale_model",
+          "providers": [
+            "comfyui",
+            "comfyui_portable"
+          ],
+          "platforms": [
+            "windows",
+            "linux",
+            "macos"
+          ],
+          "platform_validation": "not_tested",
+          "node_inputs": {
+            "UpscaleModelLoader": [
+              "model_name"
+            ],
+            "ImageUpscaleWithModel": [
+              "upscale_model",
+              "image"
+            ]
+          }
+        },
+        "io": {
+          "input": "IMAGE_RGB",
+          "output": "IMAGE_RGB",
+          "native_scale": 4,
+          "sizing_policy": "user_target",
+          "size_constraints": "runtime_owned; validate installed loader support",
+          "tiling": "runtime_owned"
+        },
+        "provenance": {
+          "upstream_url": "https://github.com/xinntao/Real-ESRGAN",
+          "revision_kind": "release_tag",
+          "checksum_state": "not_published",
+          "reviewed_at": "2026-09-18"
+        }
+      },
+      "notes": [
+        "Optional download. The requested output size remains authoritative.",
+        "Architecture and source metadata reviewed; physical inference and platform compatibility are not verified.",
+        "Filename matching does not verify installed file identity.",
+        "Single general-x4v3 weight only; no DNI/denoise-strength blending is provided by this route.",
+        "Release URL is versioned, but an expected upstream SHA256 has not been recorded. Download digest is recorded without claiming upstream checksum verification."
       ]
     }
   ]

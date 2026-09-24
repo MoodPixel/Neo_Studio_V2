@@ -9,12 +9,20 @@ from neo_app.core.pydantic_compat import model_to_dict
 from neo_app.image.inpaint_payload import normalize_inpaint_target_aliases
 from neo_app.image.krea2_contract import (
     KREA2_EDIT_ENGINE_IDENTITY,
+    KREA2_EDIT_ENGINE_OSTRIS,
+    KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA,
     KREA2_IDENTITY_EDIT_NODE_CLASSES,
+    KREA2_IDENTITY_EDIT_RUNTIME_NODE_CLASSES,
     KREA2_IDENTITY_EDIT_RECOMMENDED_LORA,
     KREA2_IDENTITY_EDIT_NODE_REPO,
+    KREA2_OSTRIS_EDIT_NODE_CLASSES,
+    KREA2_OSTRIS_EDIT_RUNTIME_NODE_CLASSES,
+    KREA2_OSTRIS_EDIT_NODE_REPO,
     check_krea2_compatibility,
     normalize_krea2_edit_engine,
+    normalize_krea2_edit_weight_source,
     normalize_krea2_identity_fit_mode,
+    normalize_krea2_ostris_kv_cache,
     resolve_krea2_variant,
 )
 from neo_app.image.outpaint_contract import normalize_outpaint_payload, outpaint_padding_total
@@ -194,12 +202,88 @@ def _backend_role_available(backend_capabilities: dict[str, Any] | None, loader:
     return bool(role.get("available"))
 
 
+def _krea2_edit_readiness_snapshot(
+    backend_capabilities: dict[str, Any] | None,
+    *,
+    loader: str,
+    engine: str,
+    weight_source: str = KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA,
+    kv_cache: bool = False,
+) -> dict[str, Any]:
+    capabilities = backend_capabilities if isinstance(backend_capabilities, dict) else {}
+    object_info_available = bool(capabilities.get("object_info_available"))
+    normalized_engine = normalize_krea2_edit_engine(engine)
+    normalized_weight_source = normalize_krea2_edit_weight_source(weight_source)
+    role_labels = {
+        "krea2_clip_loader": "CLIPLoader(type=krea2)",
+        "krea2_edit_model_patch": "Krea2EditModelPatch",
+        "krea2_edit_grounded_encode": "Krea2EditGroundedEncode",
+        "krea2_edit_target_latent": "EmptySD3LatentImage",
+        "krea2_identity_lora_loader": "LoraLoaderModelOnly",
+        "krea2_ostris_text_encode": "TextEncodeKrea2OstrisEdit",
+        "krea2_ostris_model_patch": "Krea2OstrisEditModelPatch",
+        "krea2_ostris_lora_loader": "LoraLoaderModelOnly",
+    }
+    required_roles = ["krea2_clip_loader"]
+    if normalized_engine == KREA2_EDIT_ENGINE_IDENTITY:
+        required_roles.extend(["krea2_edit_model_patch", "krea2_edit_grounded_encode", "krea2_edit_target_latent"])
+        if normalized_weight_source == KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA:
+            required_roles.append("krea2_identity_lora_loader")
+    elif normalized_engine == KREA2_EDIT_ENGINE_OSTRIS:
+        required_roles.extend(["krea2_ostris_text_encode", "krea2_ostris_model_patch"])
+        if normalized_weight_source == KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA:
+            required_roles.append("krea2_ostris_lora_loader")
+
+    roles: list[dict[str, Any]] = []
+    blockers: list[dict[str, str]] = []
+    for role_id in required_roles:
+        available = _backend_role_available(capabilities, loader, role_id)
+        roles.append({
+            "role_id": role_id,
+            "label": role_labels.get(role_id, role_id),
+            "available": available,
+        })
+        if available is False:
+            blockers.append({
+                "code": "missing_runtime_role",
+                "role_id": role_id,
+                "message": f"Missing or incompatible {role_labels.get(role_id, role_id)} for the selected Krea 2 edit route.",
+            })
+
+    if not object_info_available:
+        status = "unverified"
+        ready: bool | None = None
+    elif blockers:
+        status = "blocked"
+        ready = False
+    else:
+        status = "ready"
+        ready = True
+
+    return {
+        "schema_version": "neo.image.krea2_edit_readiness.v1",
+        "engine": normalized_engine,
+        "weight_source": normalized_weight_source if normalized_engine != "native" else "none",
+        "loader": loader,
+        "object_info_available": object_info_available,
+        "required_roles": required_roles,
+        "roles": roles,
+        "blockers": blockers,
+        "status": status,
+        "ready": ready,
+        "engine_lora_required": normalized_engine in {KREA2_EDIT_ENGINE_IDENTITY, KREA2_EDIT_ENGINE_OSTRIS} and normalized_weight_source == KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA,
+        "baked_weights": normalized_engine in {KREA2_EDIT_ENGINE_IDENTITY, KREA2_EDIT_ENGINE_OSTRIS} and normalized_weight_source != KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA,
+        "kv_cache": bool(kv_cache) if normalized_engine == KREA2_EDIT_ENGINE_OSTRIS else False,
+    }
+
+
 def _validate_krea2_identity_runtime(
     validation: ProviderValidationResult,
     backend_capabilities: dict[str, Any] | None,
     *,
     loader: str,
     identity_lora: str,
+    require_identity_lora: bool,
     two_reference: bool,
 ) -> None:
     capabilities = backend_capabilities if isinstance(backend_capabilities, dict) else {}
@@ -215,9 +299,10 @@ def _validate_krea2_identity_runtime(
     role_map = {
         "krea2_edit_model_patch": "Krea2EditModelPatch (v1.2+ sockets)",
         "krea2_edit_grounded_encode": "Krea2EditGroundedEncode (v1.2+ sockets)",
-        "krea2_identity_lora_loader": "LoraLoaderModelOnly",
         "krea2_edit_target_latent": "EmptySD3LatentImage",
     }
+    if require_identity_lora:
+        role_map["krea2_identity_lora_loader"] = "LoraLoaderModelOnly"
     missing = [label for role_id, label in role_map.items() if _backend_role_available(capabilities, loader, role_id) is False]
     if missing:
         validation.errors.append(
@@ -227,31 +312,121 @@ def _validate_krea2_identity_runtime(
         )
         validation.ok = False
 
-    loaders = capabilities.get("loaders") if isinstance(capabilities.get("loaders"), dict) else {}
-    loader_row = loaders.get(loader) if isinstance(loaders.get(loader), dict) else {}
-    roles = loader_row.get("roles") if isinstance(loader_row.get("roles"), dict) else {}
-    lora_role = roles.get("krea2_identity_lora_loader") if isinstance(roles.get("krea2_identity_lora_loader"), dict) else {}
-    lora_assets = lora_role.get("assets") if isinstance(lora_role.get("assets"), dict) else {}
-    names: list[str] = []
-    for values in lora_assets.values():
-        if isinstance(values, list):
-            names.extend(str(value) for value in values)
-    if names and identity_lora:
-        selected = identity_lora.replace("\\", "/").casefold()
-        normalized = {name.replace("\\", "/").casefold() for name in names}
-        basename_matches = {name.rsplit("/", 1)[-1] for name in normalized}
-        if selected not in normalized and selected.rsplit("/", 1)[-1] not in basename_matches:
-            validation.errors.append(
-                f"Krea 2 Identity Edit LoRA '{identity_lora}' is not present in the live LoraLoaderModelOnly catalog. "
-                f"Install {KREA2_IDENTITY_EDIT_RECOMMENDED_LORA} under ComfyUI/models/loras (or a subfolder) and refresh the backend."
-            )
-            validation.ok = False
+    if require_identity_lora:
+        loaders = capabilities.get("loaders") if isinstance(capabilities.get("loaders"), dict) else {}
+        loader_row = loaders.get(loader) if isinstance(loaders.get(loader), dict) else {}
+        roles = loader_row.get("roles") if isinstance(loader_row.get("roles"), dict) else {}
+        lora_role = roles.get("krea2_identity_lora_loader") if isinstance(roles.get("krea2_identity_lora_loader"), dict) else {}
+        lora_assets = lora_role.get("assets") if isinstance(lora_role.get("assets"), dict) else {}
+        names: list[str] = []
+        for values in lora_assets.values():
+            if isinstance(values, list):
+                names.extend(str(value) for value in values)
+        if names and identity_lora:
+            selected = identity_lora.replace("\\", "/").casefold()
+            normalized = {name.replace("\\", "/").casefold() for name in names}
+            basename_matches = {name.rsplit("/", 1)[-1] for name in normalized}
+            if selected not in normalized and selected.rsplit("/", 1)[-1] not in basename_matches:
+                validation.errors.append(
+                    f"Krea 2 Identity Edit LoRA '{identity_lora}' is not present in the live LoraLoaderModelOnly catalog. "
+                    f"Install {KREA2_IDENTITY_EDIT_RECOMMENDED_LORA} under ComfyUI/models/loras (or a subfolder) and refresh the backend."
+                )
+                validation.ok = False
 
     if two_reference:
         patch_available = _backend_role_available(capabilities, loader, "krea2_edit_model_patch")
         grounded_available = _backend_role_available(capabilities, loader, "krea2_edit_grounded_encode")
         if patch_available is False or grounded_available is False:
             validation.ok = False
+
+
+def _validate_krea2_ostris_runtime(
+    validation: ProviderValidationResult,
+    backend_capabilities: dict[str, Any] | None,
+    *,
+    loader: str,
+    ostris_lora: str,
+    require_ostris_lora: bool,
+    reference_count: int,
+) -> None:
+    capabilities = backend_capabilities if isinstance(backend_capabilities, dict) else {}
+    if not capabilities.get("object_info_available"):
+        message = (
+            "Krea 2 Ostris Edit runtime nodes could not be verified because Comfy /object_info is unavailable. "
+            f"Install/update {KREA2_OSTRIS_EDIT_NODE_REPO} before queueing."
+        )
+        if message not in validation.warnings:
+            validation.warnings.append(message)
+        return
+
+    role_map = {
+        "krea2_ostris_text_encode": "TextEncodeKrea2OstrisEdit",
+        "krea2_ostris_model_patch": "Krea2OstrisEditModelPatch",
+    }
+    if require_ostris_lora:
+        role_map["krea2_ostris_lora_loader"] = "LoraLoaderModelOnly"
+    missing = [label for role_id, label in role_map.items() if _backend_role_available(capabilities, loader, role_id) is False]
+    if missing:
+        validation.errors.append(
+            "Krea 2 Ostris Edit requires the current ComfyUI-Krea2-Ostris-Edit workflow contract. Missing/incompatible nodes: "
+            + ", ".join(missing)
+            + f". Install/update {KREA2_OSTRIS_EDIT_NODE_REPO} and restart ComfyUI."
+        )
+        validation.ok = False
+
+    node_map = capabilities.get("object_info_node_inputs") if isinstance(capabilities.get("object_info_node_inputs"), dict) else {}
+    text_node = node_map.get("TextEncodeKrea2OstrisEdit") if isinstance(node_map.get("TextEncodeKrea2OstrisEdit"), dict) else None
+    # The loader-role discovery above is authoritative for the primary Ostris
+    # contract (clip/prompt/vae/image1). Some older Neo capability snapshots did
+    # not transport custom-node socket details into object_info_node_inputs even
+    # though the role was discovered from the full live /object_info response.
+    # Absence of that *secondary* detail map is therefore unknown evidence, not
+    # proof that every socket is missing. When the detail row is present we still
+    # fail closed for requested extra reference sockets (image2/image3).
+    if text_node is not None:
+        declared_inputs = set(text_node.get("all") or [])
+        required_inputs = {"clip", "prompt", "vae", "image1"}
+        if reference_count >= 2:
+            required_inputs.add("image2")
+        if reference_count >= 3:
+            required_inputs.add("image3")
+        missing_inputs = sorted(name for name in required_inputs if name not in declared_inputs)
+        if missing_inputs:
+            validation.errors.append(
+                "TextEncodeKrea2OstrisEdit is missing the required inputs for Neo's reference-image contract: "
+                + ", ".join(missing_inputs)
+                + ". Update the Ostris edit nodes and reconnect the backend."
+            )
+            validation.ok = False
+    elif reference_count >= 2:
+        message = (
+            "Neo verified the primary Ostris edit runtime from live capability roles, but detailed "
+            "TextEncodeKrea2OstrisEdit socket metadata was not transported in this backend snapshot. "
+            "Image 2/Image 3 socket compatibility will be left to ComfyUI for this queue."
+        )
+        if message not in validation.warnings:
+            validation.warnings.append(message)
+
+    if require_ostris_lora:
+        loaders = capabilities.get("loaders") if isinstance(capabilities.get("loaders"), dict) else {}
+        loader_row = loaders.get(loader) if isinstance(loaders.get(loader), dict) else {}
+        roles = loader_row.get("roles") if isinstance(loader_row.get("roles"), dict) else {}
+        lora_role = roles.get("krea2_ostris_lora_loader") if isinstance(roles.get("krea2_ostris_lora_loader"), dict) else {}
+        lora_assets = lora_role.get("assets") if isinstance(lora_role.get("assets"), dict) else {}
+        names: list[str] = []
+        for values in lora_assets.values():
+            if isinstance(values, list):
+                names.extend(str(value) for value in values)
+        if names and ostris_lora:
+            selected = ostris_lora.replace("\\", "/").casefold()
+            normalized = {name.replace("\\", "/").casefold() for name in names}
+            basename_matches = {name.rsplit("/", 1)[-1] for name in normalized}
+            if selected not in normalized and selected.rsplit("/", 1)[-1] not in basename_matches:
+                validation.errors.append(
+                    f"Krea 2 Ostris Edit LoRA '{ostris_lora}' is not present in the live LoraLoaderModelOnly catalog. "
+                    "Select a live Comfy LoRA entry or refresh the backend catalog."
+                )
+                validation.ok = False
 
 
 def _compile_krea2_identity_edit(
@@ -291,14 +466,21 @@ def _compile_krea2_identity_edit(
     source_b_name = _source_image_name_for_lane(params, 2)
     mask_name = _mask_image_name(params) if mode == "inpaint" else ""
     ref_boost_mask_name = _krea2_identity_ref_boost_mask_name(params)
-    identity_lora = str(require_explicit_asset_selection(
-        validation,
-        "Krea 2 Identity Edit LoRA",
-        params.get("krea2_identity_edit_lora"),
-        params.get("identity_edit_lora"),
-        params.get("edit_lora"),
-    ))
-    identity_lora_strength = float(_param(params, "krea2_identity_edit_lora_strength", "identity_edit_lora_strength", default=1.0))
+    edit_weight_source = normalize_krea2_edit_weight_source(
+        _param(params, "krea2_edit_weight_source", "identity_edit_weight_source", default=KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA)
+    )
+    separate_identity_lora = edit_weight_source == KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA
+    identity_lora = ""
+    identity_lora_strength: float | None = None
+    if separate_identity_lora:
+        identity_lora = str(require_explicit_asset_selection(
+            validation,
+            "Krea 2 Identity Edit LoRA",
+            params.get("krea2_identity_edit_lora"),
+            params.get("identity_edit_lora"),
+            params.get("edit_lora"),
+        ))
+        identity_lora_strength = float(_param(params, "krea2_identity_edit_lora_strength", "identity_edit_lora_strength", default=1.0))
     ref_boost = float(_param(params, "krea2_identity_edit_ref_boost", "ref_boost", default=4.0))
     ref_boost_a = float(_param(params, "krea2_identity_edit_ref_boost_a", "ref_boost_a", default=1.0))
     fit_mode = normalize_krea2_identity_fit_mode(_param(params, "krea2_identity_edit_fit_mode", "fit_mode", default="fit"))
@@ -322,6 +504,7 @@ def _compile_krea2_identity_edit(
         backend_capabilities,
         loader=loader,
         identity_lora=identity_lora,
+        require_identity_lora=separate_identity_lora,
         two_reference=two_reference,
     )
 
@@ -333,8 +516,11 @@ def _compile_krea2_identity_edit(
     next_id = 6
     route_notes: list[str] = [
         "Krea 2 Identity Edit uses dual conditioning: clean VAE source tokens for appearance plus Qwen3-VL image-grounded instruction conditioning for semantics.",
-        "The identity-edit LoRA is model-only and is applied before Krea2EditModelPatch; the native Qwen3-VL conditioning stack is never LoRA-patched.",
     ]
+    if separate_identity_lora:
+        route_notes.append("The dedicated Identity Edit LoRA is model-only and is applied before Krea2EditModelPatch; the native Qwen3-VL conditioning stack is never LoRA-patched.")
+    else:
+        route_notes.append("Identity Edit weights are declared baked into the selected diffusion model, so Neo skips the dedicated engine-owned LoRA loader while preserving Krea2EditModelPatch + grounded conditioning.")
 
     workflow[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": source_name, "upload": "image"}}
     source_ref: list[Any] = [str(next_id), 0]
@@ -422,16 +608,19 @@ def _compile_krea2_identity_edit(
     target_latent_ref = [str(next_id), 0]
     next_id += 1
 
-    workflow[str(next_id)] = {
-        "class_type": "LoraLoaderModelOnly",
-        "inputs": {"model": ["1", 0], "lora_name": identity_lora, "strength_model": identity_lora_strength},
-    }
-    identity_lora_ref = [str(next_id), 0]
-    identity_lora_node_id = str(next_id)
-    next_id += 1
+    identity_lora_node_id = ""
+    edit_model_ref: list[Any] = ["1", 0]
+    if separate_identity_lora:
+        workflow[str(next_id)] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {"model": ["1", 0], "lora_name": identity_lora, "strength_model": identity_lora_strength},
+        }
+        edit_model_ref = [str(next_id), 0]
+        identity_lora_node_id = str(next_id)
+        next_id += 1
 
     patch_inputs: dict[str, Any] = {
-        "model": list(identity_lora_ref),
+        "model": list(edit_model_ref),
         "source_latent": list(source_latent_ref),
         "ref_boost": ref_boost,
         "ref_boost_a": ref_boost_a,
@@ -504,6 +693,7 @@ def _compile_krea2_identity_edit(
         "workflow_type": route.workflow_type or f"image.{mode}.{'krea2_turbo' if turbo else 'krea2'}_{'gguf' if loader == 'gguf' else 'native'}_identity_edit",
         "krea2_variant": variant,
         "krea2_edit_engine": KREA2_EDIT_ENGINE_IDENTITY,
+        "krea2_edit_weight_source": edit_weight_source,
         "krea2_identity_edit_lora": identity_lora,
         "krea2_identity_edit_lora_strength": identity_lora_strength,
         "krea2_identity_edit_ref_boost": ref_boost,
@@ -533,6 +723,8 @@ def _compile_krea2_identity_edit(
         "_neo_sampler_node_id": sampler_id,
         "_neo_krea2_image_mode_adapter": True,
         "_neo_krea2_identity_edit": True,
+        "_neo_krea2_identity_edit_weight_source": edit_weight_source,
+        "_neo_krea2_identity_edit_engine_lora_loaded": separate_identity_lora,
         "_neo_krea2_identity_edit_dual_conditioning": True,
         "_neo_krea2_identity_edit_two_reference": two_reference,
         "_neo_krea2_identity_edit_identity_lora_node_id": identity_lora_node_id,
@@ -551,15 +743,27 @@ def _compile_krea2_identity_edit(
             "clip_loader": "CLIPLoader(type=krea2)",
             "text_encoder_policy": "Qwen3-VL-4B native/safetensors; image-grounded 12-layer feature aggregation",
             "vae_policy": "Qwen Image VAE; pixel-space fit path wired to Krea2EditModelPatch",
-            "gguf_policy": "GGUF may quantize the Krea diffusion transformer only; Identity Edit LoRA and Qwen3-VL remain native/safetensors",
+            "gguf_policy": (
+                "GGUF may quantize the Krea diffusion transformer only; separate Identity Edit LoRA and Qwen3-VL remain native/safetensors"
+                if separate_identity_lora
+                else "GGUF may quantize the selected Krea diffusion transformer containing baked Identity Edit weights; Qwen3-VL remains native/safetensors"
+            ),
             "image_mode_policy": "ComfyUI-Krea2Edit v1.2+ instruction edit engine with source appearance tokens + image-grounded Qwen3-VL semantics",
-            "node_classes": list(KREA2_IDENTITY_EDIT_NODE_CLASSES),
+            "edit_weight_source": edit_weight_source,
+            "engine_owned_lora_loaded": separate_identity_lora,
+            "node_classes": list(KREA2_IDENTITY_EDIT_NODE_CLASSES if separate_identity_lora else KREA2_IDENTITY_EDIT_RUNTIME_NODE_CLASSES),
             "node_repo": KREA2_IDENTITY_EDIT_NODE_REPO,
             "recommended_lora": KREA2_IDENTITY_EDIT_RECOMMENDED_LORA,
         },
         "_neo_effective_krea2_native_route": loader != "gguf",
         "_neo_effective_krea2_gguf_route": loader == "gguf",
     }
+    actual_params["_neo_krea2_edit_readiness"] = _krea2_edit_readiness_snapshot(
+        backend_capabilities,
+        loader=loader,
+        engine=KREA2_EDIT_ENGINE_IDENTITY,
+        weight_source=edit_weight_source,
+    )
     if mode == "inpaint":
         actual_params.update({
             "mask_image_name": mask_name,
@@ -592,7 +796,11 @@ def _compile_krea2_identity_edit(
         patch_clip_consumers=False,
         validated=False,
         notes=[
-            "Global Krea LoRAs are rewired upstream of the dedicated Identity Edit LoRA so all model-only patches exist before Krea2EditModelPatch wraps the diffusion forward.",
+            (
+                "Global Krea LoRAs are rewired upstream of the dedicated Identity Edit LoRA so all model-only patches exist before Krea2EditModelPatch wraps the diffusion forward."
+                if separate_identity_lora
+                else "Global Krea LoRAs are rewired directly into Krea2EditModelPatch because the Identity Edit weights are already baked into the selected diffusion model."
+            ),
         ],
     )
 
@@ -611,7 +819,7 @@ def _compile_krea2_identity_edit(
         compiler_id=compiler_id,
         model_sampling_state="identity_edit_patched",
         model_sampling_ref=model_ref,
-        model_sampling_nodes=[identity_lora_node_id, patch_node_id],
+        model_sampling_nodes=([identity_lora_node_id] if identity_lora_node_id else []) + [patch_node_id],
         notes=["Krea 2 Identity Edit publishes the patched model plus grounded positive/negative conditioning as its detail-repair anchors."],
     )
 
@@ -632,7 +840,11 @@ def _compile_krea2_identity_edit(
             "backend_capabilities": backend_capabilities or {},
             "phase_notes": [
                 "Krea 2 Identity Edit is an opt-in engine layered onto Neo's existing Krea 2 RAW/Turbo routes; the legacy latent adapters remain the default.",
-                "SafeTensor and GGUF routes share the same edit graph after the base diffusion loader. GGUF does not quantize Qwen3-VL, VAE, or the Identity Edit LoRA.",
+                (
+                    "SafeTensor and GGUF routes share the same edit graph after the base diffusion loader. GGUF does not quantize Qwen3-VL, VAE, or the separate Identity Edit LoRA."
+                    if separate_identity_lora
+                    else "SafeTensor and GGUF routes share the same Identity Edit runtime after the selected baked diffusion model. Neo does not insert a second Identity Edit LoRA."
+                ),
                 "Krea2EditModelPatch receives VAE latent source(s), the blur-proof pixel path, and the same EmptySD3LatentImage target used by KSampler so source VAE pre-encoding happens before sampling.",
                 "Krea2EditGroundedEncode is used for both positive instruction conditioning and an empty-prompt grounded negative, matching the training recipe.",
                 f"VAE decode path: {vae_decode_strategy['decode_node_class']}.",
@@ -641,6 +853,460 @@ def _compile_krea2_identity_edit(
             "prompt_conditioning": conditioning,
         },
     )
+
+
+
+def _compile_krea2_ostris_edit(
+    *,
+    provider_id: str,
+    base_url: str,
+    job: NeoJob,
+    validation: ProviderValidationResult,
+    route: CompileRoute,
+    capabilities: dict[str, Any],
+    backend_capabilities: dict[str, Any] | None,
+    params: dict[str, Any],
+    mode: str,
+    loader: str,
+    model_node: dict[str, Any],
+    model_name: str,
+    compiler_id: str,
+    text_encoder: str,
+    vae: str,
+    variant: str,
+    turbo: bool,
+    compatibility: Any,
+    width: int,
+    height: int,
+    steps: int,
+    cfg: float,
+    sampler: str,
+    scheduler: str,
+    denoise: float,
+    batch_count: int,
+    clip_device: str,
+    conditioning: dict[str, Any],
+    effective_prompt: str,
+    vae_decode_strategy: dict[str, Any],
+) -> CompiledJob:
+    source_name = _source_image_name_for_lane(params, 1)
+    source_b_name = _source_image_name_for_lane(params, 2)
+    source_c_name = _source_image_name_for_lane(params, 3)
+    if not source_name:
+        validation.errors.append("Krea 2 Ostris Edit requires Image 1 / source_image.")
+        validation.ok = False
+    if source_c_name and not source_b_name:
+        validation.errors.append("Krea 2 Ostris Edit uses ordered references. Add Image 2 before Image 3.")
+        validation.ok = False
+    mask_name = _mask_image_name(params) if mode == "inpaint" else ""
+    edit_weight_source = normalize_krea2_edit_weight_source(
+        _param(params, "krea2_edit_weight_source", "ostris_edit_weight_source", default=KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA)
+    )
+    separate_ostris_lora = edit_weight_source == KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA
+    ostris_lora = ""
+    ostris_lora_strength: float | None = None
+    if separate_ostris_lora:
+        ostris_lora = str(require_explicit_asset_selection(
+            validation,
+            "Krea 2 Ostris Edit LoRA",
+            params.get("krea2_ostris_edit_lora"),
+            params.get("ostris_edit_lora"),
+            params.get("edit_lora"),
+        ))
+        ostris_lora_strength = float(_param(params, "krea2_ostris_edit_lora_strength", "ostris_edit_lora_strength", default=1.0))
+        _validate_numeric_range(validation, "Krea 2 Ostris Edit LoRA Strength", ostris_lora_strength, 0.0, 4.0)
+    kv_cache = normalize_krea2_ostris_kv_cache(_param(params, "krea2_ostris_kv_cache", "ostris_kv_cache", default=False))
+    reference_count = 1 + (1 if source_b_name else 0) + (1 if source_c_name else 0)
+    _validate_krea2_ostris_runtime(
+        validation,
+        backend_capabilities,
+        loader=loader,
+        ostris_lora=ostris_lora,
+        require_ostris_lora=separate_ostris_lora,
+        reference_count=reference_count,
+    )
+    if kv_cache:
+        note = "Krea 2 Ostris Edit is running with kv_cache enabled. Use this only for Ostris LoRAs trained/exported with KV Cache support."
+        if note not in validation.warnings:
+            validation.warnings.append(note)
+
+    negative_prompt = str(conditioning.get("negative") or "")
+    workflow: dict[str, Any] = {
+        "1": model_node,
+        "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": text_encoder, "type": KREA2_DEFAULTS.clip_type, "device": clip_device}},
+        "3": build_vae_loader_node(vae, vae_decode_strategy),
+    }
+    route_notes: list[str] = [
+        "Krea 2 Ostris Edit keeps Neo's Krea latent adapters but swaps prompt conditioning to TextEncodeKrea2OstrisEdit and patches the diffusion model with Krea2OstrisEditModelPatch.",
+    ]
+    if separate_ostris_lora:
+        route_notes.append("The dedicated Ostris Edit LoRA is model-only and is applied before Krea2OstrisEditModelPatch so the patch sees the exact training-time model stack.")
+    else:
+        route_notes.append("Ostris Edit weights are declared baked into the selected diffusion model, so Neo skips the dedicated engine-owned LoRA loader while preserving Krea2OstrisEditModelPatch + TextEncodeKrea2OstrisEdit.")
+    if source_b_name:
+        route_notes.append("Image 2 is forwarded into TextEncodeKrea2OstrisEdit as the second reference image.")
+    if source_c_name:
+        route_notes.append("Image 3 is forwarded into TextEncodeKrea2OstrisEdit as the third reference image.")
+
+    actual_params: dict[str, Any] = {
+        "seed": int(_param(params, "actual_seed", "seed", default=0)),
+        "requested_seed": int(_param(params, "requested_seed", "seed", default=_param(params, "actual_seed", "seed", default=0))),
+        "width": width,
+        "height": height,
+        "batch_count": batch_count,
+        "mode": mode,
+        "family": "krea2_turbo" if turbo else "krea2",
+        "loader": loader,
+        "model": model_name,
+        "krea2_edit_engine": KREA2_EDIT_ENGINE_OSTRIS,
+        "krea2_edit_weight_source": edit_weight_source,
+        "krea2_ostris_edit_lora": ostris_lora,
+        "krea2_ostris_edit_lora_strength": ostris_lora_strength,
+        "krea2_ostris_kv_cache": kv_cache,
+        "qwen3vl_text_encoder": text_encoder,
+        "text_encoder_1": text_encoder,
+        "text_encoder_2": "",
+        "vae": vae,
+        "vae_decode_mode": vae_decode_strategy["resolved"],
+        "vae_decode_profile": vae_decode_profile_payload(vae_decode_strategy),
+        "diffusion_model": "" if loader == "gguf" else model_name,
+        "gguf_model": model_name if loader == "gguf" else "",
+        "clip_type": KREA2_DEFAULTS.clip_type,
+        "steps": steps,
+        "cfg": cfg,
+        "denoise": denoise,
+        "prompt_conditioning_mode": str(conditioning.get("mode") or "raw"),
+        "clamp": str(conditioning.get("mode") or "raw"),
+        "source_image_name": source_name,
+        "source_image_2_name": source_b_name,
+        "reference_image_2_name": source_b_name,
+        "source_image_3_name": source_c_name,
+        "reference_image_3_name": source_c_name,
+        "_neo_krea2_image_mode_adapter": True,
+        "_neo_krea2_ostris_edit": True,
+        "_neo_krea2_ostris_reference_count": reference_count,
+        "_neo_krea2_ostris_engine_lora_loaded": separate_ostris_lora,
+        "_neo_effective_krea2_native_route": loader != "gguf",
+        "_neo_effective_krea2_gguf_route": loader == "gguf",
+    }
+
+    next_id = 6
+    source_ref: list[Any] | None = None
+    original_source_ref: list[Any] | None = None
+    source_b_ref: list[Any] | None = None
+    source_c_ref: list[Any] | None = None
+    mask_ref: list[Any] | None = None
+    composite_mask_ref: list[Any] | None = None
+    latent_ref: list[Any] | None = None
+
+    if source_name:
+        workflow[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": source_name, "upload": "image"}}
+        source_ref = [str(next_id), 0]
+        original_source_ref = list(source_ref)
+        next_id += 1
+    if source_b_name:
+        workflow[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": source_b_name, "upload": "image"}}
+        source_b_ref = [str(next_id), 0]
+        next_id += 1
+    if source_c_name:
+        workflow[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": source_c_name, "upload": "image"}}
+        source_c_ref = [str(next_id), 0]
+        next_id += 1
+
+    outpaint_payload: dict[str, Any] | None = None
+    scale_meta: dict[str, Any] | None = None
+    if mode == "outpaint" and source_ref is not None:
+        outpaint_payload = normalize_outpaint_payload(params, default_width=width, default_height=height)
+        padding = outpaint_payload["padding"]
+        mask_payload = outpaint_payload["mask"]
+        left = int(padding.get("left", 0) or 0)
+        top = int(padding.get("top", 0) or 0)
+        right = int(padding.get("right", 0) or 0)
+        bottom = int(padding.get("bottom", 0) or 0)
+        feather = int(mask_payload.get("feather", 16) or 16)
+        next_id, source_ref, working_width, working_height, scale_meta = _insert_outpaint_source_scale_node(
+            workflow, next_id, source_ref, outpaint_payload, fallback_width=width, fallback_height=height
+        )
+        workflow[str(next_id)] = {
+            "class_type": "ImagePadForOutpaint",
+            "inputs": {"image": list(source_ref), "left": left, "top": top, "right": right, "bottom": bottom, "feathering": feather},
+        }
+        source_ref = [str(next_id), 0]
+        mask_ref = [str(next_id), 1]
+        next_id += 1
+        width = max(64, int(working_width) + left + right)
+        height = max(64, int(working_height) + top + bottom)
+        actual_params.update({
+            "outpaint_payload": outpaint_payload,
+            "_neo_outpaint_contract": outpaint_payload,
+            "krea2_outpaint_source_scale_node": scale_meta or {},
+            "krea2_outpaint_effective_size": {"width": width, "height": height},
+            "_neo_krea2_outpaint_uses_image_pad_mask": True,
+            "_neo_krea2_ostris_outpaint": True,
+        })
+        route_notes.append("Krea 2 Ostris Edit outpaint reuses Neo's ImagePadForOutpaint mask as the latent-noise mask while conditioning the edit encoder on the padded canvas.")
+
+    if mode in {"img2img", "edit"} and source_ref is not None:
+        img2img_policy = normalize_img2img_source_resolution_policy(params, default_width=width, default_height=height)
+        next_id, source_ref, img2img_source_resolution_applied = insert_img2img_source_resolution_nodes(workflow, next_id, source_ref, img2img_policy)
+        if img2img_source_resolution_applied:
+            actual_params["img2img_source_resolution"] = img2img_policy
+            actual_params["_neo_img2img_source_resolution_applied"] = img2img_source_resolution_applied
+            route_notes.append(f"Krea 2 Ostris img2img source policy: {img2img_policy.get('mode_label', img2img_policy.get('mode', 'Keep source resolution'))}.")
+
+    edit_model_ref: list[Any] = ["1", 0]
+    ostris_lora_node_id = ""
+    if separate_ostris_lora:
+        workflow[str(next_id)] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {"model": ["1", 0], "lora_name": ostris_lora, "strength_model": ostris_lora_strength},
+        }
+        edit_model_ref = [str(next_id), 0]
+        ostris_lora_node_id = str(next_id)
+        next_id += 1
+
+    workflow[str(next_id)] = {"class_type": "Krea2OstrisEditModelPatch", "inputs": {"model": list(edit_model_ref), "kv_cache": kv_cache}}
+    model_ref: list[Any] = [str(next_id), 0]
+    ostris_patch_node_id = str(next_id)
+    next_id += 1
+
+    text_common: dict[str, Any] = {"clip": ["2", 0], "vae": ["3", 0], "image1": list(source_ref or ["0", 0])}
+    if source_b_ref is not None:
+        text_common["image2"] = list(source_b_ref)
+    if source_c_ref is not None:
+        text_common["image3"] = list(source_c_ref)
+    workflow["4"] = {"class_type": "TextEncodeKrea2OstrisEdit", "inputs": {**text_common, "prompt": effective_prompt}}
+    workflow["5"] = {"class_type": "TextEncodeKrea2OstrisEdit", "inputs": {**text_common, "prompt": negative_prompt}}
+
+    if mode in {"img2img", "edit"} and source_ref is not None:
+        workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+        route_notes.append("Krea 2 Ostris img2img uses Image 1 as the Qwen Image VAE latent anchor while TextEncodeKrea2OstrisEdit consumes Image 1 (+ optional Image 2/Image 3) as edit references.")
+    elif mode == "inpaint" and source_ref is not None and mask_name:
+        workflow[str(next_id)] = {"class_type": "LoadImageMask", "inputs": {"image": mask_name, "channel": "red"}}
+        raw_mask_ref = [str(next_id), 0]
+        mask_ref = list(raw_mask_ref)
+        next_id += 1
+        grow = max(0, _int_param(params, "mask_grow", "grow_mask_by", default=3))
+        blur = max(0, _int_param(params, "mask_blur", "blur_mask_by", default=0))
+        composite_blur = max(blur, KREA2_NATIVE_INPAINT_COMPOSITE_BLUR_FLOOR)
+        use_crop_stitch = crop_stitch_enabled(params)
+        if grow or blur:
+            workflow[str(next_id)] = {
+                "class_type": "GrowMaskWithBlur",
+                "inputs": {"mask": list(mask_ref), "expand": grow, "incremental_expandrate": 0, "tapered_corners": True, "flip_input": False, "blur_radius": blur, "lerp_alpha": 1, "decay_factor": 1, "fill_holes": False},
+            }
+            mask_ref = [str(next_id), 0]
+            next_id += 1
+        inpaint_target = str(_param(params, "inpaint_target", "mask_mode", default="masked") or "masked").strip().lower()
+        invert_target = inpaint_target in {"unmasked", "not_masked", "not_masked_area"}
+        if invert_target:
+            workflow[str(next_id)] = {"class_type": "InvertMask", "inputs": {"mask": list(mask_ref)}}
+            mask_ref = [str(next_id), 0]
+            next_id += 1
+        composite_mask_ref = list(mask_ref)
+        composite_guard_enabled = not use_crop_stitch
+        if composite_guard_enabled:
+            composite_mask_ref = list(raw_mask_ref)
+            workflow[str(next_id)] = {
+                "class_type": "GrowMaskWithBlur",
+                "inputs": {"mask": list(composite_mask_ref), "expand": grow, "incremental_expandrate": 0, "tapered_corners": True, "flip_input": False, "blur_radius": composite_blur, "lerp_alpha": 1, "decay_factor": 1, "fill_holes": False},
+            }
+            composite_mask_ref = [str(next_id), 0]
+            next_id += 1
+            if invert_target:
+                workflow[str(next_id)] = {"class_type": "InvertMask", "inputs": {"mask": list(composite_mask_ref)}}
+                composite_mask_ref = [str(next_id), 0]
+                next_id += 1
+        workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
+        encoded_ref = [str(next_id), 0]
+        next_id += 1
+        workflow[str(next_id)] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": list(encoded_ref), "mask": list(mask_ref)}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": list(model_ref)}}
+        model_ref = [str(next_id), 0]
+        next_id += 1
+        actual_params.update({
+            "mask_image_name": mask_name,
+            "mask_grow": grow,
+            "mask_blur": blur,
+            "inpaint_target": inpaint_target,
+            "_neo_krea2_inpaint_uses_latent_noise_mask": True,
+            "_neo_krea2_inpaint_uses_differential_diffusion": True,
+            "_neo_krea2_ostris_inpaint": True,
+            "_neo_krea2_inpaint_sampling_mask": {"grow": grow, "blur": blur, "inverted": invert_target},
+            "_neo_krea2_inpaint_composite_mask": {
+                "grow": grow,
+                "blur": composite_blur if composite_guard_enabled else blur,
+                "blur_floor": KREA2_NATIVE_INPAINT_COMPOSITE_BLUR_FLOOR,
+                "safety_floor_applied": bool(composite_guard_enabled and composite_blur > blur),
+                "guard_enabled": composite_guard_enabled,
+                "inverted": invert_target,
+                "owner": "ImageCompositeMasked" if composite_guard_enabled else "Native Crop & Stitch",
+            },
+        })
+        route_notes.append("Krea 2 Ostris Edit inpaint keeps Neo's latent-noise mask + seam-safe final composite policy while replacing the edit encoder/model-patch stack.")
+    elif mode == "outpaint" and source_ref is not None:
+        workflow[str(next_id)] = {"class_type": "VAEEncode", "inputs": {"pixels": list(source_ref), "vae": ["3", 0]}}
+        encoded_ref = [str(next_id), 0]
+        next_id += 1
+        workflow[str(next_id)] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": list(encoded_ref), "mask": list(mask_ref or ["0", 0])}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+        workflow[str(next_id)] = {"class_type": "DifferentialDiffusion", "inputs": {"model": list(model_ref)}}
+        model_ref = [str(next_id), 0]
+        next_id += 1
+    elif latent_ref is None:
+        workflow[str(next_id)] = {"class_type": KREA2_DEFAULTS.latent_node, "inputs": {"width": width, "height": height, "batch_size": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+
+    if batch_count > 1:
+        workflow[str(next_id)] = {"class_type": "RepeatLatentBatch", "inputs": {"samples": list(latent_ref), "amount": batch_count}}
+        latent_ref = [str(next_id), 0]
+        next_id += 1
+
+    sampler_id = str(next_id)
+    workflow[sampler_id] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "seed": int(_param(params, "actual_seed", "seed", default=0)),
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": sampler if sampler != "provider_default" else KREA2_DEFAULTS.sampler,
+            "scheduler": scheduler if scheduler != "provider_default" else KREA2_DEFAULTS.scheduler,
+            "denoise": denoise,
+            "model": list(model_ref),
+            "positive": ["4", 0],
+            "negative": ["5", 0],
+            "latent_image": list(latent_ref),
+        },
+    }
+    next_id += 1
+    decode_id = str(next_id)
+    workflow[decode_id] = build_vae_decode_node([sampler_id, 0], ["3", 0], vae_decode_strategy)
+    output_ref: list[Any] = [decode_id, 0]
+    next_id += 1
+    if mode == "inpaint" and original_source_ref is not None and mask_ref is not None:
+        final_composite_mask_ref = list(composite_mask_ref or mask_ref)
+        composite_id = str(next_id)
+        workflow[composite_id] = {
+            "class_type": "ImageCompositeMasked",
+            "inputs": {"destination": list(original_source_ref), "source": [decode_id, 0], "x": 0, "y": 0, "resize_source": True, "mask": final_composite_mask_ref},
+        }
+        output_ref = [composite_id, 0]
+        next_id += 1
+    workflow[str(next_id)] = {"class_type": "PreviewImage", "inputs": {"images": output_ref}}
+
+    actual_params.update({
+        "_neo_sampler_node_id": sampler_id,
+        "_neo_krea2_ostris_patch_node_id": ostris_patch_node_id,
+        "_neo_krea2_ostris_lora_node_id": ostris_lora_node_id,
+        "krea2_profile": {
+            "family": "krea2_turbo" if turbo else "krea2",
+            "variant": variant,
+            "loader": loader,
+            "compiler": compiler_id,
+            "architecture": "krea2_ostris_edit_reference_conditioning",
+            "compatibility": compatibility.as_dict(),
+            "clip_loader": "CLIPLoader(type=krea2)",
+            "text_encoder_policy": "TextEncodeKrea2OstrisEdit with Image 1 as the primary edit reference plus optional Image 2/Image 3.",
+            "vae_policy": "Qwen Image VAE for latent encode/decode and TextEncodeKrea2OstrisEdit image lanes.",
+            "gguf_policy": (
+                "GGUF may quantize the Krea diffusion transformer only; the separate Ostris Edit LoRA, Qwen3-VL encoder, and Qwen Image VAE stay native/safetensors"
+                if separate_ostris_lora
+                else "GGUF may quantize the selected Krea diffusion transformer containing baked Ostris Edit weights; Qwen3-VL and the Qwen Image VAE stay native/safetensors"
+            ),
+            "image_mode_policy": "Neo latent adapter + TextEncodeKrea2OstrisEdit + Krea2OstrisEditModelPatch",
+            "edit_weight_source": edit_weight_source,
+            "engine_owned_lora_loaded": separate_ostris_lora,
+            "node_classes": list(KREA2_OSTRIS_EDIT_NODE_CLASSES if separate_ostris_lora else KREA2_OSTRIS_EDIT_RUNTIME_NODE_CLASSES),
+            "node_repo": KREA2_OSTRIS_EDIT_NODE_REPO,
+            "kv_cache": kv_cache,
+        },
+    })
+
+    actual_params["_neo_krea2_edit_readiness"] = _krea2_edit_readiness_snapshot(
+        backend_capabilities,
+        loader=loader,
+        engine=KREA2_EDIT_ENGINE_OSTRIS,
+        weight_source=edit_weight_source,
+        kv_cache=kv_cache,
+    )
+
+    actual_params["_neo_lora_patch_profile"] = build_lora_patch_profile(
+        route={**route.as_dict(), "workflow_mode": mode, "route_state": "available" if route.status == "available" else route.status},
+        model_ref=["1", 0],
+        clip_ref=["2", 0],
+        sampler_node_id=sampler_id,
+        sampler_model_input="model",
+        loader_node_class="LoraLoaderModelOnly",
+        source=compiler_id,
+        strategy="lora_loader_model_only_consumer_rewire",
+        requires_clip=False,
+        patch_clip_consumers=False,
+        validated=False,
+        notes=[
+            (
+                "Global Krea LoRAs are rewired upstream of the dedicated Ostris Edit LoRA so all model-only patches exist before Krea2OstrisEditModelPatch wraps the diffusion forward."
+                if separate_ostris_lora
+                else "Global Krea LoRAs are rewired directly into Krea2OstrisEditModelPatch because the Ostris Edit weights are already baked into the selected diffusion model."
+            ),
+        ],
+    )
+
+    publish_adetailer_route_contract(
+        actual_params=actual_params,
+        workflow=workflow,
+        route=route,
+        image_ref=output_ref,
+        model_ref=model_ref,
+        clip_ref=["2", 0],
+        vae_ref=["3", 0],
+        positive_ref=["4", 0],
+        negative_ref=["5", 0],
+        sampler_node_id=sampler_id,
+        source=compiler_id,
+        compiler_id=compiler_id,
+        model_sampling_state="ostris_edit_patched",
+        model_sampling_ref=model_ref,
+        model_sampling_nodes=([ostris_lora_node_id] if ostris_lora_node_id else []) + [ostris_patch_node_id],
+        notes=["Krea 2 Ostris Edit publishes the patched model plus TextEncodeKrea2OstrisEdit conditioning as its detail-repair anchors."],
+    )
+
+    return CompiledJob(
+        provider_id=provider_id,
+        compile_status="compiled" if validation.ok else "mock_compiled",
+        backend_payload={
+            "provider_id": provider_id,
+            "backend": "comfyui",
+            "base_url": base_url,
+            "validation": model_to_dict(validation),
+            "prompt": workflow,
+            "client_id": f"neo-studio-v2-{uuid4().hex[:8]}",
+            "actual_params": actual_params,
+            "runtime_progress_source": "comfyui.websocket_and_history",
+            "compile_route": {**route.as_dict(), "compiler_id": compiler_id, "workflow_engine": KREA2_EDIT_ENGINE_OSTRIS},
+            "capabilities": capabilities,
+            "backend_capabilities": backend_capabilities or {},
+            "phase_notes": [
+                "Krea 2 Ostris Edit is an opt-in engine layered onto Neo's existing Krea 2 RAW/Turbo routes; the legacy latent adapters remain available for image-mode canvas/mask handling.",
+                (
+                    "SafeTensor and GGUF routes share the same Ostris runtime after the base diffusion loader. GGUF does not quantize Qwen3-VL, the Qwen Image VAE, or the separate Ostris Edit LoRA."
+                    if separate_ostris_lora
+                    else "SafeTensor and GGUF routes share the same Ostris runtime after the selected baked diffusion model. Neo does not insert a second Ostris Edit LoRA."
+                ),
+                "TextEncodeKrea2OstrisEdit is used for both positive and negative conditioning so the edit engine sees the same reference image stack on both branches.",
+                "Krea2OstrisEditModelPatch runs after the baked/separate edit weights and before any latent-mask model wrappers such as DifferentialDiffusion.",
+                f"VAE decode path: {vae_decode_strategy['decode_node_class']}",
+                *route_notes,
+            ],
+            "prompt_conditioning": conditioning,
+        },
+    )
+
 
 
 def compile_krea2_workflow(
@@ -661,10 +1327,9 @@ def compile_krea2_workflow(
     native/safetensors so Comfy can produce the required 12-layer feature stack.
 
     The existing img2img/inpaint/outpaint adapters remain the default. Image modes
-    may explicitly opt into the community Krea 2 Identity Edit v1.2 engine, which
-    uses Krea2EditModelPatch + Krea2EditGroundedEncode with a selected model-only
-    Identity Edit LoRA. The opt-in graph is shared by native and GGUF diffusion
-    loading; GGUF remains transformer-only.
+    may explicitly opt into the community Krea 2 Identity Edit v1.2 engine or the
+    Krea 2 Ostris Edit engine. Both edit engines share the same native/GGUF Krea
+    diffusion loading policy; GGUF remains transformer-only.
     """
 
     raw_params = job.params or {}
@@ -677,9 +1342,11 @@ def compile_krea2_workflow(
     image_mode = mode in {"img2img", "edit", "inpaint", "outpaint"}
     edit_engine = normalize_krea2_edit_engine(_param(params, "krea2_edit_engine", "edit_engine", "image_edit_engine", default="native")) if image_mode else "native"
     identity_edit = bool(image_mode and edit_engine == KREA2_EDIT_ENGINE_IDENTITY)
-    if identity_edit and mode in {"inpaint", "outpaint"}:
+    ostris_edit = bool(image_mode and edit_engine == KREA2_EDIT_ENGINE_OSTRIS)
+    if (identity_edit or ostris_edit) and mode in {"inpaint", "outpaint"}:
         if masked_engine in {"lanpaint", "lan_paint"}:
-            validation.errors.append("Krea 2 Identity Edit cannot be stacked with the LanPaint masked engine. Select Native masked editing or disable Identity Edit.")
+            label = "Krea 2 Identity Edit" if identity_edit else "Krea 2 Ostris Edit"
+            validation.errors.append(f"{label} cannot be stacked with the LanPaint masked engine. Select Native masked editing or disable that Krea edit engine.")
             validation.ok = False
 
     requested_seed = int(_param(params, "requested_seed", "seed", default=-1))
@@ -808,6 +1475,41 @@ def compile_krea2_workflow(
             vae_decode_strategy=vae_decode_strategy,
         )
 
+    if ostris_edit:
+        ostris_params = {**params, "seed": seed, "actual_seed": seed, "requested_seed": requested_seed}
+        return _compile_krea2_ostris_edit(
+            provider_id=provider_id,
+            base_url=base_url,
+            job=job,
+            validation=validation,
+            route=route,
+            capabilities=capabilities,
+            backend_capabilities=backend_capabilities,
+            params=ostris_params,
+            mode=mode,
+            loader=loader,
+            model_node=model_node,
+            model_name=model_name,
+            compiler_id=compiler_id,
+            text_encoder=text_encoder,
+            vae=vae,
+            variant=variant,
+            turbo=turbo,
+            compatibility=compatibility,
+            width=width,
+            height=height,
+            steps=steps,
+            cfg=cfg,
+            sampler=sampler,
+            scheduler=scheduler,
+            denoise=denoise,
+            batch_count=batch_count,
+            clip_device=clip_device,
+            conditioning=conditioning,
+            effective_prompt=effective_prompt,
+            vae_decode_strategy=vae_decode_strategy,
+        )
+
     workflow: dict[str, Any] = {
         "1": model_node,
         # Deliberately native for both model formats. Krea2 requires Comfy's
@@ -862,6 +1564,14 @@ def compile_krea2_workflow(
         "_neo_effective_krea2_gguf_route": is_gguf,
         "_neo_krea2_image_mode_adapter": image_mode,
     }
+
+    if image_mode:
+        actual_params["_neo_krea2_edit_readiness"] = _krea2_edit_readiness_snapshot(
+            backend_capabilities,
+            loader=loader,
+            engine=edit_engine,
+            weight_source=KREA2_EDIT_WEIGHT_SOURCE_SEPARATE_LORA,
+        )
 
     next_id = 6
     source_ref: list[Any] | None = None

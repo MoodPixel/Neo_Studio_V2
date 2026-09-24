@@ -34,8 +34,8 @@ tags:
   - route aware
   - loader aware
 priority: 115
-version: 10
-updated: 2026-09-18
+version: 9
+updated: 2026-09-24
 ---
 
 # LoRA Stack and LoRA Library
@@ -77,8 +77,9 @@ LoRA Library metadata does **not** apply a LoRA by itself. To affect a generatio
 
 | Field / control | What it does | Advice |
 |---|---|---|
-| **Search provider LoRAs** | Filters LoRA names reported by the selected Image profile. | Forge uses its Extra Networks/shared catalog; Comfy uses `LoraLoader.lora_name`. |
-| **Folder** | Limits the library to one provider-relative folder and its descendants. | Folder paths are navigation only; the full provider + catalog path remains the record identity. |
+| **Main folder** | Filters by the first folder under the provider LoRA root, for example `Krea2`, `Flux`, or `SDXL`. | Options come from the selected provider's real catalog paths; Neo does not hardcode category names. Selecting a main folder still includes LoRAs in its nested subfolders. |
+| **Subfolder** | Narrows the selected main folder to its nested folder path, for example `Characters` or `Styles / Cinematic`. | Subfolder choices are rebuilt from the selected main folder. Choose **All subfolders** to see the complete main category. |
+| **Search provider LoRAs** | Filters LoRA names reported by the selected Image profile after the current folder filters. | Forge uses its Extra Networks/shared catalog; Comfy uses `LoraLoader.lora_name`. |
 | **Provider LoRA** | Selects a LoRA record from the active provider catalog. | Selection focuses metadata; use **Add selected LoRA to stack** to apply it. |
 | **Preview carousel** | Shows saved/CivitAI/local preview images when available. | Useful to identify the LoRA before adding it. |
 | **Positive triggers** | Trigger words that should usually be added to the positive prompt. | Append when the LoRA needs activation tokens. |
@@ -87,10 +88,30 @@ LoRA Library metadata does **not** apply a LoRA by itself. To affect a generatio
 | **Sample prompt** | Example prompt from metadata/CivitAI. | Use **Append Prompt** to add it or **Replace Prompt** when using it as the full baseline. |
 | **Add selected LoRA to stack** | Creates/updates a LoRA Stack row from the selected library record. | This is the normal path from library browsing to generation use. |
 | **Edit metadata / Save metadata** | Edits local metadata record. | Saves to Neo runtime data, not the original safetensors file. |
-| **Notes** | Stores personal usage tips, compatibility reminders, and strength guidance on the exact LoRA record. | Notes are searchable and remain separate for same-name LoRAs in different folders. |
-| **CivitAI link** | URL for metadata enrichment. | Use a CivitAI model/model-version/download URL. |
+| **Notes** | Your manual LoRA notes, usage tips, preferred strengths, caveats, or reminders. | Stored separately from imported source descriptions; CivitAI pulls do not overwrite this field. |
+| **CivitAI link** | URL for metadata enrichment. | Use a CivitAI model/model-version/download URL. Neo persists the source URL and shows a **CivitAI source ↗** chip when one is saved. |
 | **CivitAI merge mode** | Controls how fetched metadata merges with local data. | **fill_missing** is safest. **overwrite_selected** is aggressive. |
 | **Pull from CivitAI** | Fetches triggers, tags, prompts, previews, base model info, etc. | If CivitAI returns no usable metadata, Neo should report that honestly. |
+
+
+### Folder filtering behavior
+
+LoRA folder filters are derived from portable provider catalog names. For a Comfy catalog entry such as:
+
+```text
+Krea2/Characters/hero.safetensors
+```
+
+Neo exposes:
+
+```text
+Main folder: Krea2
+Subfolder: Characters
+```
+
+A deeper path such as `Krea2/Styles/Cinematic/film.safetensors` is shown as main folder `Krea2` and subfolder `Styles / Cinematic`. Files directly in the LoRA root are grouped under **Root**. Absolute backend filesystem paths are not exposed to the browser for this feature.
+
+The same Main folder/Subfolder state is used by the **Add LoRA** picker and the **LoRA Library** browser so users do not have to search a large flat list twice.
 
 
 ## Provider-aware catalog and serialization
@@ -120,24 +141,6 @@ Rules:
 - Switching providers preserves canonical LoRA rows but changes the displayed provider syntax.
 - Existing Forge prompt tags are deduplicated against stack rows using path-, extension-, and case-insensitive identity matching.
 - Absolute backend paths stay server-side. Browser records and saved public metadata use portable catalog names only.
-- Library identity is the selected provider plus the complete portable relative catalog path. Basename and stem aliases are search aids only and never merge metadata.
-- Save responses confirm the durable record ID, canonical identity, saved fields, and persisted timestamp after a disk reload.
-- CivitAI links are persisted in both `civitai_url` and `remote_source.url` for backward-compatible reads.
-- Identity repair is preview-first. Applying the exact preview creates a timestamped index backup; ambiguous basename-only legacy entries are reported and never guessed, merged, or deleted.
-
-## Phase 6 search, folders, and notes
-
-LoRA Library search covers the full relative catalog path, display name, base model, category, triggers, positive/negative keywords, sample and saved prompt options, notes, caution notes, and CivitAI model/version names. Multiple terms use **all-term matching**; quoted phrases stay together.
-
-The Folder control is built from the selected provider-relative catalog tree. Choosing a folder includes its nested subfolders, while **Clear filters** restores the complete record list. The UI always shows the filtered count against the total and gives an explicit zero-result option instead of silently retaining a hidden selection.
-
-Search and folder aliases never participate in identity matching. A basename can help find a record, but only the provider plus full relative path can select, reconcile, or save metadata to it.
-
-## Phase 8 release and migration
-
-Before upgrading, back up `neo_data/`. Run `python scripts/audit_lora_release_phase8.py` to inspect the integrated release and Image LoRA index without changing it. If the report finds legacy Image records, use the identity-audit preview endpoint first and apply only that exact preview; Neo creates a timestamped index backup before rewriting. Ambiguous provider or basename-only records remain untouched.
-
-`code_ready=true` proves the packaged contracts, documentation, manifests, and syntax checks are present. It is not GPU inference evidence; `production_proven=true` additionally requires a complete passing physical validation report.
 - Forge supports global base/both rows. Regional and finish-only rows remain preserved but fail closed for direct Forge base generation.
 
 ## Route support
@@ -150,9 +153,10 @@ LoRA Stack is route-aware and loader-aware. It only mutates the graph when the c
 | **SD 1.5** | Checkpoint | Experimental for Generate, Img2Img, Inpaint, Outpaint. |
 | **Flux 1** | Components or GGUF | Experimental where compiler-owned LoRA patch profile exists. |
 | **Flux 2 Klein** | Components or GGUF | Experimental, including edit routes where route matrix exposes them. |
-| **Krea 2 RAW / Turbo** | Components or GGUF | Experimental model-only LoRA patching. With Identity Edit enabled, global rows are rewired before the dedicated Identity Edit LoRA and `Krea2EditModelPatch`. |
+| **Krea 2 RAW / Turbo** | Components or GGUF | Experimental model-only LoRA patching. For Identity/Ostris edit engines, global rows are rewired upstream of the engine runtime. Separate mode keeps the dedicated engine LoRA between global rows and the edit patch; baked mode rewires global rows directly into the edit patch. |
 | **Qwen Rapid AIO** | Bundled / GGUF | Experimental where route profile supports model/clip or model-only patching. |
 | **Qwen Image Edit / 2509** | Components or GGUF | Experimental for source/edit workflows where supported. |
+| **Qwen Image 2.1** | Components or GGUF | **Planned/gated in Q21-0.** Q21-5 targets model-only patching with exact Qwen-2.1 compatibility proof. |
 | **ZImage / ZImage Turbo** | Components or GGUF | Experimental for non-edit image routes. |
 | **HiDream** | Components or GGUF | Generate is experimental; image-conditioned modes are planned/gated. |
 | **Cloud/API routes** | API model | Not a LoRA graph route unless the API/backend adds explicit LoRA support. |
@@ -165,7 +169,11 @@ LoRA Stack is route-aware and loader-aware. It only mutates the graph when the c
 - If the route is gated, Neo may preserve the user's LoRA intent in metadata without mutating the graph.
 - Forge prompt syntax is generated only during provider compilation; do not manually duplicate generated tags in the visible prompt.
 - Do not mix SDXL LoRAs with incompatible model families unless the user is intentionally testing and understands the risk.
-- Krea 2 Identity Edit's dedicated edit LoRA is an engine-owned required asset, not a normal LoRA Stack row. Global Krea model-only rows may still be stacked; Neo orders them before the dedicated edit LoRA so the custom model patch wraps the final model state.
+- Identity Edit and Ostris Edit treat their dedicated edit LoRA as an **engine-owned** asset, not a normal global LoRA Stack row. Global Krea model-only rows may still be stacked upstream of the engine runtime.
+- Do not add the same engine edit LoRA again as a normal global LoRA Stack row. If those edit weights are already merged into the selected Krea model, choose **Edit Weight Source → Baked into Model** so Neo does not apply the dedicated engine LoRA a second time.
+- Generic **Krea 2 Ostris Edit** is now a separate Krea edit engine. It is distinct from the Krea 2 Turbo OpenPose ControlNet adapter even though both use Ostris node classes. The generic edit engine uses its own Edit Weight Source and KV Cache settings.
+- **KV Cache** belongs to the Ostris edit training contract. Leave it Off unless the selected Ostris LoRA/model explicitly documents KV-cache training/export.
+- A Krea edit route showing **Ready** confirms the runtime contract, not the visual quality of a particular community LoRA or merged checkpoint. For baked models, Neo intentionally trusts the user/model metadata rather than guessing from the filename.
 
 ## How to explain it to users
 
@@ -309,3 +317,83 @@ PEFT `lora_A` / `lora_B` tensor names become Comfy-compatible `lora_down` / `lor
 ### UI diagnostics
 
 For Krea 2 routes, LoRA Stack shows the most recent compatibility preflight result. Guided mode summarizes normalized/native/not-inspected/blocked counts; Expert mode can inspect the structured compatibility report. A locally inspectable unsupported format is blocked before Comfy queue submission instead of allowing hundreds of `lora key not loaded` warnings while presenting the LoRA as successfully applied.
+
+## 2026-09-23 — large-catalog browser performance
+
+The LoRA Library keeps the restored Main folder/Subfolder filters but avoids repeated catalog-wide matching work:
+
+- the backend creates the saved/live provider catalog bridge once per browser request instead of merge-then-bridge duplication;
+- the frontend builds exact and alias lookup maps once per reconciliation pass;
+- saved metadata enrichment still wins for notes, CivitAI source, prompts, previews, and triggers;
+- the live selected-provider catalog remains authoritative for exact runnable LoRA names and availability.
+
+This changes lookup cost only; provider binding and execution behavior are unchanged.
+
+## Qwen Image 2.1 LoRA / cache ordering — implemented through Q21-6B
+
+The architecture target from Q21-0 is now executable through Q21-5/Q21-6B. Final model ordering is:
+
+```text
+Qwen Image 2.1 base model
+→ compatible global model-only LoRA rows
+→ QwenImage21Cache (if enabled)
+→ sampler
+```
+
+Compatibility rules:
+
+- bind the exact selected-provider LoRA enum at submission time;
+- do not infer that Qwen Image, Qwen Edit 2509/2511, or Qwen Image 2.1 LoRAs are interchangeable;
+- prefer `LoraLoaderModelOnly` for the initial implementation unless a real Qwen 2.1 asset proves text-encoder patching is required;
+- preserve pass targeting for High-Res without loading the same LoRA twice onto an already patched model;
+- fail closed when the runtime cannot establish a safe graph anchor or exact catalog asset.
+
+
+## 2026-09-24 — Qwen Image 2.1 LoRA Stack (Q21-5)
+
+`qwen_image_21` now publishes a compiler-owned **model-only** LoRA profile using `LoraLoaderModelOnly`.
+
+- Safetensors/components: txt2img, img2img/edit, inpaint, and outpaint are experimental.
+- GGUF: only the already-active txt2img/img2img/edit routes are experimental; masked GGUF remains unsupported.
+- Qwen3-VL is not patched.
+- Multiple global LoRAs retain normal Neo ordering and exact provider catalog binding.
+- Use LoRAs trained for Qwen Image 2.1. Neo does not assume compatibility with older Qwen/Image-Edit, SDXL, Flux, or unrelated LoRAs.
+- When High-Res Lab is enabled, LoRA is applied to the base model path first and Stage 2 reuses that already-patched model path; Neo must not load the same global LoRA a second time just because refinement is active.
+- When Q21-6B `QwenImage21Cache` is enabled, the LoRA extension rewires the cache node input so the final graph remains `base → LoRA(s) → cache → route patch/sampler`; cache must never be inserted before the model-only LoRA stack.
+
+
+## 2026-09-24 — LoRA Library H1 identity + CivitAI reconciliation
+
+LoRA Library metadata now uses one additive identity contract across older recovery code and newer catalog/persistence code.
+
+Durable identity is:
+
+```text
+provider_id + normalized full provider-relative catalog path
+```
+
+For example:
+
+```text
+comfyui:krea2/characters/hero.safetensors
+```
+
+Folder structure is part of identity. Two LoRAs with the same filename in different folders are separate records. The provider's exact catalog value is retained separately in `provider_catalog_name` for live loader binding.
+
+Compatibility rule:
+
+```text
+canonical_lora_identity(catalog_value)
+→ portable provider-neutral identity
+
+canonical_lora_identity(provider_id, catalog_value)
+→ durable provider-aware identity
+```
+
+Both forms are intentional and must remain available because old recovery/startup code and newer library/catalog code coexist.
+
+**Save metadata** now reports success only after Neo verifies the record can be reloaded from `neo_data/extensions/lora_stack/library_index.json`. Successful CivitAI imports use the same verified persistence contract.
+
+CivitAI enrichment accepts supported `civitai.com` and `civitai.red` model/model-version links. `fill_missing` remains the safest merge mode; imported source data does not overwrite the separate manual **Notes** field unless the merge policy explicitly targets that field.
+
+If Save or CivitAI Pull receives a non-JSON server error, the LoRA Library now reports the HTTP status and a bounded response-text preview instead of showing a misleading `Unexpected token ... is not valid JSON` parser failure.

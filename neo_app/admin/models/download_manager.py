@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from threading import Event, Thread
 from typing import Any
-from urllib import error, request
+from urllib import error, request, parse
 from uuid import uuid4
 import json
+import hashlib
+import re
 import os
 import shutil
 import time
@@ -251,8 +253,10 @@ def _validate_plan_for_download(plan: dict[str, Any], payload: dict[str, Any]) -
     target = _as_dict(plan.get("target"))
     file_info = _as_dict(plan.get("file"))
     provider = _clean_lower(source.get("provider"))
-    if provider not in {"huggingface", "civitai"}:
+    if provider not in {"huggingface", "civitai", "url"}:
         errors.append(f"unsupported_download_provider:{provider or 'unknown'}")
+    if provider == "url" and parse.urlparse(_clean(source.get("download_url"))).scheme != "https":
+        errors.append("url_download_requires_https")
     if not _clean(source.get("download_url")):
         errors.append("download_url_missing")
     if not _safe_filename(file_info.get("filename")):
@@ -608,7 +612,7 @@ def _start_huggingface_snapshot_install(payload: dict[str, Any]) -> dict[str, An
 
 def _download_headers(provider: str, token: str) -> dict[str, str]:
     headers = {"User-Agent": USER_AGENT}
-    if token:
+    if token and provider in {"huggingface", "civitai"}:
         if provider == "civitai":
             headers["Authorization"] = f"Bearer {token}"
         else:
@@ -648,6 +652,11 @@ def _download_worker(job_id: str, *, token: str = "", overwrite: bool = False, t
     cancel_event = _CANCEL_EVENTS.setdefault(job_id, Event())
     start_time = time.time()
     try:
+        hashes = _as_dict(_as_dict(job.get("file")).get("hashes"))
+        expected_sha256 = _clean(hashes.get("sha256") or hashes.get("SHA256")).lower()
+        if expected_sha256 and not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise ValueError("invalid_expected_sha256")
+        digest = hashlib.sha256()
         tmp_path.parent.mkdir(parents=True, exist_ok=True)
         _update_job(job_id, status="downloading", started_at=_now())
         req = request.Request(download_url, headers=_download_headers(provider, token))
@@ -663,6 +672,7 @@ def _download_worker(job_id: str, *, token: str = "", overwrite: bool = False, t
                     if not chunk:
                         break
                     handle.write(chunk)
+                    digest.update(chunk)
                     downloaded += len(chunk)
                     elapsed = max(time.time() - start_time, 0.001)
                     speed = downloaded / elapsed if downloaded else 0
@@ -682,6 +692,11 @@ def _download_worker(job_id: str, *, token: str = "", overwrite: bool = False, t
                     )
         if cancel_event.is_set():
             raise InterruptedError("download_cancelled")
+        actual_sha256 = digest.hexdigest()
+        if expected_size and downloaded != expected_size:
+            raise ValueError("download_size_mismatch")
+        if expected_sha256 and actual_sha256 != expected_sha256:
+            raise ValueError("download_sha256_mismatch")
         _copy_or_move_completed_file(tmp_path, final_path, overwrite=overwrite)
         elapsed = max(time.time() - start_time, 0.001)
         final_size = Path(final_path).stat().st_size if Path(final_path).exists() else _safe_int(progress.get("size_bytes"), 0)
@@ -690,6 +705,9 @@ def _download_worker(job_id: str, *, token: str = "", overwrite: bool = False, t
             job_id,
             status="completed",
             completed_at=_now(),
+            verification={"sha256": actual_sha256, "expected_sha256": expected_sha256,
+                          "checksum_verified": bool(expected_sha256),
+                          "state": "verified" if expected_sha256 else "digest_recorded_no_expected_hash"},
             progress={
                 "bytes_downloaded": final_size,
                 "size_bytes": final_size,

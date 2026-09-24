@@ -14,6 +14,7 @@ Neo Studio does **not** bundle third-party AI models, ComfyUI, Forge Neo, Kobold
 ## Table of Contents
 
 - [✨ What Neo Studio Does](#-what-neo-studio-does)
+- [🚀 Current Highlights](#-current-highlights)
 - [🖼️ Workspace Screenshots](#️-workspace-screenshots)
 - [🎨 Image Backends](#-image-backends)
 - [🧠 Supported Image Model Families](#-supported-image-model-families)
@@ -73,6 +74,17 @@ Neo Studio does **not** bundle third-party AI models, ComfyUI, Forge Neo, Kobold
 - Backend profiles, provider connections, launch/configuration tools, model guidance, extensions, custom nodes, runtime logs, and system settings.
 
 ---
+
+## 🚀 Current Highlights
+
+Neo Studio V2 has grown well beyond a simple launcher around third-party backends. The current repository and user-facing guides now cover a much broader local-creative workflow stack:
+
+- **Image workspace maturity:** route-aware generation, editing, Inpaint, Outpaint, replay, Output Inspector, local finishing tools, portable metadata, and extension-aware workflow patching.
+- **Qwen Image 2.1 support:** dedicated `qwen_image_21` family with Safetensors/components and transformer-GGUF routes, Txt2Img, unified Img2Img/Edit, Inpaint, experimental Outpaint, model-only LoRA, High-Res Lab, explicit **Auto / RGB / RGBA** output-channel control, and capability-aware **Qwen Image 2.1 Cache** controls.
+- **Krea 2 family growth:** separate Krea 2 RAW and Krea 2 Turbo families, Krea-native editing paths, Krea Identity Edit, and Krea-specific control workflows such as Depth, Composition / Silhouette, OpenPose / Ostris, and Canny / NK2E where the required routes and nodes are installed.
+- **Voice workspace is fully real now:** Neo Voice Engine runs isolated Voice worker environments outside the main repo, with validated local Chatterbox and Qwen3-TTS CustomVoice management, reusable Voice assets, Dialogue, Batch, Results, and Finish tools.
+- **Admin now owns more of the day-to-day setup:** backend profiles, model install status, extension management, Node Manager, runtime diagnostics, and provider capability checks are first-class product surfaces.
+- **Public-facing workflow transparency:** route status, capability gating, Output Inspector, replay records, portable PNG metadata, and preserved runtime lineage make Neo much easier to troubleshoot and reuse.
 
 ## 🖼️ Workspace Screenshots
 
@@ -223,6 +235,7 @@ The current Image family registry includes the following user-facing families. E
 | **Krea 2 RAW** | Native Krea 2 architecture, component/safetensors and experimental GGUF routes. Generate plus source-driven edit workflows. |
 | **Krea 2 Turbo** | Distilled Krea 2 few-step family with its own sampling defaults and the same family-specific edit architecture. |
 | **Qwen Rapid AIO** | Bundled/AIO and GGUF routes for Generate, Edit/Img2Img, Inpaint and Outpaint. |
+| **Qwen Image 2.1** | Dedicated unified-generation/edit family. Safetensors/components support Txt2Img, Img2Img/Edit, Inpaint, experimental Outpaint, model-only LoRA, High-Res Lab, explicit Auto/RGB/RGBA output channels, and capability-aware Qwen Image 2.1 Cache controls. GGUF supports Txt2Img and unified Img2Img/Edit with the same channel/cache controls. |
 | **Qwen Image Edit** | Standard Qwen Image Edit routes for source-driven editing and mask/canvas workflows. |
 | **Qwen Image Edit 2509** | Multi-reference Qwen edit route with up to three references for Img2Img/Edit. |
 | **Qwen Image Edit 2511** | Multi-reference edit route with improved consistency/geometry; up to three references for Img2Img/Edit. |
@@ -241,9 +254,17 @@ Neo currently offers several continuity approaches depending on the model:
 
 - **Krea 2 Identity Edit v1.2** — dedicated identity-edit LoRA + Krea2 appearance/grounding path.
 - **Qwen Image Edit 2509 / 2511** — 1–3 visual reference images for multi-reference edits.
+- **Qwen Image 2.1** — up to **10 references** on supported Safetensors edit routes, with family-specific Inpaint and experimental Outpaint compilers.
 - **IP Adapter / FaceID** — available on compatible routes/backends.
 - **LoRA Stack** — route-aware global LoRAs with open numeric strength entry for models that require unusually strong values.
 - **Scene Director** — structured regional identity/composition control where the selected workflow supports it.
+
+### Additional Image workflow highlights
+
+- **LoRA Library + CivitAI hydration:** Neo's Image LoRA tools can manage local LoRA metadata, CivitAI-backed details/previews, and route-aware loader compatibility where the active family permits LoRAs.
+- **Portable metadata and Output Inspector:** Image outputs can be inspected, replayed, and reloaded even after the file is moved, because Neo stores portable metadata in supported result formats and can read it back later.
+- **High-Res Lab:** now behaves as a route-aware finish/generation extension rather than a generic one-size-fits-all upscale toggle. The Qwen Image 2.1 route, for example, has RGB-safe model upscaler handling and explicit alpha-channel behavior.
+- **Transparency workflows:** LayerDiffuse remains the dedicated transparent-generation/compositing extension for compatible SD routes, while Qwen Image 2.1 now has its own family-specific **Output Channels** policy for Auto / RGB / RGBA output.
 
 ---
 
@@ -289,7 +310,7 @@ Qwen3-TTS CustomVoice is now a physically validated local-only Voice Engine rout
 | Backend | State | Notes |
 |---|---|---|
 | **Neo Voice Engine + Chatterbox** | ✅ Functional / unified lifecycle | Isolated CUDA runtime, Admin/local HF snapshot lifecycle, historical HF-cache reuse, local-only generation, reference cloning, job/result handling. Existing Chatterbox backend physical runtime evidence remains valid; optional Admin re-install is not required for an already-valid local snapshot. |
-| **Qwen3-TTS CustomVoice** | ✅ Physically validated local runtime / dual-source capable | Post-Phase-4.6 generation is confirmed on the Windows/NVIDIA host using the existing-local/no-redownload path. Existing `Neo_Runtime` snapshots remain first priority; verified Admin HF snapshots are the alternate source; Admin HF copies are optional for legacy-ready users; Generate never downloads weights. |
+| **Qwen3-TTS CustomVoice** | ✅ Physically validated local runtime / dual-source capable | Generation is confirmed on the Windows/NVIDIA host using the existing-local/no-redownload path. Existing `Neo_Runtime` snapshots remain first priority; verified Admin HF snapshots are the alternate source; Admin HF copies are optional for legacy-ready users; Generate never downloads weights. |
 | **Chatterbox Legacy Direct** | Diagnostic fallback | Kept for direct backend troubleshooting; not the normal daily route. |
 | **Kokoro Preview** | Preview adapter | Lightweight profile exists but is not the primary validated gateway worker family. |
 | **Fish Speech HQ** | Advanced/preview adapter | Profile and capability layer exist; separate runtime validation/integration is still evolving. |
@@ -332,15 +353,15 @@ Existing complete snapshots under `Neo_Runtime\voice\models\qwen3_tts` remain su
 
 ### Voice Lifecycle Physical Validation Closure
 
-The consolidated Voice lifecycle is now closed for the physically exercised local-runtime path. After the Phase 4.6.1 no-redownload compatibility layer and Phase 4.6.2 polling/VRAM hotfix were applied, generation was confirmed working on the Windows/NVIDIA host. This physically validates that an existing supported local Qwen installation remains usable through the managed Voice route without a forced Hugging Face re-download.
+The consolidated Voice lifecycle is now closed for the physically exercised local-runtime path. After the no-redownload compatibility layer and the polling/VRAM hotfix were applied, generation was confirmed working on the Windows/NVIDIA host. This physically validates that an existing supported local Qwen installation remains usable through the managed Voice route without a forced Hugging Face re-download.
 
-This closure does **not** require downloading a duplicate Admin HF copy merely to prove migration. Repository-snapshot install/repair remains an explicit optional action for machines that need it. Chatterbox's previously validated local backend remains supported under the unified local-only lifecycle; a fresh network-backed Admin install was intentionally not forced as part of this closure. Controlled background-poll focus/context-menu behavior remains covered by the Phase 4.6.2 automated regression unless separately re-exercised on the host.
+This closure does **not** require downloading a duplicate Admin HF copy merely to prove migration. Repository-snapshot install/repair remains an explicit optional action for machines that need it. Chatterbox's previously validated local backend remains supported under the unified local-only lifecycle; a fresh network-backed Admin install was intentionally not forced as part of this closure. Controlled background-poll focus/context-menu behavior remains covered by the current automated regression unless separately re-exercised on the host.
 
 ### Background Polling UI Stability + GPU Busy Diagnostics
 
 Long-running work in another Neo workspace no longer forces a full repaint of the workspace you are actively editing. Video result polling, Admin model-install monitoring, Image terminal polling, Voice job polling, and Prompt/Caption batch polling now render only their own active surface; active text/select controls defer same-surface poll repaints until focus leaves. This prevents model dropdowns from closing and prevents Script/context-menu focus from being stolen while another job is running.
 
-The Qwen 1.7B 12 GB-class admission policy from Phase 4.4 is unchanged. A `gpu_oom` / no-safe-admission result can still be correct when another workload such as Video/Comfy is occupying VRAM. The scheduler now reports the required cold-load headroom, observed free VRAM, safely available VRAM after Neo's reserve, and an explicit `insufficient_free_vram` reason so a busy GPU is not mistaken for a regression in the 1.7B calibration.
+The Qwen 1.7B 12 GB-class admission policy is unchanged. A `gpu_oom` / no-safe-admission result can still be correct when another workload such as Video/Comfy is occupying VRAM. The scheduler now reports the required cold-load headroom, observed free VRAM, safely available VRAM after Neo's reserve, and an explicit `insufficient_free_vram` reason so a busy GPU is not mistaken for a regression in the 1.7B calibration.
 
 ### Legacy Voice Model Compatibility / No-Redownload Migration
 
@@ -717,45 +738,53 @@ ComfyUI/custom_nodes/
 
 ### Recommended ComfyUI custom nodes
 
-| Node | Purpose | Link |
-|---|---|---|
-| `comfyui-art-venture` | Image, JSON, model, text, URL-loading, and inpaint helper utilities used by compatible Comfy workflows | https://github.com/sipherxyz/comfyui-art-venture.git |
-| `comfyui-essentials` | Common utility nodes used by many workflows | https://github.com/comfyorg/comfyui-essentials.git |
-| `ComfyUI-GGUF` (city96) | Standard GGUF model support for image/video model routes | https://github.com/city96/ComfyUI-GGUF.git |
-| `ComfyUI-GGUF` (Krea2-compatible fork) | Alternate GGUF loader used when a Krea 2 GGUF route requires the compatible fork. Install only one ComfyUI-GGUF implementation at a time | https://github.com/molbal/ComfyUI-GGUF.git |
-| `gguf` | Additional GGUF utility support | https://github.com/calcuis/gguf.git |
-| `ComfyUI-Impact-Pack` | Detection, detailing, masks, segmentation, and utility workflows | https://github.com/ltdrdata/ComfyUI-Impact-Pack.git |
-| `ComfyUI-Impact-Subpack` | Support package for Impact Pack | https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git |
-| `ComfyUI-Inspire-Pack` | Workflow helpers and utility nodes | https://github.com/ltdrdata/ComfyUI-Inspire-Pack.git |
-| `ComfyUI-KJNodes` | Advanced utility, video, and image helper nodes | https://github.com/kijai/ComfyUI-KJNodes.git |
-| `comfyui_controlnet_aux` | Control-map preprocessors for depth, pose, canny, lineart, normal maps, edges, and related ControlNet workflows | https://github.com/Fannovel16/comfyui_controlnet_aux.git |
-| `ComfyUI_IPAdapter_plus` | IPAdapter reference/identity workflows | https://github.com/cubiq/ComfyUI_IPAdapter_plus.git |
-| `ComfyUI_UltimateSDUpscale` | Tiled upscale workflow support | https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git |
-| `sd-dynamic-thresholding` | CFG Fix / Dynamic Thresholding support | https://github.com/mcmonkeyprojects/sd-dynamic-thresholding |
-| `LanPaint` | Universal inpaint/outpaint sampler used by Neo LanPaint routes across supported image families | https://github.com/scraed/LanPaint.git |
-| `ComfyUI-InpaintEasy` | Smart inpaint crop, image/mask resize, and merge helpers used by compatible masked-edit/LanPaint routes | https://github.com/CY-CHENYUE/ComfyUI-InpaintEasy.git |
-| `ComfyUI-Inpaint-CropAndStitch` | Native masked-area crop/stitch engine used by Neo Native Inpaint Crop & Stitch workflows | https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch.git |
-| `comfyui-krea2edit` | Krea 2 Identity Edit model patch + Qwen3-VL grounded instruction nodes | https://github.com/lbouaraba/comfyui-krea2edit.git |
-| `comfyui-krea2-controlnet` | Krea 2 native Control LoRA loader, control-image VAE encode, and model-apply nodes used by the Krea Depth Control route | https://github.com/facok/comfyui-krea2-controlnet.git |
-| `comfyui-krea2-controlnetPlus` | Krea 2 Control Plus nodes used by the Krea Composition / Silhouette route | https://github.com/tori29umai0123/comfyui-krea2-controlnetPlus.git |
-| `ComfyUI-Krea2-Ostris-Edit` | Krea 2 reference-image edit conditioning and model patch used by the Krea OpenPose / Ostris route | https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit.git |
-| `ComfyUI-NK2E` | NK2E in-context model/reference nodes used by the Krea Canny route | https://github.com/Nynxz/ComfyUI-NK2E.git |
-| `ComfyUI-VAE-Utils` | Extended VAE loading/decoding and latent-upscale utilities, including Wan/Qwen-compatible upscale VAE workflows | https://github.com/spacepxl/ComfyUI-VAE-Utils.git |
-| `ComfyUI-SUPIR` | Optional legacy SUPIR wrapper for restoration/upscale workflows; current ComfyUI also provides SUPIR support in core | https://github.com/kijai/ComfyUI-SUPIR.git |
-| `facerestore_cf` | CodeFormer / FaceRestore nodes used by Image Upscale face restore assist | https://github.com/mav-rik/facerestore_cf.git |
-| `ComfyUI-RMBG` | Background removal, matting, segmentation, masks, object/fashion regions, and image-preparation utilities | https://github.com/1038lab/ComfyUI-RMBG.git |
-| `ComfyUI_BiRefNet_ll` | BiRefNet image background-removal workflows | https://github.com/lldacing/ComfyUI_BiRefNet_ll.git |
-| `ComfyUI-WanVideoWrapper` | WAN video workflow support and video-specific node paths | https://github.com/kijai/ComfyUI-WanVideoWrapper.git |
-| `ComfyUI-TeaCache` | Optional video performance / caching support for compatible WAN/LTX routes | https://github.com/welltop-cn/ComfyUI-TeaCache.git |
-| `ComfyUI-LTXVideo` | LTX video generation nodes and LTX-specific workflow support | https://github.com/Lightricks/ComfyUI-LTXVideo.git |
-| `ComfyUI-Frame-Interpolation` | Finish-lane interpolation / FPS smoothing | https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git |
-| `ComfyUI-VideoHelperSuite` | Video load/combine/save helpers used by many Comfy video workflows | https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git |
-| `ComfyUI-SeedVR2_VideoUpscaler` | Video/Image Upscale workflows | https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git |
-| `RES4LYF` | RES4LYF sampler support | https://github.com/ClownsharkBatwing/RES4LYF |
-| `rgthree-comfy` | Workflow utility nodes | https://github.com/rgthree/rgthree-comfy.git |
-| `ComfyUI-llama-cpp_vlm` | Local GGUF LLM/VLM execution used by the optional ComfyUI Prompt & Captioning backend | https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm.git |
-| `neo_prompt_captioning` | Neo-owned Comfy bridge for stable Prompt/Caption image input, text output, and Generic MTMD VLM fallback | Included in this repo; copy `neo_prompt_captioning` into ComfyUI `custom_nodes` |
-| `neo_scene_director` | Neo Studio Scene Director node support | Included in this repo; copy `neo_scene_director` into ComfyUI `custom_nodes` if needed |
+| Node | Neo extension / task usage | Purpose | Link |
+|---|---|---|---|
+| `comfyui-art-venture` | Image utility workflows, loader helpers, compatible masked-edit routes | Image, JSON, model, text, URL-loading, and inpaint helper utilities used by compatible Comfy workflows | https://github.com/sipherxyz/comfyui-art-venture.git |
+| `comfyui-essentials` | Shared Image/Video workflow plumbing | Common utility nodes used by many workflows | https://github.com/comfyorg/comfyui-essentials.git |
+| `ComfyUI-GGUF` (city96) | Image GGUF routes, Video GGUF-capable routes, Prompt/Caption GGUF support where relevant | Standard GGUF model support for image/video model routes | https://github.com/city96/ComfyUI-GGUF.git |
+| `ComfyUI-GGUF` (Krea2-compatible fork) | Krea 2 GGUF route compatibility only | Alternate GGUF loader used when a Krea 2 GGUF route requires the compatible fork. Install only one ComfyUI-GGUF implementation at a time | https://github.com/molbal/ComfyUI-GGUF.git |
+| `gguf` | Supplemental GGUF route support | Additional GGUF utility support | https://github.com/calcuis/gguf.git |
+| `ComfyUI-Impact-Pack` | ADetailer, detail/segmentation workflows, advanced mask helpers | Detection, detailing, masks, segmentation, and utility workflows | https://github.com/ltdrdata/ComfyUI-Impact-Pack.git |
+| `ComfyUI-Impact-Subpack` | ADetailer / Impact support | Support package for Impact Pack | https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git |
+| `ComfyUI-Inspire-Pack` | Shared utility workflows | Workflow helpers and utility nodes | https://github.com/ltdrdata/ComfyUI-Inspire-Pack.git |
+| `ComfyUI-KJNodes` | Video helpers, advanced Image utility workflows, some optional finish chains | Advanced utility, video, and image helper nodes | https://github.com/kijai/ComfyUI-KJNodes.git |
+| `comfyui_controlnet_aux` | ControlNet preprocessors, Krea control-map generation, pose/depth/canny preparation | Control-map preprocessors for depth, pose, canny, lineart, normal maps, edges, and related ControlNet workflows | https://github.com/Fannovel16/comfyui_controlnet_aux.git |
+| `ComfyUI_IPAdapter_plus` | Image `IP Adapter / FaceID` built-in extension | IPAdapter reference/identity workflows | https://github.com/cubiq/ComfyUI_IPAdapter_plus.git |
+| `ComfyUI_UltimateSDUpscale` | High-Res Lab tiled upscale routes | Tiled upscale workflow support | https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git |
+| `sd-dynamic-thresholding` | Image `CFG Fix / Dynamic Thresholding` built-in extension | CFG Fix / Dynamic Thresholding support | https://github.com/mcmonkeyprojects/sd-dynamic-thresholding |
+| `LanPaint` | Image `LanPaint` masked editing engine | Universal inpaint/outpaint sampler used by Neo LanPaint routes across supported image families | https://github.com/scraed/LanPaint.git |
+| `ComfyUI-InpaintEasy` | LanPaint and compatible masked-edit helpers | Smart inpaint crop, image/mask resize, and merge helpers used by compatible masked-edit/LanPaint routes | https://github.com/CY-CHENYUE/ComfyUI-InpaintEasy.git |
+| `ComfyUI-Inpaint-CropAndStitch` | Native Inpaint Crop & Stitch engine | Native masked-area crop/stitch engine used by Neo Native Inpaint Crop & Stitch workflows | https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch.git |
+| `comfyui-krea2edit` | Krea 2 Identity Edit | Krea 2 Identity Edit model patch + Qwen3-VL grounded instruction nodes | https://github.com/lbouaraba/comfyui-krea2edit.git |
+| `comfyui-krea2-controlnet` | Krea 2 Control — Depth | Krea 2 native Control LoRA loader, control-image VAE encode, and model-apply nodes used by the Krea Depth Control route | https://github.com/facok/comfyui-krea2-controlnet.git |
+| `comfyui-krea2-controlnetPlus` | Krea 2 Control — Composition / Silhouette | Krea 2 Control Plus nodes used by the Krea Composition / Silhouette route | https://github.com/tori29umai0123/comfyui-krea2-controlnetPlus.git |
+| `ComfyUI-Krea2-Ostris-Edit` | Krea 2 Control — OpenPose / Ostris, Krea edit conditioning | Krea 2 reference-image edit conditioning and model patch used by the Krea OpenPose / Ostris route | https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit.git |
+| `ComfyUI-NK2E` | Krea 2 Control — Canny / NK2E | NK2E in-context model/reference nodes used by the Krea Canny route | https://github.com/Nynxz/ComfyUI-NK2E.git |
+| `ComfyUI-VAE-Utils` | Image Upscale / High-Res helper paths, Wan/Qwen-compatible VAE workflows | Extended VAE loading/decoding and latent-upscale utilities, including Wan/Qwen-compatible upscale VAE workflows | https://github.com/spacepxl/ComfyUI-VAE-Utils.git |
+| `ComfyUI-SUPIR` | Optional restoration / legacy upscale flows | Optional legacy SUPIR wrapper for restoration/upscale workflows; current ComfyUI also provides SUPIR support in core | https://github.com/kijai/ComfyUI-SUPIR.git |
+| `facerestore_cf` | Image Upscale face-restore assist | CodeFormer / FaceRestore nodes used by Image Upscale face restore assist | https://github.com/mav-rik/facerestore_cf.git |
+| `ComfyUI-RMBG` | Background removal, cutouts, fashion/object masks | Background removal, matting, segmentation, masks, object/fashion regions, and image-preparation utilities | https://github.com/1038lab/ComfyUI-RMBG.git |
+| `ComfyUI_BiRefNet_ll` | Background removal / matting | BiRefNet image background-removal workflows | https://github.com/lldacing/ComfyUI_BiRefNet_ll.git |
+| `ComfyUI-WanVideoWrapper` | Video WAN generation routes | WAN video workflow support and video-specific node paths | https://github.com/kijai/ComfyUI-WanVideoWrapper.git |
+| `ComfyUI-TeaCache` | Video WAN/LTX performance optimization | Optional video performance / caching support for compatible WAN/LTX routes | https://github.com/welltop-cn/ComfyUI-TeaCache.git |
+| `ComfyUI-LTXVideo` | Video LTX generation routes | LTX video generation nodes and LTX-specific workflow support | https://github.com/Lightricks/ComfyUI-LTXVideo.git |
+| `ComfyUI-Frame-Interpolation` | Video Finish interpolation / FPS smoothing | Finish-lane interpolation / FPS smoothing | https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git |
+| `ComfyUI-VideoHelperSuite` | Video load/combine/save helpers | Video load/combine/save helpers used by many Comfy video workflows | https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git |
+| `ComfyUI-SeedVR2_VideoUpscaler` | Video Upscale and some Image upscale flows | Video/Image Upscale workflows | https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git |
+| `RES4LYF` | RES4LYF sampler routes | RES4LYF sampler support | https://github.com/ClownsharkBatwing/RES4LYF |
+| `rgthree-comfy` | Shared workflow utility nodes | Workflow utility nodes | https://github.com/rgthree/rgthree-comfy.git |
+| `ComfyUI-llama-cpp_vlm` | Prompt & Captioning optional Comfy backend | Local GGUF LLM/VLM execution used by the optional ComfyUI Prompt & Captioning backend | https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm.git |
+| `neo_prompt_captioning` | Neo Prompt & Captioning bridge | Neo-owned Comfy bridge for stable Prompt/Caption image input, text output, and Generic MTMD VLM fallback | Included in this repo; copy `neo_prompt_captioning` into ComfyUI `custom_nodes` |
+| `neo_scene_director` | Image `Scene Director` support | Neo Studio Scene Director node support | Included in this repo; copy `neo_scene_director` into ComfyUI `custom_nodes` if needed |
+
+### Built-in ComfyUI core nodes Neo also relies on
+
+Some important Neo features use **current ComfyUI core nodes**, not separate third-party custom-node repositories. Examples include:
+
+- **Qwen Image 2.1 core stack:** `TextEncodeQwenImage21`, `QwenImage21Cache`, `SplitImageWithAlpha`, and `JoinImageWithAlpha` for Qwen 2.1 generation/editing, cache control, and RGBA handling.
+- **Core masked-edit plumbing:** `GrowMask`, `SetLatentNoiseMask`, `DifferentialDiffusion`, `ImagePadForOutpaint`, and `ImageCompositeMasked` for Neo's native and family-specific masked workflows.
+- **Core output / preview / replay flow:** `SaveImage`, `PreviewImage`, and standard loader/encode/decode nodes used by Neo's Output Inspector and replay-aware result ownership.
 
 ### Custom-node setup notes
 

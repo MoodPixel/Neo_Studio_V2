@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import shlex
 from typing import Any, Callable
 
 from fastapi import APIRouter, HTTPException
@@ -10,7 +9,7 @@ from fastapi.responses import FileResponse
 from .civitai_import import fetch_civitai_payload, import_civitai_into_record, normalize_civitai_payload, parse_civitai_url
 from .library_scan import scan_comfy_lora_catalog, scan_lora_folder
 from .library_schema import browser_safe_record, normalize_record, utc_now_iso
-from .library_store import apply_identity_repairs, audit_records, delete_record, find_record, load_records, merge_catalog_records, save_records, upsert_record
+from .library_store import delete_record, find_record, load_records, merge_catalog_records, save_records, upsert_record
 from .metadata_reader import infer_defaults_from_metadata, read_safetensors_metadata
 from .comfy_metadata import fetch_comfy_lora_metadata
 from .local_lora_paths import lora_path_resolution_payload, resolve_lora_file_path
@@ -75,94 +74,74 @@ def route_specs() -> list[dict[str, Any]]:
         {"method": "GET", "path": "/api/extensions/lora_stack/library/insert-block"},
         {"method": "POST", "path": "/api/extensions/lora_stack/library/scan"},
         {"method": "POST", "path": "/api/extensions/lora_stack/library/save"},
-        {"method": "POST", "path": "/api/extensions/lora_stack/library/identity-audit"},
-        {"method": "POST", "path": "/api/extensions/lora_stack/library/identity-repair"},
         {"method": "POST", "path": "/api/extensions/lora_stack/library/civitai-import"},
         {"method": "POST", "path": "/api/extensions/lora_stack/library/set-primary-preview"},
         {"method": "POST", "path": "/api/extensions/lora_stack/library/delete"},
     ]
 
 
-def normalize_library_folder(value: Any) -> str:
-    text = str(value or "").replace("\\", "/").strip().strip("/")
-    return "/".join(part for part in text.split("/") if part and part not in {".", ".."})
-
-
-def record_library_folder(record: dict[str, Any]) -> str:
-    path = str(record.get("catalog_name") or record.get("name") or "").replace("\\", "/").strip("/")
-    return normalize_library_folder(path.rsplit("/", 1)[0] if "/" in path else "")
-
-
-def _search_terms(query: str) -> list[str]:
-    text = str(query or "").strip().casefold()
-    if not text:
-        return []
-    try:
-        return [item for item in shlex.split(text) if item]
-    except ValueError:
-        return [item for item in text.split() if item]
-
-
-def _record_search_text(record: dict[str, Any]) -> str:
-    values: list[Any] = [
-        record.get("name"), record.get("catalog_name"), record.get("file"),
-        record.get("category"), record.get("base_model"), record.get("style_category"),
-        record.get("notes"), record.get("caution_notes"), record.get("example_prompt"),
-    ]
-    for key in ("triggers", "keywords", "negative_keywords"):
-        values.extend(record.get(key) or [])
-    for option in record.get("prompt_options") or []:
-        if isinstance(option, dict):
-            values.extend((option.get("name"), option.get("prompt")))
-    remote = record.get("remote_source") or {}
-    if isinstance(remote, dict):
-        values.extend((remote.get("model_name"), remote.get("version_name")))
-    return "\n".join(str(value or "") for value in values).casefold()
-
-
-def filter_library_records(records: list[dict[str, Any]], query: str = "", folder: str = "") -> list[dict[str, Any]]:
-    terms = _search_terms(query)
-    wanted_folder = normalize_library_folder(folder).casefold()
-    filtered: list[dict[str, Any]] = []
+def _filter_records(
+    records: list[dict[str, Any]],
+    query: str = "",
+    *,
+    folder_category: str = "",
+    folder_subcategory: str = "",
+) -> list[dict[str, Any]]:
+    q = str(query or "").strip().casefold()
+    wanted_main = str(folder_category or "").strip().casefold()
+    wanted_sub = str(folder_subcategory or "").strip().casefold()
+    if wanted_main in {"", "all", "any", "*"}:
+        wanted_main = ""
+    if wanted_sub in {"", "all", "any", "*"}:
+        wanted_sub = ""
+    out: list[dict[str, Any]] = []
     for item in records:
-        item_folder = record_library_folder(item).casefold()
-        if wanted_folder and item_folder != wanted_folder and not item_folder.startswith(f"{wanted_folder}/"):
+        if wanted_main and str(item.get("folder_category") or "Root").strip().casefold() != wanted_main:
             continue
-        haystack = _record_search_text(item)
-        if terms and not all(term in haystack for term in terms):
+        if wanted_sub and str(item.get("folder_subcategory") or "").strip().casefold() != wanted_sub:
             continue
-        filtered.append(item)
-    return filtered
+        if q and not (
+            any(q in str(item.get(key) or "").casefold() for key in ("name", "catalog_name", "file", "category", "folder_category", "folder_subcategory", "base_model", "notes", "user_notes"))
+            or any(q in str(token or "").casefold() for token in (item.get("triggers") or []) + (item.get("keywords") or []))
+        ):
+            continue
+        out.append(item)
+    return out
 
 
-def library_folder_options(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    folder_set: set[str] = set()
-    for item in records:
-        parts = record_library_folder(item).split("/") if record_library_folder(item) else []
-        folder_set.update("/".join(parts[:index]) for index in range(1, len(parts) + 1))
-    folders = sorted(folder_set, key=lambda item: item.casefold())
-    options = [{"path": "", "label": "All folders", "count": len(records)}]
-    for folder in folders:
-        count = sum(1 for item in records if record_library_folder(item).casefold() == folder.casefold() or record_library_folder(item).casefold().startswith(f"{folder.casefold()}/"))
-        options.append({"path": folder, "label": folder, "count": count})
-    return options
+def _folder_facets(records: list[dict[str, Any]]) -> tuple[list[str], dict[str, list[str]]]:
+    categories = sorted({str(item.get("folder_category") or "Root").strip() or "Root" for item in records}, key=str.casefold)
+    subcategories: dict[str, list[str]] = {}
+    for category in categories:
+        values = sorted({
+            str(item.get("folder_subcategory") or "").strip()
+            for item in records
+            if (str(item.get("folder_category") or "Root").strip() or "Root").casefold() == category.casefold()
+            and str(item.get("folder_subcategory") or "").strip()
+        }, key=str.casefold)
+        subcategories[category] = values
+    return categories, subcategories
 
 
-def browser_payload(root: str | Path, *, catalog: dict[str, Any] | None = None, query: str = "", folder: str = "") -> dict[str, Any]:
+def browser_payload(root: str | Path, *, catalog: dict[str, Any] | None = None, query: str = "", folder_category: str = "", folder_subcategory: str = "") -> dict[str, Any]:
     catalog = normalize_catalog_snapshot(catalog or {})
     catalog_loras = list(catalog.get("names") or [])
     saved = load_records(root)
-    records = merge_catalog_records(saved, catalog_loras, **_catalog_kwargs(catalog))
-    filtered = filter_library_records(records, query, folder)
+    # Build the provider/catalog bridge once. The previous recovery path first
+    # merged the catalog and then bridged the already-merged records again,
+    # duplicating normalization/matching work for every LoRA browser request.
     bridge = catalog_bridge_payload(
-        records,
+        saved,
         catalog_loras,
         profile_id=str(catalog.get("profile_id") or ""),
         **_catalog_kwargs(catalog),
     )
+    records = list(bridge.get("records") or [])
+    filtered = _filter_records(records, query, folder_category=folder_category, folder_subcategory=folder_subcategory)
+    folder_categories, folder_subcategories = _folder_facets(records)
     return {
         "ok": True,
-        "schema_version": "neo.lora_stack.library.browser.v3",
+        "schema_version": "neo.lora_stack.library.browser.v2",
         "source": "saved_plus_selected_provider_catalog",
         "profile_id": str(catalog.get("profile_id") or ""),
         "provider_id": str(catalog.get("provider_id") or ""),
@@ -175,10 +154,11 @@ def browser_payload(root: str | Path, *, catalog: dict[str, Any] | None = None, 
         "available_count": bridge["available_count"],
         "count": len(filtered),
         "total_count": len(records),
-        "query": str(query or ""),
-        "folder": normalize_library_folder(folder),
-        "folder_options": library_folder_options(records),
-        "records": [{**browser_safe_record(item), "folder_path": record_library_folder(item)} for item in filtered],
+        "folder_categories": folder_categories,
+        "folder_subcategories": folder_subcategories,
+        "selected_folder_category": folder_category or "all",
+        "selected_folder_subcategory": folder_subcategory or "all",
+        "records": [browser_safe_record(item) for item in filtered],
         "route_specs": route_specs(),
     }
 
@@ -193,7 +173,7 @@ def catalog_payload(root: str | Path, *, catalog: dict[str, Any] | None = None, 
         profile_id=str(catalog.get("profile_id") or ""),
         **_catalog_kwargs(catalog),
     )
-    records = filter_library_records(bridge["records"], query)
+    records = _filter_records(bridge["records"], query)
     bridge = {**bridge, "records": [browser_safe_record(item) for item in records], "count": len(records)}
     return {"ok": True, **bridge}
 
@@ -290,7 +270,7 @@ def save_record_payload(root: str | Path, payload: dict[str, Any], *, catalog: d
     record = payload.get("record") if isinstance(payload.get("record"), dict) else payload
     normalized = normalize_record({**record, "updated": utc_now_iso()})
     field_sources = normalized.setdefault("field_sources", {})
-    for field in ("triggers", "keywords", "negative_keywords", "example_prompt", "notes", "caution_notes", "civitai_url"):
+    for field in ("triggers", "keywords", "negative_keywords", "example_prompt", "user_notes", "civitai_url"):
         if field in record:
             field_sources[field] = "manual"
     if isinstance(record.get("remote_source"), dict) and record.get("remote_source", {}).get("url"):
@@ -305,14 +285,19 @@ def save_record_payload(root: str | Path, payload: dict[str, Any], *, catalog: d
         )
         if reconciled:
             saved = upsert_record(root, reconciled[0])
+    saved_browser = browser_safe_record(saved)
     return {
-        "ok": True, "record": browser_safe_record(saved), "message": "LoRA metadata saved.",
+        "ok": True,
+        "record": saved_browser,
         "save_confirmation": {
-            "verified": True, "record_id": saved.get("id"),
-            "canonical_identity": saved.get("canonical_identity"),
-            "saved_fields": sorted(str(key) for key in record.keys()),
-            "persisted_at": saved.get("updated"),
+            "schema": "neo.lora_stack.save_confirmation.v1",
+            "verified": True,
+            "record_id": str(saved.get("id") or ""),
+            "canonical_identity": str(saved.get("canonical_identity") or ""),
+            "provider_catalog_name": str(saved.get("provider_catalog_name") or saved.get("catalog_name") or ""),
+            "storage": "neo_data/extensions/lora_stack/library_index.json",
         },
+        "message": "LoRA metadata saved and verified on disk.",
     }
 
 
@@ -367,7 +352,9 @@ def civitai_import_payload(
         if errors:
             fetched["message"] = f"{fetched.get('error', 'Could not fetch CivitAI metadata.')} Details: {' | '.join(str(item) for item in errors[:2])}"
         return fetched
-    incoming = normalize_civitai_payload(fetched.get("data") or {}, source_url=url)
+    incoming = normalize_civitai_payload(fetched.get("data") or {})
+    incoming.setdefault("remote_source", {})["url"] = url
+    incoming["civitai_url"] = url
     if not _has_meaningful_civitai_data(incoming):
         return {
             "ok": False,
@@ -423,7 +410,23 @@ def civitai_import_payload(
         message = "CivitAI returned metadata, but fill/merge rules did not change this saved LoRA record."
     if preview_urls and not cache_result.get("paths"):
         message += " Preview images were found, but local preview caching failed; remote preview URLs were saved as fallback."
-    return {"ok": True, "record": browser_safe_record(saved), "fetched_url": fetched.get("url"), "preview_cache": cache_result, "mode": mode, "import_summary": summary, "message": message}
+    return {
+        "ok": True,
+        "record": browser_safe_record(saved),
+        "save_confirmation": {
+            "schema": "neo.lora_stack.save_confirmation.v1",
+            "verified": True,
+            "record_id": str(saved.get("id") or ""),
+            "canonical_identity": str(saved.get("canonical_identity") or ""),
+            "provider_catalog_name": str(saved.get("provider_catalog_name") or saved.get("catalog_name") or ""),
+            "storage": "neo_data/extensions/lora_stack/library_index.json",
+        },
+        "fetched_url": fetched.get("url"),
+        "preview_cache": cache_result,
+        "mode": mode,
+        "import_summary": summary,
+        "message": message,
+    }
 
 
 def set_primary_preview_payload(root: str | Path, payload: dict[str, Any], *, catalog_loras: list[str] | None = None) -> dict[str, Any]:
@@ -520,8 +523,19 @@ def create_lora_stack_library_router(
         return result
 
     @router.get("/browser")
-    def lora_stack_library_browser(profile_id: str | None = None, q: str | None = None, folder: str | None = None) -> dict[str, Any]:
-        return browser_payload(root, catalog=_catalog(profile_id), query=q or "", folder=folder or "")
+    def lora_stack_library_browser(
+        profile_id: str | None = None,
+        q: str | None = None,
+        folder_category: str | None = None,
+        folder_subcategory: str | None = None,
+    ) -> dict[str, Any]:
+        return browser_payload(
+            root,
+            catalog=_catalog(profile_id),
+            query=q or "",
+            folder_category=folder_category or "",
+            folder_subcategory=folder_subcategory or "",
+        )
 
     @router.get("/record")
     def lora_stack_library_record(record_id: str, profile_id: str | None = None) -> dict[str, Any]:
@@ -555,23 +569,6 @@ def create_lora_stack_library_router(
         result = save_record_payload(root, payload, catalog=catalog)
         if not result.get("ok"):
             raise HTTPException(status_code=400, detail=result.get("error", "Could not save LoRA metadata."))
-        return result
-
-    @router.post("/identity-audit")
-    def lora_stack_library_identity_audit(payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        payload = payload or {}
-        catalog = _catalog(payload.get("profile_id"))
-        return audit_records(root, provider_id=str(catalog.get("provider_id") or ""), catalog_loras=list(catalog.get("names") or []))
-
-    @router.post("/identity-repair")
-    def lora_stack_library_identity_repair(payload: dict[str, Any]) -> dict[str, Any]:
-        catalog = _catalog(payload.get("profile_id"))
-        result = apply_identity_repairs(
-            root, provider_id=str(catalog.get("provider_id") or ""),
-            catalog_loras=list(catalog.get("names") or []), preview_id=str(payload.get("preview_id") or ""),
-        )
-        if not result.get("ok"):
-            raise HTTPException(status_code=409, detail=result.get("error", "Identity repair preview is stale."))
         return result
 
     @router.post("/civitai-import")
