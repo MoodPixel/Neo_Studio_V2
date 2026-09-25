@@ -4,6 +4,7 @@
 # adapter is idempotent and keeps the route compiler as graph authority while
 # adding the universal compiler-owned LoRA patch-profile/runtime bridge.
 from neo_app.video.minimax_h3_lora_integration import install_minimax_h3_lora_integration
+from neo_app.video.minimax_h3_vdn_integration import install_minimax_h3_vdn_integration
 from neo_app.video.ltx_lora_integration import install_ltx_lora_integration
 from neo_app.video.ltx_complete_route_lora_integration import install_ltx_complete_route_lora_integration
 from neo_app.video.wan_lora_integration import install_wan_lora_integration
@@ -12,6 +13,7 @@ from neo_app.video.wan_lora_payload_context import install_wan_lora_payload_cont
 from neo_app.video.video_lora_legacy_compat import install_video_lora_legacy_compat_hardening
 
 install_minimax_h3_lora_integration()
+install_minimax_h3_vdn_integration()
 install_ltx_lora_integration()
 install_ltx_complete_route_lora_integration()
 install_wan_lora_integration()
