@@ -345,11 +345,50 @@ class NeoPromptCaptionTextOutput:
         return {"ui": {"text": [value]}, "result": ()}
 
 
+class NeoQwenImage21PromptEnhancerOutput:
+    """Stable structured terminal for Qwen Image 2.1 prompt-enhancer results."""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "positive_prompt": ("STRING", {"forceInput": True, "multiline": True}),
+                "negative_prompt": ("STRING", {"forceInput": True, "multiline": True}),
+                "wh_ratio": ("STRING", {"forceInput": True}),
+                "ratio_follow": ("STRING", {"forceInput": True}),
+                "parse_ok": ("BOOLEAN", {"forceInput": True}),
+            }
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "output"
+    OUTPUT_NODE = True
+    CATEGORY = "Neo Studio/Prompt & Captioning"
+
+    def output(self, positive_prompt: Any, negative_prompt: Any, wh_ratio: Any, ratio_follow: Any, parse_ok: Any):
+        positive = "" if positive_prompt is None else str(positive_prompt)
+        negative = "" if negative_prompt is None else str(negative_prompt)
+        ratio = "" if wh_ratio is None else str(wh_ratio)
+        follow = "" if ratio_follow is None else str(ratio_follow)
+        parsed = bool(parse_ok)
+        return {
+            "ui": {
+                "positive_prompt": [positive],
+                "negative_prompt": [negative],
+                "wh_ratio": [ratio],
+                "ratio_follow": [follow],
+                "parse_ok": [parsed],
+            },
+            "result": (),
+        }
+
+
 NODE_CLASS_MAPPINGS = {
     "NeoPromptCaptionImageInput": NeoPromptCaptionImageInput,
     "NeoGenericMTMDModelLoader": NeoGenericMTMDModelLoader,
     "NeoGenericMTMDInstruct": NeoGenericMTMDInstruct,
     "NeoPromptCaptionTextOutput": NeoPromptCaptionTextOutput,
+    "NeoQwenImage21PromptEnhancerOutput": NeoQwenImage21PromptEnhancerOutput,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -357,4 +396,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "NeoGenericMTMDModelLoader": "Neo Generic MTMD Model Loader",
     "NeoGenericMTMDInstruct": "Neo Generic MTMD Instruct",
     "NeoPromptCaptionTextOutput": "Neo Prompt/Caption Text Output",
+    "NeoQwenImage21PromptEnhancerOutput": "Neo Qwen Image 2.1 Prompt Enhancer Output",
 }

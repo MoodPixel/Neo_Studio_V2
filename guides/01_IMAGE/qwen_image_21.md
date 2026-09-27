@@ -49,6 +49,12 @@ implementation state: Q21-6A Experimental family with explicit output-channel co
 
 Neo may expose the implemented Q21 routes when live Comfy readiness passes. Keep the family labeled Experimental until Q21-7 physical qualification. Q21-6A Txt2Img RGBA has now passed a real saved-PNG alpha test; edit/reference alpha remains part of Q21-7. Q21-6B cache controls are implemented but performance/memory behavior still requires physical qualification.
 
+## Qwen Image 2.1 Prompt Enhancer
+
+The Image prompt panel can hand the current Qwen Image 2.1 prompt to Neo's shared **Qwen Image 2.1 Prompt Enhancer**. Txt2Img uses PE-T2I; Img2Img/Edit/Inpaint/Outpaint use the image-aware PE-I2I route with the Image workspace's ordered Image 1-10 references. The enhancer remains owned by **Prompt & Captioning**; Image only provides a review-first shortcut. The shortcut prefers the active Image Comfy runtime when it is QPE-ready, but it can fall back to another connected compatible Comfy runtime such as the existing Prompt & Captioning **ComfyUI LLM/VLM** profile; users do not need to duplicate the same Comfy server configuration.
+
+Neo does not silently replace the current prompt or canvas. **Use Enhanced Prompt** changes only the positive prompt. **Use Prompt + ...** first records the QPE ratio/canvas choice, then applies it where the Image workflow has compatible canvas ownership. Inpaint and Outpaint keep their mask/padding canvas authority and therefore do not apply PE canvas suggestions from this shortcut. See `guides/04_PROMPT_CAPTIONING/qwen_image_21_prompt_enhancer.md`.
+
 ## Why it is a separate family
 
 Qwen Image 2.1 is a unified generation/edit model rather than another alias of Neo's older Qwen Image Edit families. Upstream currently documents:

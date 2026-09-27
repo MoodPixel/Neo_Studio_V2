@@ -122,3 +122,7 @@ Historical Admin indexing routes remain available and bridge to the same authori
 ## Phase boundary
 
 Phase 10 does not redesign the full Assistant Memory/Scope UI, does not consolidate Operator execution, and does not introduce a durable external worker daemon. Those belong to later phases.
+
+## NKB-12 migration job
+
+The Unified Memory job service now also owns `nkb12_migration`. This job performs the non-destructive Unified Brain migration/reindex workflow with the same persistent progress, cancellation, retry and interruption behavior as other Memory Engine jobs. Use the NKB-12 dry-run planner before queuing a full migration.

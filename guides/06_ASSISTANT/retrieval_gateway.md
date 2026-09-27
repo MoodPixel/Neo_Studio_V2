@@ -19,13 +19,13 @@ tags:
   - provenance
   - control_center
 priority: 100
-version: 2
-updated: 2026-08-09
+version: 9
+updated: 2026-09-27
 ---
 
 # Assistant Single Retrieval Gateway
 
-Phase 5 gives normal Neo Assistant turns one retrieval boundary: the **Retrieval Gateway**.
+Phase 5 established one Assistant retrieval boundary: the **Retrieval Gateway**. NKB-8 keeps that boundary and places the Unified Retrieval Planner inside it.
 
 The gateway does not merge every storage database into one database. It places the existing retrieval authorities behind one query/result contract so Assistant does not independently search them and concatenate unrelated result sets.
 
@@ -65,12 +65,12 @@ rank + deduplicate + provenance
         ↓
 M12 safety check for Unified Memory rows
         ↓
-Context Pack reuses the exact same gateway result
+NKB-9 Context Packet consumes the exact same gateway result
         ↓
-Prompt Compiler includes the gateway context once
+Prompt Compiler includes one bounded packet
 ```
 
-Context Pack still exposes compatibility projection sections such as `built_in_guides`, `memory_engine`, and `source_grounding` for Inspector/older routes, but those are **derived from the same gateway result**. They do not perform additional retrievals and the Prompt Compiler suppresses the duplicate projections when the canonical gateway section is present.
+Context Pack still exposes compatibility projection sections such as `project_brain`, `project_knowledge`, `built_in_guides`, `memory_engine`, and `source_grounding` for Inspector/older routes. When a NKB-9 packet is present, those compatibility sections are **not provider-visible**; the Prompt Compiler compiles only the finalized packet.
 
 ## Adapter balance
 
@@ -78,7 +78,7 @@ The gateway first removes exact normalized duplicate content across adapters. If
 
 This prevents a high-ranked Guide from crowding a directly matched saved memory out of a small context window, while still allowing globally stronger results to fill the rest of the budget.
 
-This adapter balance remains active in Phase 6. Scope expansion is now handled by the separate **Scope Priority, Not Scope Prison** policy; adapter balancing does not itself decide which scopes are eligible.
+This adapter balance remains active in Phase 6. Scope eligibility is handled by **Scope Classes and Project Sandboxes**: General/Neo built-ins may use bounded query-driven federation, while user-created project scopes are hard sandboxes. Adapter balancing does not itself decide which scopes are eligible.
 
 ## Identity and storage compatibility
 
@@ -134,3 +134,103 @@ See `guides/06_ASSISTANT/scope_priority_retrieval.md`.
 ## Current phase boundary
 
 Phase 6 still does **not** migrate Project Brain/Scope Knowledge into Unified Memory, rewrite existing SQLite IDs, consolidate background memory jobs, or migrate Roleplay's own non-Assistant runtime controller onto the Assistant gateway.
+
+## Project-document grounding note
+
+The Retrieval Gateway can retrieve canonical Project Brain fragments through Unified Memory, but a high retrieval score does not by itself prove that every detail inside a broad fragment answers the user's exact question.
+
+For canon-heavy project questions, treat retrieved source text as evidence to be checked for the requested entity/detail. If the current retrieved context does not establish the answer, the safe behavior is to report that the project context is insufficient rather than invent a detail from nearby text or another Scope.
+
+## NKB-2 codebase retrieval note (2026-09-26)
+
+The `knowledge_index` lane may select `code_audit` for Neo-development queries and can return `neo_codebase` chunks with source citations. Do not interpret that source as a complete repository model: the current code registry has root/extension/file-size limits, Python declarative regions can be under-indexed, current JavaScript uses fallback line chunks, and tests can rank alongside runtime implementation.
+
+For risky implementation questions, retrieved code is a shortlist/evidence locator; the authoritative repository source should be resolved before changing behavior. See `guides/06_ASSISTANT/codebase_knowledge_audit.md`.
+
+
+
+## NKB-3 documentation knowledge note (2026-09-26)
+
+Neo currently has two different documentation retrieval paths: built-in Guides are selected as whole documents and expose a short opening excerpt, while `neo_system_records` are indexed as heading-based Knowledge chunks. These paths are source-backed, but they do **not** yet implement a universal current/historical/superseded authority model.
+
+For normal usage help, current built-in Guides remain the preferred explanation surface. For implementation/debug questions, a retrieved Guide or System Record should be treated as supporting evidence and checked against current runtime/source evidence when the claim depends on implementation truth. Historical/superseded records must not be blended into a current answer merely because they retrieve well.
+
+Large Guides can contain useful sections beyond the excerpt currently returned by Guide search, so absence from the opening excerpt is not proof that the Guide lacks the detail. The future Documentation Knowledge Adapter is expected to retrieve section-level evidence with explicit lifecycle/provenance. See `neo_system_records/01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB3_DOCUMENTATION_KNOWLEDGE_AUDIT_20260926.md`.
+
+## NKB-4 authority resolution boundary
+
+The Retrieval Gateway's relevance score is not semantic authority.
+
+Future retrieval should conceptually separate:
+
+```text
+scope / identity
+→ intent + claim type
+→ allowed evidence roles
+→ lexical / dense / structured retrieval
+→ rank fusion / rerank
+→ lifecycle / conflict / supersession / authority adjudication
+→ bounded evidence packet
+```
+
+A highly relevant test, historical System Record, generated output, or inferred memory must not outrank the evidence role appropriate to the question merely because the reranker prefers its text.
+
+Authority is task-sensitive: runtime code for current implementation, current Guides for usage, validation evidence for test-status questions, user-approved/primary project sources for canon, and native output records for generation metadata.
+
+## NKB-5 universal knowledge reference boundary
+
+NKB-5 defines the shared interoperability contract between retrieval and native/source authority.
+
+Future Gateway candidates should resolve through four different identities rather than treating the current chunk ID as the knowledge itself:
+
+```text
+native authority ID
+stable knowledge_id
+immutable revision_id
+disposable projection_id
+```
+
+FTS/vector/Chroma results are projections. For current implementation, project canon, Roleplay canon/state, native generation metadata, current documentation, and similar strong claims, the selected projection should carry a resolvable knowledge/evidence reference so the owning adapter can hydrate the current authoritative source before packet assembly.
+
+The universal primitive set is:
+
+```text
+Project | Source | Object | Fact | Edge | Fragment | Asset | Event | Alias | Revision | Evidence
+```
+
+The Gateway should eventually select adapters/sources by intent, retrieve relevant projections/structured records, then pass hydrated Evidence to NKB-4 authority adjudication. It should not require every adapter to use vector search when a deterministic native lookup can answer the query.
+
+See `guides/06_ASSISTANT/universal_knowledge_contract.md` and `neo_system_records/01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB5_UNIVERSAL_KNOWLEDGE_CONTRACT_20260926.md`.
+
+
+## NKB-8 Unified Retrieval Planner
+
+NKB-8 changes the Gateway from a fixed multi-adapter merge into an intent-aware evidence planner. The normal Assistant path now performs:
+
+```text
+query / claim analysis
+→ lane selection
+→ candidate retrieval
+→ weighted RRF
+→ post-fusion rerank
+→ task-sensitive authority adjudication
+→ strong-source hydration
+→ verified shortlist
+```
+
+The Gateway can now include `project_structured` and `native_authority` lanes in addition to compatibility `unified_memory`, `knowledge_index`, and `guide_index`. Generic words such as `route` or `file` no longer independently trigger Neo code retrieval.
+
+Raw scores from different adapters are not added together; weighted reciprocal-rank fusion combines lane ranks before the configured reranker. Authority is evaluated after relevance. Strong Project facts can hydrate the NKB-7 original file/revision before acceptance.
+
+Gateway diagnostics now expose `planner`, `planner_trace_id`, `fusion`, `known_state`, `fail_closed_recommended`, and `authority_rejections`. NKB-9 still owns final bounded packet assembly, so compatibility Context Pack sections have not yet been removed.
+
+See `guides/06_ASSISTANT/unified_retrieval_planner.md` and `neo_system_records/01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB8_UNIFIED_RETRIEVAL_PLANNER_20260926.md`.
+
+
+## NKB-9 Context Packet boundary
+
+NKB-9 is implemented. The Retrieval Gateway remains the single search/planning boundary, while `neo.assistant.context_packet.v1` is now the single normal provider-visible retrieval/context payload.
+
+The packet preserves NKB-8 authority/citation state, adds compact active scope and live-state context, and folds current-turn document text into the same bounded payload. Compatibility Project Brain/Scope/Guide/Memory projections stay available to Inspector but are not compiled beside the packet.
+
+See `guides/06_ASSISTANT/context_packet_architecture.md`.

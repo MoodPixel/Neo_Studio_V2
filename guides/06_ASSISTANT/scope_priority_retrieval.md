@@ -1,6 +1,6 @@
 ---
 guide_id: assistant.scope_priority_retrieval
-title: Scope Priority, Not Scope Prison
+title: Scope Classes and Project Sandboxes
 surface: assistant
 scope: built_in
 applies_to:
@@ -11,89 +11,108 @@ applies_to:
   - voice_workspace
   - prompt_captioning_workspace
   - roleplay_workspace
+  - project_sandbox
 tags:
   - assistant
   - memory
   - retrieval
   - scope
-  - cross-surface
+  - sandbox
   - project
-  - roleplay
+  - cross-surface
 priority: 100
-version: 1
-updated: 2026-08-09
+version: 3
+updated: 2026-09-27
 ---
 
-# Scope Priority, Not Scope Prison
+# Scope Classes and Project Sandboxes
 
-Phase 6 changes how the Assistant Retrieval Gateway interprets an active Scope.
+Neo Assistant now distinguishes three retrieval classes. This supersedes the older blanket **“Scope Priority, Not Scope Prison”** behavior for user-created project scopes.
 
-A Scope is a **priority signal and sandbox boundary**, not an instruction to become blind to relevant Neo memory elsewhere.
+## General Assistant — federated
 
-## General Scope
-
-General starts with General durable memory, then expands only when the current question provides a reason.
+General is the place for cross-project and cross-surface recall. It begins with General context and may expand only when the current question gives a reason.
 
 Examples:
 
-- “What seed did I use for that Qwen image?” → search General + Image memory.
-- “What did Caption Studio save for Quiet Connection?” → search General + Prompt/Captioning memory.
-- “What do we remember about Heart & Soul 2 Ball?” → search General + the explicitly matched project memory.
-- “What model did I use last time?” → bounded recall discovery across Image, Prompt/Captioning, Video, and Voice because the request is clearly asking for remembered prior work but does not name the originating surface.
+- “What seed did I use for that Qwen image?” → General + relevant Image history.
+- “What do we remember about MPU?” → General may explicitly target the MPU project scope.
+- “What model did I use last time?” → bounded recall discovery across relevant native surfaces.
 
-General does **not** search every memory namespace on every message.
+General does not search every namespace on every message.
 
-## Surface Scopes
+## Neo built-in surface scopes — bounded federation
 
-A surface Scope keeps its own memory first, then may use General durable memory and another clearly relevant surface.
+Image, Video, Voice, Prompt + Captioning, Roleplay, Client Work, and Neo Development are Neo-owned workspaces. They remain surface-first and may use bounded cross-surface/context expansion when the query warrants it.
 
-For example, Image Workspace can use:
+Roleplay keeps its existing explicit universe/scene sandbox rules.
 
-1. active Image memory;
-2. linked Delivery Project memory, when present;
-3. General durable preferences;
-4. another surface only when the query points there.
+## User-created project scopes — hard sandbox
 
-The active Scope receives a ranking preference, but a highly relevant expanded result may still outrank weak local context.
+A user-created Assistant Scope such as `MPU` is a **hard project sandbox by default**.
 
-## Delivery Projects
+While that scope is active, normal Assistant retrieval is restricted to:
 
-A linked Delivery Project is first-priority context. Neo also keeps a compatibility target for the current `project:<id>` Unified Memory ingestion shape until project memory is migrated later.
+- the active project scope's Project Brain documents;
+- structured objects, aliases, facts, and source-direct fragments for that scope;
+- Unified Memory rows stored for that same scope;
+- chats/memories explicitly associated with that scope.
 
-From General, a project is expanded only when the query strongly matches a registered project name or ID. Unrelated projects are not searched by default.
+The planner must not automatically fall back to:
 
-## Roleplay hard boundary
+- General durable memory;
+- another user-created project;
+- Neo Guides or System Records;
+- Neo code/search indexes;
+- unrelated Image/Video/Voice/Prompt history.
 
-Roleplay remains the exception to broad cross-surface recall.
+Cross-project work belongs in **General Assistant** unless a future explicit escape action is designed. The active project scope itself is not an implicit permission to federate.
 
-General never performs open-ended retrieval across all Roleplay universes. A query must match a concrete registered universe/world/scene/sandbox before detailed Roleplay memory is included.
+
+## Project scope is the implicit domain
+
+When a user-created Project Scope is active, ordinary unqualified questions are interpreted inside that Project. The user does not need to repeat the Project name on every turn.
+
+For example, inside `MPU`:
+
+```text
+who is great soul?
+```
+
+is treated as a Project/canon recall question, not a general-world-knowledge question. If the Project sources do not establish the answer, CANON grounding fails closed instead of allowing the model to invent outside lore.
+
+Assistant Brain resolves stored custom scopes before General/query heuristics. Inspector should therefore show the custom `scope_id`, `scope_class=project_sandbox`, and `hard_sandbox=true` for the exact turn.
+
+## Chats are Scope-bound
+
+Each Assistant chat belongs to one Scope. Switching the Scope filter must not carry an active chat transcript from General or another Project into the selected Project. Neo switches to an existing chat for that Scope or starts with no active chat; the server also refuses to silently rebind a mismatched session and creates a fresh Scope-bound chat instead.
+
+Prior Assistant replies are conversation history, not canon evidence. CANON answers must still be supported by the current Context Packet/current-turn source.
+
+## Continue response
+
+`Continue response` is a generation instruction, not a new retrieval topic. Neo reuses the previous real user query for retrieval/planning while preserving `CONTINUE` behavior and the active scope/grounding mode.
 
 Example:
 
-- “What do we remember from roleplay?” → no detailed Roleplay memory expansion.
-- “In Universe Alpha, what does canon say about Ren?” → retrieve only the matched Universe Alpha sandbox.
+```text
+User: who is great soul?
+Scope: MPU
 
-This prevents Universe A / Universe B contamination.
+Continue response
+→ planner query remains: who is great soul?
+→ scope remains: MPU
+→ no Assistant-guide lookup caused by the word "Assistant" in the continuation command
+```
 
-## M12 safety proof
+## Inspector proof
 
-Every approved Phase 6 expansion is recorded in the Retrieval Gateway result:
+Knowledge Inspector records:
 
-- retrieval target;
-- reason;
-- target surface/project/scope;
-- priority;
-- cross-surface/project permission;
-- blocked expansions.
+- `scope_class`;
+- `hard_sandbox`;
+- selected retrieval lanes;
+- blocked cross-scope expansion;
+- accepted/rejected evidence.
 
-Control Center passes those permissions into M12 validation. Later M12 trace audits reuse the persisted permission proof instead of incorrectly treating approved cross-surface context as a sandbox violation.
-
-## Recall discovery
-
-A generic recall request such as “What model did I use last time?” may not identify a surface. General can therefore perform a bounded discovery across the main non-Roleplay creative memory surfaces.
-
-This is not enabled for ordinary tasks such as “Help me plan tomorrow.” It requires explicit recall language.
-
-## Inspector
-
-The Retrieval Gateway exposes `scope_policy` and `retrieval_targets` for Inspector/Admin diagnostics. Normal chat should use the retrieved knowledge naturally and should not dump routing diagnostics unless the user asks for technical proof.
+For a user-created project scope, Inspector should show `project_sandbox` and `hard_sandbox = true`.

@@ -13,8 +13,8 @@ tags:
   - captioning
   - keywords
 priority: 70
-version: 12
-updated: 2026-08-18
+version: 13
+updated: 2026-09-25
 ---
 
 # Prompt + Captioning Overview
@@ -41,6 +41,10 @@ For **Batch Captioning**, the ComfyUI LLM/VLM backend now uses a retained batch 
 **Startup/reconnect validation keeps that readiness current.** Saved Comfy LLM/VLM settings are restored when Neo starts, but an old saved Connected state is not trusted. Neo refreshes the current Comfy catalog in the background, rechecks saved selections, records the last successful validation time, and revalidates again before a real Prompt/Caption task is queued. If Comfy is restarted or comes back online later, the current live catalog replaces the stale session snapshot. Manual **Disconnect** pauses that automatic validation until Connect/Test is used again.
 
 **Runtime recovery is also shared-GPU aware.** If Comfy disconnects, times out, restarts, loses history, rejects a workflow, runs out of VRAM, or fails an explicit memory cleanup, Neo returns an actionable error and keeps/reconciles the GPU guard according to what is actually known about the Comfy queue. A missing queue response is not treated as proof that nothing ran. Existing Comfy work discovered after a Neo restart is guarded until the backend queue clears.
+
+## Qwen Image 2.1 Prompt Enhancer discovery
+
+Neo can detect the **Qwen Image 2.1 Prompt Enhancer** dependencies when a ComfyUI backend is Connect/Tested. Prompt Studio now exposes an executable **Text -> Image** Qwen 2.1 PE card that uses a connected Comfy Image runtime, the discovered T2I PE text encoder, and Neo's structured prompt-enhancer result bridge. This specialist engine is separate from the normal Prompt Studio Text Backend Profile and does not require llama.cpp or MMProj. Caption Studio Edit PE remains discovery-only until the ordered 1-10 image runtime is implemented. See `qwen_image_21_prompt_enhancer.md` for setup and runtime details.
 
 ## P23 profile engine
 

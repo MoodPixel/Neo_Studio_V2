@@ -18,8 +18,8 @@ tags:
   - context
   - inspector
 priority: 96
-version: 1
-updated: 2026-08-09
+version: 2
+updated: 2026-09-27
 ---
 
 # Assistant Scopes and Memory Lens
@@ -30,7 +30,9 @@ Phase 11 consolidates the Assistant UI around the architecture already locked in
 
 The Assistant subtab historically stored the route ID `projects`. The canonical user-facing concept is now **Scopes**.
 
-A Scope is an Assistant context priority/sandbox. A Delivery Project is a real client/work project. The two may be linked, but they are not the same object.
+A Scope is an Assistant context boundary. A Delivery Project is a real client/work project. The two may be linked, but they are not the same object.
+
+Neo now distinguishes **Neo built-in scopes** from **user-created project scopes**. General/built-in workspaces can use bounded federated retrieval; user-created project scopes are hard retrieval sandboxes by default. The Scope filter groups these categories separately so their behavior is visible rather than implicit.
 
 For compatibility, saved UI state and historical routes using `projects` or `project_context` continue to resolve to the Scopes view. New UI copy must use Scope-first language.
 
@@ -42,6 +44,8 @@ The Scopes view owns normal user interaction with:
 - Scope name/type/description/notes;
 - canonical Scope, surface, and linked Delivery Project identity;
 - Project Brain capture/import/rebuild controls;
+- a persistent Project Sources inventory showing uploaded filenames, current revisions, indexing counts, and duplicate warnings;
+- multi-file upload queue/progress with `1/N` state and processing/indexing feedback;
 - persistent Phase 10 Project Brain job progress.
 
 Admin → Assistant / Operator remains a read-only diagnostic Scope readout rather than a second normal Scope editor.
@@ -53,7 +57,7 @@ Assistant → Memory is now a user-facing **Memory Lens**, not a list of manual 
 It may show:
 
 - canonical memory relevant to the active Scope;
-- General memory visible to the active non-Roleplay Scope;
+- General memory only where the active scope class permits federation; user-created project sandboxes do not expose General memory as normal project context;
 - applied durable memories;
 - pending durable-memory review candidates as read-only status;
 - manual memory pins and Scope Knowledge;

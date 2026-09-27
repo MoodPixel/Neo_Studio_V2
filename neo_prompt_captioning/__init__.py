@@ -8,6 +8,7 @@ compatible dedicated handler in the third-party llama.cpp Comfy extension.
 Nodes:
 - ``NeoPromptCaptionImageInput`` decodes Neo image data into a Comfy IMAGE.
 - ``NeoPromptCaptionTextOutput`` owns the stable text result read from history.
+- ``NeoQwenImage21PromptEnhancerOutput`` owns structured Qwen Image 2.1 PE results.
 - ``NeoGenericMTMDModelLoader`` loads template-driven multimodal GGUF/mmproj.
 - ``NeoGenericMTMDInstruct`` performs the Generic MTMD image+text completion.
 """
