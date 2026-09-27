@@ -228,7 +228,7 @@ def create_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "surface_id": identity.surface_id,
         "delivery_project_id": identity.project_id or "",
         "name": name,
-        "type": str(payload.get("type") or "general"),
+        "type": str(payload.get("type") or "project_sandbox"),
         "description": str(payload.get("description") or ""),
         "notes": str(payload.get("notes") or ""),
         "status": "active",
@@ -238,6 +238,8 @@ def create_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
             **(payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}),
             "assistant_scope": True,
             "scope_model": "assistant_internal_scope",
+            "scope_class": "project_sandbox",
+            "user_created_scope": True,
             "canonical_identity": identity.as_dict(),
         },
     }
@@ -276,6 +278,8 @@ def save_project_payload(payload: dict[str, Any]) -> dict[str, Any]:
         **incoming_metadata,
         "assistant_scope": True,
         "scope_model": "assistant_internal_scope",
+        "scope_class": "built_in" if bool(metadata.get("builtin_scope")) else str(incoming_metadata.get("scope_class") or metadata.get("scope_class") or "project_sandbox"),
+        "user_created_scope": False if bool(metadata.get("builtin_scope")) else True,
         "canonical_identity": identity.as_dict(),
     }
     current["updated_at"] = now_iso()
@@ -324,6 +328,10 @@ def _write_sessions(sessions: list[dict[str, Any]]) -> None:
 
 def session_summary(record: dict[str, Any]) -> dict[str, Any]:
     messages = record.get("messages") if isinstance(record.get("messages"), list) else []
+    project_id = str(record.get("project_id") or record.get("scope_id") or "general")
+    scope = get_project(project_id) or {}
+    metadata = scope.get("metadata") if isinstance(scope.get("metadata"), dict) else {}
+    scope_class = "general_federated" if project_id == "general" else ("built_in_surface" if metadata.get("builtin_scope") else "project_sandbox")
     preview = ""
     for message in reversed(messages):
         text = str((message or {}).get("text") or "").strip()
@@ -333,7 +341,10 @@ def session_summary(record: dict[str, Any]) -> dict[str, Any]:
     return {
         "session_id": record.get("session_id"),
         "title": record.get("title") or "New assistant chat",
-        "project_id": record.get("project_id") or "general",
+        "project_id": project_id,
+        "scope_id": str(record.get("scope_id") or scope.get("scope_id") or project_id),
+        "scope_name": str(scope.get("name") or project_id),
+        "scope_class": scope_class,
         "mode": record.get("mode") or "general",
         "message_count": len(messages),
         "preview": preview,
@@ -357,6 +368,7 @@ def create_session_payload(payload: dict[str, Any] | None = None) -> dict[str, A
         "session_id": session_id,
         "title": str(payload.get("title") or "New assistant chat"),
         "project_id": str(payload.get("project_id") or assistant_profile().get("default_project_id") or "general"),
+        "scope_id": str(payload.get("scope_id") or payload.get("project_id") or assistant_profile().get("default_project_id") or "general"),
         "mode": str(payload.get("mode") or assistant_profile().get("default_mode") or "general"),
         "messages": payload.get("messages") if isinstance(payload.get("messages"), list) else [],
         "context_items": payload.get("context_items") if isinstance(payload.get("context_items"), list) else [],
@@ -385,12 +397,14 @@ def save_session_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "context_items": [],
         "created_at": now_iso(),
     }
-    for key in ("title", "project_id", "mode", "messages", "context_items", "memory_summary", "draft", "last_diagnostics"):
+    for key in ("title", "project_id", "scope_id", "mode", "messages", "context_items", "memory_summary", "draft", "last_diagnostics"):
         if key in payload:
             value = payload[key]
             if key in {"messages", "context_items"} and not isinstance(value, list):
                 value = []
             current[key] = value
+    if "project_id" in payload and "scope_id" not in payload:
+        current["scope_id"] = str(current.get("project_id") or "general")
     current["updated_at"] = now_iso()
     write_json(_safe_record_path(SESSIONS_DIR, session_id, "session"), current)
     sessions = [s for s in list_sessions() if s.get("session_id") != session_id]

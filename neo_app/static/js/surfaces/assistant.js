@@ -47,6 +47,7 @@
   function assistantState(ctx) {
     const a = typeof ctx.assistantState === 'function' ? ctx.assistantState() : (ctx.state.assistant = ctx.state.assistant || {});
     if (!Array.isArray(a.pendingAttachments)) a.pendingAttachments = [];
+    if (!Array.isArray(a.projectUploadQueue)) a.projectUploadQueue = [];
     return a;
   }
 
@@ -416,6 +417,55 @@
     return a.projectBrainJob || null;
   }
 
+  function formatBytes(value) {
+    const bytes = Number(value || 0);
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = bytes; let index = 0;
+    while (size >= 1024 && index < units.length - 1) { size /= 1024; index += 1; }
+    return `${size >= 10 || index === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[index]}`;
+  }
+
+  function projectUploadQueueHtml(ctx, queue) {
+    if (!Array.isArray(queue) || !queue.length) return '';
+    const done = queue.filter((item) => ['complete', 'duplicate', 'failed'].includes(item.status)).length;
+    const active = queue.find((item) => ['uploading', 'processing'].includes(item.status));
+    const rows = queue.map((item, index) => {
+      const percent = Math.max(0, Math.min(100, Number(item.percent || 0)));
+      const label = item.status === 'complete' ? 'Ready' : item.status === 'processing' ? 'Processing / indexing…' : item.status === 'failed' ? `Failed · ${item.error || ''}` : item.status === 'duplicate' ? `Duplicate skipped${item.error ? ` · ${item.error}` : ''}` : item.status === 'waiting' ? 'Waiting' : `${percent}%`;
+      return `<div class="assistant-memory-lens-item"><div><strong>${escapeHtml(ctx, item.name || `File ${index + 1}`)}</strong><span>${escapeHtml(ctx, `${index + 1}/${queue.length} · ${label}`)}</span></div><progress max="100" value="${percent}"></progress><small>${escapeHtml(ctx, formatBytes(item.size || 0))}</small></div>`;
+    }).join('');
+    return `<div class="assistant-project-upload-queue"><h4>Upload queue</h4><p>${active ? `${escapeHtml(ctx, active.name)} · ${done}/${queue.length} finished` : `${done}/${queue.length} finished`}</p>${rows}</div>`;
+  }
+
+  function projectSourcesHtml(ctx, brain) {
+    const rows = Array.isArray(brain?.latest_uploads) ? brain.latest_uploads : [];
+    if (!rows.length) return `<h4>Project Sources</h4>${emptyState(ctx, 'No project files uploaded yet.', 'Upload your source documents here. Neo indexes persistent project files automatically after upload.')}`;
+    return `<h4>Project Sources</h4><p>Review the actual files Neo has for this scope before testing recall. Current revisions are marked below.</p><div class="assistant-memory-lens-list">${rows.map((row) => {
+      const states = [row.current_revision ? 'Current revision' : 'Older revision', row.status || 'stored', `${row.fragment_count || 0} fragments`, `${row.fact_count || 0} facts`];
+      if (row.duplicate_content_of) states.push(`Duplicate of ${row.duplicate_content_of}`);
+      if (!row.stored_exists) states.push('Source file missing');
+      return `<article class="assistant-memory-lens-item"><div><strong>${escapeHtml(ctx, row.filename || 'Project file')}</strong><span>${escapeHtml(ctx, states.join(' · '))}</span></div><p>${escapeHtml(ctx, `${formatBytes(row.size_bytes)} · ${row.created_at || ''}`)}</p><small>${escapeHtml(ctx, row.document_id || '')}</small></article>`;
+    }).join('')}</div>`;
+  }
+
+  function uploadProjectFileXhr(ctx, data, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/assistant/project-files/upload');
+      xhr.responseType = 'json';
+      xhr.upload.onprogress = (event) => { if (event.lengthComputable && onProgress) onProgress(Math.round((event.loaded / event.total) * 100)); };
+      xhr.upload.onload = () => { if (onProgress) onProgress(100, true); };
+      xhr.onerror = () => reject(new Error('Project file upload failed'));
+      xhr.onload = () => {
+        const payload = xhr.response || (() => { try { return JSON.parse(xhr.responseText || '{}'); } catch (_) { return {}; } })();
+        if (xhr.status < 200 || xhr.status >= 300 || payload?.ok === false) reject(new Error(payload?.detail || payload?.message || `Upload failed (${xhr.status})`));
+        else resolve(payload);
+      };
+      xhr.send(data);
+    });
+  }
+
   function projectWorkspaceMainHtml(ctx, activeProject) {
     const a = assistantState(ctx);
     const brain = a.projectBrain || {};
@@ -423,8 +473,11 @@
     const identity = activeProject.metadata?.canonical_identity || {};
     const surfaceId = activeProject.surface_id || identity.surface_id || assistantProjectSurface(ctx, activeProject) || 'assistant';
     const deliveryProject = activeProject.delivery_project_id || identity.project_id || '';
+    const isBuiltIn = Boolean(activeProject?.metadata?.builtin_scope);
+    const scopeClass = isBuiltIn ? (activeProject.project_id === 'general' ? 'general_federated' : 'built_in_surface') : 'project_sandbox';
+    const scopePolicy = scopeClass === 'project_sandbox' ? 'Hard project sandbox · unrelated General/other-project retrieval blocked' : 'Neo built-in scope · bounded cross-surface retrieval allowed when relevant';
     const latest = Array.isArray(brain.latest_snapshots) ? brain.latest_snapshots.slice(0, 4).map((row) => `${row.surface || 'surface'} · ${row.title || row.snapshot_id || 'snapshot'} · ${row.created_at || ''}`) : [];
-    return `<section class="assistant-modern-card" data-neo-assistant-module="scope_workspace"><span class="assistant-kicker">Scopes</span><h2>${escapeHtml(ctx, activeProject.name || 'General Assistant')}</h2><p>A Scope tells Neo which context to prioritize. It is not a Delivery Project and it does not block relevant cross-surface memory.</p>${badgeRow(ctx, [`Scope: ${activeProject.scope_id || activeProject.project_id || 'general'}`, `Surface: ${surfaceId}`, deliveryProject ? `Delivery Project: ${deliveryProject}` : 'No Delivery Project linked'])}<div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Name<input id="assistant-scope-name" value="${escapeAttr(ctx, activeProject.name || '')}"></label><label>Type<input id="assistant-scope-type" value="${escapeAttr(ctx, activeProject.type || 'general')}"></label><label class="wide">Description<textarea id="assistant-scope-description">${escapeHtml(ctx, activeProject.description || '')}</textarea></label><label class="wide">Notes<textarea id="assistant-scope-notes">${escapeHtml(ctx, activeProject.notes || '')}</textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeEditor()">Save scope</button></div></section><section class="assistant-modern-card assistant-project-brain-card" data-neo-assistant-module="project_brain"><span class="assistant-kicker">Project Brain</span><h2>Build memory for this Scope</h2><p>Use these controls for deliberate memory-building. Successful surface work can already enter searchable history automatically; Project Brain is for captures, project files, historical indexing, and rebuild/repair.</p><div class="assistant-memory-workflow-grid"><div><strong>Capture & import</strong><p>Pin the current surface state or bring Neo-owned history and documents into canonical memory.</p><div class="assistant-action-row compact"><button class="neo-btn primary" type="button" onclick="assistantCaptureCurrentProjectState()">Capture Current State</button><button class="neo-btn" type="button" onclick="assistantIndexProjectData()">Index Project Data</button><input id="assistant-project-file-input" type="file" multiple onchange="assistantUploadProjectFiles(this)" hidden><button class="neo-btn" type="button" onclick="document.getElementById('assistant-project-file-input')?.click()">Upload Project Files</button></div></div><div><strong>Maintain & inspect</strong><p>Rebuild when files/history changed substantially or memory needs repair. Context proof stays in Context/Inspector.</p><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRebuildProjectBrain()">Rebuild Project Brain</button><button class="neo-btn secondary" type="button" onclick="assistantRefreshProjectBrainStatus()">Refresh Brain Status</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">View Context Pack</button></div></div></div>${badgeRow(ctx, [`Guides: ${counts.built_in_guides_visible || 0}`, `Snapshots: ${counts.snapshots || 0}`, `Indexes: ${counts.indexes || 0}`, `Uploads: ${counts.uploads || 0}`, `Memory: ${counts.canonical_fragments || 0}`, `Facts: ${counts.canonical_facts || 0}`, `Jobs: ${counts.active_jobs || 0}`])}${projectBrainJobHtml(ctx, brain)}<h4>Latest captures</h4>${latest.length ? metaList(ctx, latest) : emptyState(ctx, 'No captures yet.', 'Capture a meaningful state when you want Neo to remember the configuration deliberately.')}</section>`;
+    return `<section class="assistant-modern-card" data-neo-assistant-module="scope_workspace"><span class="assistant-kicker">Scopes</span><h2>${escapeHtml(ctx, activeProject.name || 'General Assistant')}</h2><p>${escapeHtml(ctx, scopePolicy)}</p>${badgeRow(ctx, [`Scope: ${activeProject.scope_id || activeProject.project_id || 'general'}`, `Class: ${scopeClass}`, `Surface: ${surfaceId}`, deliveryProject ? `Delivery Project: ${deliveryProject}` : 'No Delivery Project linked'])}<div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Name<input id="assistant-scope-name" value="${escapeAttr(ctx, activeProject.name || '')}"></label><label>Type<input id="assistant-scope-type" value="${escapeAttr(ctx, activeProject.type || 'general')}"></label><label class="wide">Description<textarea id="assistant-scope-description">${escapeHtml(ctx, activeProject.description || '')}</textarea></label><label class="wide">Notes<textarea id="assistant-scope-notes">${escapeHtml(ctx, activeProject.notes || '')}</textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeEditor()">Save scope</button></div></section><section class="assistant-modern-card assistant-project-brain-card" data-neo-assistant-module="project_brain"><span class="assistant-kicker">Project Brain</span><h2>Build memory for this Scope</h2><p>Persistent project files are indexed automatically after upload. Review Project Sources below to confirm Neo has every document you expect.</p><div class="assistant-memory-workflow-grid"><div><strong>Capture & import</strong><p>Pin current state or upload source documents. Multiple-file uploads show per-file progress and indexing state.</p><div class="assistant-action-row compact"><button class="neo-btn primary" type="button" onclick="assistantCaptureCurrentProjectState()">Capture Current State</button><button class="neo-btn" type="button" onclick="assistantIndexProjectData()">Index Project Data (Neo-owned)</button><input id="assistant-project-file-input" type="file" multiple onchange="assistantUploadProjectFiles(this)" hidden><button class="neo-btn" type="button" onclick="document.getElementById('assistant-project-file-input')?.click()">Upload Project Files</button></div></div><div><strong>Maintain & inspect</strong><p>Rebuild after substantial file/history changes; normal uploads are already indexed.</p><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRebuildProjectBrain()">Rebuild Project Brain</button><button class="neo-btn secondary" type="button" onclick="assistantRefreshProjectBrainStatus()">Refresh Brain Status</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">View Context Pack</button></div></div></div>${badgeRow(ctx, [`Guides: ${counts.built_in_guides_visible || 0}`, `Snapshots: ${counts.snapshots || 0}`, `Indexes: ${counts.indexes || 0}`, `Uploads: ${counts.uploads || 0}`, `Memory: ${counts.canonical_fragments || 0}`, `Facts: ${counts.canonical_facts || 0}`, `Jobs: ${counts.active_jobs || 0}`])}${projectUploadQueueHtml(ctx, a.projectUploadQueue)}${projectSourcesHtml(ctx, brain)}${projectBrainJobHtml(ctx, brain)}<h4>Latest captures</h4>${latest.length ? metaList(ctx, latest) : emptyState(ctx, 'No captures yet.', 'Capture a meaningful state when you want Neo to remember the configuration deliberately.')}</section>`;
   }
 
   function memoryLensItemsHtml(ctx, items, emptyTitle = 'Nothing remembered here yet.', emptyDetail = '') {
@@ -446,7 +499,7 @@
     const knowledgeRows = Array.isArray(lens.scope_knowledge) && lens.scope_knowledge.length ? lens.scope_knowledge : (a.contextItems || []).filter((item) => (item.project_id || 'general') === (a.selectedProjectId || 'general'));
     const pins = pinRows.map((capture) => ({ title: capture.title || capture.capture_id, summary: capture.text || '', memory_type: 'manual pin', surface: capture.surface || 'assistant', updated_at: capture.created_at || capture.updated_at || '' }));
     const knowledge = knowledgeRows.map((item) => ({ title: item.title || item.context_id, summary: item.text || '', memory_type: item.kind || 'scope knowledge', surface: item.surface || 'assistant', updated_at: item.updated_at || item.created_at || '' }));
-    return `<section class="assistant-modern-card" data-neo-assistant-module="memory_lens"><span class="assistant-kicker">Memory Lens</span><div class="assistant-card-headline"><div><h2>What Neo can remember from ${escapeHtml(ctx, scope.name || 'this Scope')}</h2><p>This is a user-facing view of relevant memory. Admin → Memory still owns approval, conflicts, retention, editing, and other governance.</p></div><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRefreshMemoryLens()">Refresh</button><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('admin','memory')">Open Admin Memory</button></div></div>${badgeRow(ctx, [`Scope memory: ${summary.active_memory_count || 0}`, `Facts: ${summary.fact_count || 0}`, `Durable: ${summary.durable_count || 0}`, `Review: ${summary.pending_review_count || 0}`, `Pins: ${summary.manual_pin_count || 0}`, `Retrievals: ${summary.recent_retrieval_count || 0}`])}</section><section class="assistant-modern-card"><span class="assistant-kicker">Scope memory</span><h2>Recent remembered context</h2><p>Canonical searchable memory associated with the active Scope/surface.</p>${memoryLensItemsHtml(ctx, lens.scope_memory, 'No canonical memory in this Scope yet.', 'Use Neo normally, save Scope Knowledge, capture a meaningful state, or import project files.')}</section><section class="assistant-modern-card"><span class="assistant-kicker">Durable memory</span><h2>Learned patterns and approved facts</h2><p>Only promoted durable memories appear here; task history by itself is not a permanent preference.</p>${memoryWritebackItemsHtml(ctx, lens.durable_memory, 'No durable memories for this Scope yet.')}</section>${Array.isArray(lens.general_memory) && lens.general_memory.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">General memory</span><h2>Relevant global/user memory available to this Scope</h2>${memoryLensItemsHtml(ctx, lens.general_memory)}</section>` : ''}<section class="assistant-modern-card"><span class="assistant-kicker">Manual knowledge</span><h2>Pins + Scope Knowledge</h2><p>These are deliberate items you explicitly captured or saved.</p><h4>Manual pins</h4>${memoryLensItemsHtml(ctx, pins, 'No manual pins yet.', 'Select useful chat text and choose Save selected as memory.')}<h4>Scope Knowledge</h4>${memoryLensItemsHtml(ctx, knowledge, 'No Scope Knowledge saved yet.', 'Use Context to save reusable project/client/workflow knowledge.')}</section>${Array.isArray(lens.pending_review) && lens.pending_review.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">Needs review</span><h2>${lens.pending_review.length} durable candidate${lens.pending_review.length === 1 ? '' : 's'} waiting</h2><p>Assistant shows the queue but does not approve durable memory here. Review it in Admin → Memory.</p>${memoryWritebackItemsHtml(ctx, lens.pending_review, '')}<button class="neo-btn primary" type="button" onclick="setActiveSubtab('admin','memory')">Open review queue</button></section>` : ''}`;
+    return `<section class="assistant-modern-card" data-neo-assistant-module="memory_lens"><span class="assistant-kicker">Memory Lens</span><div class="assistant-card-headline"><div><h2>What Neo can remember from ${escapeHtml(ctx, scope.name || 'this Scope')}</h2><p>This is a user-facing view of relevant memory. Admin → Memory still owns approval, conflicts, retention, editing, and other governance.</p></div><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRefreshMemoryLens()">Refresh</button><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('admin','memory')">Open Admin Memory</button></div></div>${badgeRow(ctx, [`Scope memory: ${summary.active_memory_count || 0}`, `Facts: ${summary.fact_count || 0}`, `Durable: ${summary.durable_count || 0}`, `Review: ${summary.pending_review_count || 0}`, `Pins: ${summary.manual_pin_count || 0}`, `Retrievals: ${summary.recent_retrieval_count || 0}`])}</section><section class="assistant-modern-card"><span class="assistant-kicker">Scope memory</span><h2>Recent remembered context</h2><p>Canonical searchable memory associated with the active Scope/surface.</p>${memoryLensItemsHtml(ctx, lens.scope_memory, 'No canonical memory in this Scope yet.', 'Use Neo normally, save Scope Knowledge, capture a meaningful state, or import project files.')}</section><section class="assistant-modern-card"><span class="assistant-kicker">Durable memory</span><h2>Learned patterns and approved facts</h2><p>Only promoted durable memories appear here; task history by itself is not a permanent preference.</p>${memoryWritebackItemsHtml(ctx, lens.durable_memory, 'No durable memories for this Scope yet.')}</section>${Boolean(activeProject(ctx)?.metadata?.builtin_scope) && Array.isArray(lens.general_memory) && lens.general_memory.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">General memory</span><h2>Relevant global/user memory available to this Scope</h2>${memoryLensItemsHtml(ctx, lens.general_memory)}</section>` : ''}<section class="assistant-modern-card"><span class="assistant-kicker">Manual knowledge</span><h2>Pins + Scope Knowledge</h2><p>These are deliberate items you explicitly captured or saved.</p><h4>Manual pins</h4>${memoryLensItemsHtml(ctx, pins, 'No manual pins yet.', 'Select useful chat text and choose Save selected as memory.')}<h4>Scope Knowledge</h4>${memoryLensItemsHtml(ctx, knowledge, 'No Scope Knowledge saved yet.', 'Use Context to save reusable project/client/workflow knowledge.')}</section>${Array.isArray(lens.pending_review) && lens.pending_review.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">Needs review</span><h2>${lens.pending_review.length} durable candidate${lens.pending_review.length === 1 ? '' : 's'} waiting</h2><p>Assistant shows the queue but does not approve durable memory here. Review it in Admin → Memory.</p>${memoryWritebackItemsHtml(ctx, lens.pending_review, '')}<button class="neo-btn primary" type="button" onclick="setActiveSubtab('admin','memory')">Open review queue</button></section>` : ''}`;
   }
 
   function memoryLensSideHtml(ctx) {
@@ -454,7 +507,10 @@
     const traces = (lens.recent_retrievals || []).slice(0, 6).map((trace) => `${trace.intent || 'Assistant'} · ${trace.surface || 'surface'} · ${trace.status || 'ok'} · ${trace.created_at || ''}`);
     const jobs = (lens.jobs || []).slice(0, 5).map((job) => `${job.job_type || 'memory job'} · ${job.status || 'unknown'} · ${(job.progress || {}).percent || 0}%`);
     const identity = lens.identity || {};
-    return `<section class="assistant-side-card"><span class="assistant-kicker">Memory visibility</span><h3>Why these memories are shown</h3>${metaList(ctx, [`Scope: ${identity.scope_id || 'general'}`, `Surface: ${identity.surface_id || 'global'}`, `Delivery Project: ${identity.project_id || 'none'}`, 'Scope is priority, not a hard retrieval prison.'])}</section><section class="assistant-side-card"><span class="assistant-kicker">Recent retrievals</span><h3>What Neo looked up</h3>${traces.length ? metaList(ctx, traces) : emptyState(ctx, 'No recent Assistant retrievals.', 'Ask a memory-aware question to create retrieval proof.')}<button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Inspect context</button></section><section class="assistant-side-card"><span class="assistant-kicker">Memory jobs</span><h3>Recent background activity</h3>${jobs.length ? metaList(ctx, jobs) : emptyState(ctx, 'No recent memory jobs.', 'Project Brain rebuilds and other long memory work appear here.')}</section>`;
+    const scopeRecord = activeProject(ctx) || {};
+    const hardSandbox = Boolean(identity.scope_id && identity.scope_id !== 'general' && !scopeRecord?.metadata?.builtin_scope);
+    const scopePolicy = hardSandbox ? 'Hard Project Sandbox: unrelated General, Guide, code, native-history, and other-project retrieval is blocked.' : 'Federated/built-in Scope: bounded cross-surface retrieval may be used when the request calls for it.';
+    return `<section class="assistant-side-card"><span class="assistant-kicker">Memory visibility</span><h3>Why these memories are shown</h3>${metaList(ctx, [`Scope: ${identity.scope_id || 'general'}`, `Surface: ${identity.surface_id || 'global'}`, `Delivery Project: ${identity.project_id || 'none'}`, scopePolicy])}</section><section class="assistant-side-card"><span class="assistant-kicker">Recent retrievals</span><h3>What Neo looked up</h3>${traces.length ? metaList(ctx, traces) : emptyState(ctx, 'No recent Assistant retrievals.', 'Ask a memory-aware question to create retrieval proof.')}<button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Inspect context</button></section><section class="assistant-side-card"><span class="assistant-kicker">Memory jobs</span><h3>Recent background activity</h3>${jobs.length ? metaList(ctx, jobs) : emptyState(ctx, 'No recent memory jobs.', 'Project Brain rebuilds and other long memory work appear here.')}</section>`;
   }
 
   function contextMainHtml(ctx) {
@@ -478,12 +534,84 @@
     return `<section class="assistant-modern-card" data-neo-assistant-module="validation"><span class="assistant-kicker">Validation</span><h2>Lock state and health checks</h2>${listItems(ctx, rows)}</section>`;
   }
 
+  function knowledgeInspectorEvidenceHtml(ctx, items, emptyText) {
+    if (!Array.isArray(items) || !items.length) return `<p class="neo-muted">${escapeHtml(ctx, emptyText)}</p>`;
+    return `<div class="assistant-knowledge-evidence-list">${items.slice(0, 12).map((item) => {
+      const citation = item.citation || {};
+      const source = citation.source_path || citation.label || item.source_lane || 'source';
+      const score = item.score !== undefined && item.score !== null ? `score ${Number(item.score).toFixed(3)}` : '';
+      const role = item.evidence_role || item.source_lane || 'evidence';
+      const reasons = Array.isArray(item.authority_reasons) && item.authority_reasons.length ? ` · ${item.authority_reasons.join(', ')}` : '';
+      const epistemic = item.epistemic_role ? ` · ${item.epistemic_role}${item.supports_positive_claims === false ? ' · non-affirmative' : ''}` : '';
+      const answerability = item.answerability_score !== undefined && item.answerability_score !== null ? ` · answerability ${Number(item.answerability_score).toFixed(2)}` : '';
+      const direct = item.direct_definition ? ' · direct definition' : item.entity_heading_match ? ' · entity heading' : '';
+      return `<article class="assistant-knowledge-evidence-item"><div class="assistant-knowledge-evidence-head"><strong>${escapeHtml(ctx, item.title || item.item_id || 'Evidence')}</strong><span>${escapeHtml(ctx, `${role}${score ? ` · ${score}` : ''}${answerability}`)}</span></div><small>${escapeHtml(ctx, `${source}${citation.start_line ? `:${citation.start_line}${citation.end_line ? `-${citation.end_line}` : ''}` : ''}${epistemic}${direct}${reasons}`)}</small>${item.snippet ? `<p>${escapeHtml(ctx, item.snippet)}</p>` : ''}</article>`;
+    }).join('')}</div>`;
+  }
+
+  function knowledgeInspectorHtml(ctx, trace) {
+    if (!trace || trace.schema_id !== 'neo.assistant.knowledge_inspector.v1') {
+      return `<section class="assistant-modern-card assistant-knowledge-inspector-card"><span class="assistant-kicker">Knowledge Inspector</span><h2>No trace yet</h2><p>Ask Neo a question, then return here to inspect exactly what it understood, searched, accepted, rejected, packaged, and allowed the model to claim.</p></section>`;
+    }
+    const decision = trace.decision || {};
+    const query = trace.query_analysis || {};
+    const fusion = trace.fusion || {};
+    const evidence = trace.evidence || {};
+    const packet = trace.context_packet || {};
+    const output = trace.output || {};
+    const lanes = Array.isArray(trace.lanes) ? trace.lanes : [];
+    const laneRows = lanes.map((lane) => `${lane.selected ? '✓' : '–'} ${lane.lane} · weight ${lane.weight ?? 0} · ${lane.status || 'idle'} · ${lane.candidate_count || 0} candidate(s)${lane.error ? ` · ERROR ${lane.error}` : ''}`);
+    const queryRows = [
+      `Intent: ${decision.intent || 'unknown'}`,
+      `Claim: ${decision.claim_type || 'unknown'}`,
+      `Target: ${decision.target_surface || 'none'}`,
+      `Scope class: ${decision.scope_class || 'unknown'} · Hard sandbox: ${decision.hard_sandbox ? 'YES' : 'no'}`,
+      `Behavior: ${decision.behavior_mode || 'unknown'}`,
+      `Grounding: ${decision.grounding_mode || 'unknown'}`,
+      `Known state: ${decision.known_state || 'not_established'}`,
+      `Fail closed: ${decision.deterministic_fail_closed ? 'deterministic' : decision.fail_closed_recommended ? 'recommended' : 'no'}`,
+    ];
+    const normalization = query.normalization || {};
+    const recovered = (normalization.matches || []).filter((item) => item && item.applied).map((item) => `${item.input} → ${item.canonical} (${item.confidence || 'match'} ${item.score ?? ''})`);
+    const fusionRows = [
+      `Fusion: ${fusion.method || 'none'}${fusion.rrf_k ? ` · RRF k=${fusion.rrf_k}` : ''}`,
+      `Duplicates removed: ${fusion.duplicates_removed || 0}`,
+      `Reranker: ${fusion.reranker?.status || 'unknown'}`,
+      `Entities: ${(query.entities || []).join(', ') || 'none'}`,
+      `Variants: ${(query.query_variants || []).join(' | ') || 'none'}`,
+      `Retrieval query: ${query.retrieval_query || 'same as user query'}`,
+      `Typo/phrase recovery: ${recovered.join(' | ') || 'none'}`,
+    ];
+    const packetBudget = packet.budget || {};
+    const packetRows = [
+      `Candidates: ${packet.candidate_count || 0}`,
+      `Selected: ${packet.selected_count || 0}`,
+      `Direct inputs: ${packet.direct_input_count || 0}`,
+      `Live context: ${packet.live_context_count || 0}`,
+      `Budget: ${packetBudget.rendered_chars || 0}/${packetBudget.max_chars || 0} chars`,
+      `Dropped: ${packetBudget.dropped_evidence_count || 0}`,
+      `Compatibility context provider-visible: ${packet.compatibility_context_provider_visible ? 'YES' : 'no'}`,
+      `Project catalog live context suppressed: ${packet.project_catalog_live_context_suppressed ? 'YES' : 'no'}`,
+    ];
+    const outputRows = [
+      `Grounding enforced: ${output.grounding_enforced ? 'yes' : 'no'}`,
+      `Provider text discarded: ${output.provider_text_discarded ? 'yes' : 'no'}`,
+      `Reason: ${output.enforcement_reason || 'generation allowed'}`,
+      `Repair attempted: ${output.repair_attempted ? 'yes' : 'no'}`,
+      `Repair used: ${output.repair_used ? 'yes' : 'no'}`,
+      `Established-evidence refusal blocked: ${output.established_evidence_refusal_blocked ? 'YES' : 'no'}`,
+      `Per-source pseudo-answer dump detected: ${output.evidence_item_answer_dump_detected ? 'YES' : 'no'}`,
+    ];
+    return `<section class="assistant-modern-card assistant-knowledge-inspector-card" data-neo-assistant-module="knowledge_inspector"><div class="assistant-card-headline"><div><span class="assistant-kicker">Knowledge Inspector · NKB-11</span><h2>Why Neo answered that way</h2><p>Read-only trace of the exact Assistant turn. Inspector never performs a second retrieval.</p></div><span class="assistant-soft-pill">${escapeHtml(ctx, trace.status || 'ready')}</span></div>${badgeRow(ctx, [`${decision.intent || 'unknown intent'}`, `${decision.grounding_mode || 'unknown grounding'}`, `${decision.known_state || 'not_established'}`, `${evidence.selected_count || 0} selected`, `${evidence.rejected_count || 0} rejected`])}<div class="assistant-knowledge-inspector-grid"><div><h4>1 · Query decision</h4>${metaList(ctx, queryRows)}</div><div><h4>2 · Retrieval lanes</h4>${laneRows.length ? metaList(ctx, laneRows) : '<p class="neo-muted">No lanes recorded.</p>'}</div><div><h4>3 · Fusion + rerank</h4>${metaList(ctx, fusionRows)}</div><div><h4>4 · Context packet</h4>${metaList(ctx, packetRows)}</div></div><h4>5 · Evidence accepted</h4>${knowledgeInspectorEvidenceHtml(ctx, evidence.selected, 'No evidence survived authority adjudication.')}<details><summary>Authority rejections (${evidence.rejected_count || 0})</summary>${knowledgeInspectorEvidenceHtml(ctx, evidence.rejected, 'No evidence was rejected by authority policy.')}</details><div class="assistant-knowledge-inspector-grid"><div><h4>6 · Final grounding</h4>${metaList(ctx, outputRows)}</div><div><h4>Trace IDs</h4>${metaList(ctx, Object.entries(trace.trace_ids || {}).map(([key, value]) => `${key}: ${value || 'none'}`))}</div></div></section>`;
+  }
+
   function inspectorMainHtml(ctx) {
     const a = assistantState(ctx);
     const memoryLens = a.memoryLens || {};
     const diagnostics = a.activeSession?.last_diagnostics || {};
+    const inspector = diagnostics.knowledge_inspector || {};
     const payload = { profile: a.profile, activeSession: a.activeSession, scopes: a.projects, sessions: a.sessions, storage: a.storage, capabilities: a.capabilities, thinkingLayer: a.thinkingLayer, diagnostics, memoryLensDiagnostics: memoryLens.diagnostics || {}, recentRetrievals: memoryLens.recent_retrievals || [], memoryJobs: memoryLens.jobs || [], lockLayer: a.lockLayer };
-    return `<section class="assistant-modern-card" data-neo-assistant-module="inspector"><span class="assistant-kicker">Inspector</span><h2>Technical proof, not chat clutter</h2><p>Use this view to inspect routing, prompt compilation, retrieval, memory jobs, and compatibility state when debugging Neo.</p>${badgeRow(ctx, [`Scope: ${memoryLens.identity?.scope_id || a.selectedProjectId || 'general'}`, `Retrievals: ${(memoryLens.recent_retrievals || []).length}`, `Jobs: ${(memoryLens.jobs || []).length}`, `Prompt compiler: ${diagnostics.prompt_compiler?.schema_id || diagnostics.compiled_prompt?.schema_id ? 'active' : 'available'}`])}<details open><summary>Last Assistant diagnostics</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(diagnostics, null, 2))}</pre></details><details><summary>Memory Lens diagnostics</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(memoryLens.diagnostics || {}, null, 2))}</pre></details><details><summary>Full Assistant state</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(payload, null, 2))}</pre></details></section>`;
+    return `${knowledgeInspectorHtml(ctx, inspector)}<section class="assistant-modern-card" data-neo-assistant-module="inspector_raw"><span class="assistant-kicker">Raw diagnostics</span><h2>Technical proof, not chat clutter</h2><p>Use the normalized Knowledge Inspector above first. Raw state remains available for compatibility and engineering audits.</p>${badgeRow(ctx, [`Scope: ${memoryLens.identity?.scope_id || a.selectedProjectId || 'general'}`, `Retrievals: ${(memoryLens.recent_retrievals || []).length}`, `Jobs: ${(memoryLens.jobs || []).length}`, `Prompt compiler: ${diagnostics.prompt_compiler?.schema_id || diagnostics.compiled_prompt?.schema_id ? 'active' : 'available'}`])}<details><summary>Last Assistant diagnostics</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(diagnostics, null, 2))}</pre></details><details><summary>Memory Lens diagnostics</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(memoryLens.diagnostics || {}, null, 2))}</pre></details><details><summary>Full Assistant state</summary><pre class="roleplay-stories-pre small">${escapeHtml(ctx, JSON.stringify(payload, null, 2))}</pre></details></section>`;
   }
 
   function currentSurfaceSnapshot(ctx) {
@@ -605,6 +733,7 @@
       'render.assistant_guide',
       'render.assistant_validation',
       'render.assistant_inspector',
+      'render.assistant_knowledge_inspector',
       'render.assistant_deep_panel_layout',
       'action.assistant.project_manager.load',
       'action.assistant.scope_brief.load',
@@ -1052,11 +1181,26 @@
       },
       assistantSetProjectFilter(ctx) {
         const a = assistantState(ctx);
-        a.selectedProjectId = ctx.value || 'general';
+        const nextScopeId = ctx.value || 'general';
+        a.selectedProjectId = nextScopeId;
         a.memoryLens = null;
+        a.projectBrain = null;
+        a.projectUploadQueue = [];
+        // A chat transcript belongs to one Scope. Switching Scope must never
+        // carry an active General/other-project thread across a project sandbox.
+        if (a.activeSession && String(a.activeSession.project_id || 'general') !== String(nextScopeId)) {
+          const scopedSessions = (a.sessions || []).filter((session) => String(session.project_id || 'general') === String(nextScopeId));
+          a.activeSession = scopedSessions[0] || null;
+          a.draft = a.activeSession?.draft || '';
+          a.pendingAttachments = [];
+        }
         assistantRender(ctx);
         api.actions.assistantRefreshMemoryLens(ctx).catch((error) => {
           a.status = `Scope changed; Memory Lens refresh failed: ${error.message}`;
+          assistantRender(ctx);
+        });
+        api.actions.assistantRefreshProjectBrainStatus(ctx).catch((error) => {
+          a.status = `Scope changed; Project Sources refresh failed: ${error.message}`;
           assistantRender(ctx);
         });
         return { status: 'ok', action: 'assistantSetProjectFilter' };
@@ -1068,7 +1212,7 @@
       async assistantCreateProject(ctx) {
         const name = ctx.name || (window.prompt ? window.prompt('Scope name?', 'New scope') : 'New scope');
         if (!name) return { status: 'cancelled', action: 'assistantCreateProject' };
-        const payload = await assistantFetchJson(ctx, '/api/assistant/project-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+        const payload = await assistantFetchJson(ctx, '/api/assistant/project-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, type: 'project_sandbox', metadata: { scope_class: 'project_sandbox', user_created_scope: true } }) });
         const a = assistantState(ctx);
         a.projects = payload.projects || [];
         a.selectedProjectId = payload.project?.project_id || a.selectedProjectId;
@@ -1238,24 +1382,58 @@
         if (!files.length) return { status: 'empty', action: 'assistantUploadProjectFiles' };
         const project = activeProject(ctx);
         const surface = assistantProjectSurface(ctx, project);
-        a.status = `Uploading ${files.length} Project Brain file${files.length === 1 ? '' : 's'}...`;
+        const existing = Array.isArray(a.projectBrain?.latest_uploads) ? a.projectBrain.latest_uploads : [];
+        a.projectUploadQueue = files.map((file) => {
+          const sameName = existing.find((row) => String(row.filename || '').toLowerCase() === String(file.name || '').toLowerCase());
+          const sameSize = sameName && Number(sameName.size_bytes || 0) === Number(file.size || 0);
+          return { name: file.name, size: file.size, percent: 0, status: 'waiting', possibleDuplicate: Boolean(sameSize), possibleRevision: Boolean(sameName && !sameSize) };
+        });
+        const reviewLines = a.projectUploadQueue.map((item, index) => `${index + 1}. ${item.name} (${formatBytes(item.size)})${item.possibleDuplicate ? ' · possible duplicate' : item.possibleRevision ? ' · existing filename / possible new revision' : ''}`);
+        if (window.confirm && !window.confirm(`Review selected Project files (${files.length}):\n\n${reviewLines.join('\n')}\n\nUpload and index these files now?`)) {
+          a.projectUploadQueue = [];
+          if (input) input.value = '';
+          a.status = 'Project file upload cancelled before indexing.';
+          assistantRender(ctx);
+          return { status: 'cancelled', action: 'assistantUploadProjectFiles' };
+        }
+        a.status = `Preparing ${files.length} Project Brain file${files.length === 1 ? '' : 's'}…`;
         assistantRender(ctx);
         let last = null;
-        for (const file of files) {
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index];
+          const queue = a.projectUploadQueue[index];
+          queue.status = 'uploading'; queue.percent = 0;
+          a.status = `Uploading ${index + 1}/${files.length} · ${file.name}`;
+          assistantRender(ctx);
           const data = new FormData();
           data.append('file', file);
           data.append('project_id', a.selectedProjectId || project.project_id || 'general');
           data.append('surface', surface);
           data.append('session_id', a.activeSession?.session_id || '');
-          last = await assistantFetchJson(ctx, '/api/assistant/project-files/upload', { method: 'POST', body: data });
-          if (last.context_item) a.contextItems = [last.context_item, ...(a.contextItems || [])];
+          try {
+            last = await uploadProjectFileXhr(ctx, data, (percent, processing) => {
+              queue.percent = percent; queue.status = processing ? 'processing' : 'uploading';
+              a.status = processing ? `Processing ${index + 1}/${files.length} · ${file.name}` : `Uploading ${index + 1}/${files.length} · ${file.name} · ${percent}%`;
+              assistantRender(ctx);
+            });
+            queue.percent = 100;
+            queue.status = last?.duplicate ? 'duplicate' : 'complete';
+            if (last?.duplicate) queue.error = `Already uploaded as ${last?.duplicate_of?.filename || 'an existing project source'}`;
+            if (last.context_item) a.contextItems = [last.context_item, ...(a.contextItems || [])];
+            a.projectBrain = last?.project_brain || a.projectBrain || null;
+          } catch (error) {
+            queue.status = 'failed'; queue.error = error.message;
+          }
+          assistantRender(ctx);
         }
         if (input) input.value = '';
-        a.projectBrain = last?.project_brain || a.projectBrain || null;
-        a.status = `${files.length} Project Brain file${files.length === 1 ? '' : 's'} uploaded; extracted documents were ingested into canonical memory.`;
+        try { a.projectBrain = await assistantFetchJson(ctx, `/api/assistant/project-brain/status?project_id=${encodeURIComponent(a.selectedProjectId || project.project_id || 'general')}&surface=${encodeURIComponent(surface)}`); } catch (_) {}
+        const failed = a.projectUploadQueue.filter((item) => item.status === 'failed').length;
+        a.status = failed ? `${files.length - failed}/${files.length} Project files uploaded and indexed; ${failed} failed.` : `${files.length}/${files.length} Project files uploaded and indexed.`;
         assistantRender(ctx);
-        return { status: 'ok', action: 'assistantUploadProjectFiles' };
+        return { status: failed ? 'partial' : 'ok', action: 'assistantUploadProjectFiles' };
       },
+
       async assistantPreviewContextPack(ctx) {
         const a = assistantState(ctx);
         const message = document.getElementById('assistant-composer-text')?.value || a.draft || '';

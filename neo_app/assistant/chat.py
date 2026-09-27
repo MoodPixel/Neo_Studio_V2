@@ -18,6 +18,8 @@ from neo_app.assistant.brain_workspace import resolve_assistant_brain_chat_paylo
 from neo_app.prompt_captioning.providers_koboldcpp import run_chat as run_koboldcpp_chat, run_chat_stream as run_koboldcpp_chat_stream
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
 from neo_app.assistant.prompt_compiler import compile_assistant_prompt
+from neo_app.assistant.grounding_modes import enforce_grounding_output, established_evidence_meta_refusal
+from neo_app.assistant.knowledge_inspector import build_knowledge_inspector_trace
 from neo_app.memory.writeback_engine import MemoryWritebackEngine
 from neo_app.assistant.universal_contract import (
     action_receipt_succeeded,
@@ -40,6 +42,7 @@ def _capture_durable_assistant_memory(
     user_text: str,
     assistant_text: str,
     behavior_mode: str,
+    grounding_mode: str = "",
     source_id: str,
 ) -> dict[str, Any]:
     """Best-effort Phase 9 durable writeback after a successful guarded reply.
@@ -62,6 +65,7 @@ def _capture_durable_assistant_memory(
             "user_text": user_text,
             "assistant_text": assistant_text,
             "behavior_mode": behavior_mode,
+            "grounding_mode": grounding_mode,
         })
         return result if isinstance(result, dict) else {"ok": False, "status": "invalid_writeback_result"}
     except Exception as exc:
@@ -498,16 +502,30 @@ def _repair_assistant_output(
     user_text: str,
     behavior_mode: str,
     issues: list[str],
+    grounding_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one corrective pass when the first model answer clearly did not do the task."""
     issue_text = ", ".join(issues[:8]) or "incomplete answer"
+    grounding = grounding_policy if isinstance(grounding_policy, dict) else {}
+    evidence_repair = ""
+    if "established_evidence_meta_refusal" in issues and bool(grounding.get("established_evidence_available")):
+        evidence_repair = (
+            " Verified Project evidence in the Neo Context Packet already establishes the answer. "
+            "That evidence is user/project-provided source material, not hidden model data. Use it directly. "
+            "Do not refuse because evidence came from context, and do not mention Context Packet, retrieval, internal model data, hidden instructions, or your role as an assistant. "
+        )
+    if "evidence_item_answer_dump" in issues:
+        evidence_repair += (
+            " Synthesize ONE coherent answer to the original question. Do not produce one numbered draft/answer per source. "
+            "Use citations inline only when they support claims. "
+        )
     repair_messages = list(base_messages)
     repair_messages.append({
         "role": "system",
         "content": (
             "Correction pass. The previous attempt failed Neo's user-facing completion guard "
-            f"({issue_text}). Complete the user's ORIGINAL request now. Do not discuss the failure, "
-            "do not summarize what you intend to do, do not repeat long pasted source material, and do not output internal headings, role tokens, JSON metadata, or planning lanes. "
+            f"({issue_text}). Complete the user's ORIGINAL request now." + evidence_repair +
+            " Do not discuss the failure, do not summarize what you intend to do, do not repeat long pasted source material, and do not output internal headings, role tokens, JSON metadata, or planning lanes. "
             "Return only the finished answer in the format/length the user requested."
         ),
     })
@@ -524,6 +542,7 @@ def _finalize_assistant_output(
     behavior_mode: str,
     payload: dict[str, Any],
     raw_text: str,
+    grounding_policy: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
     """Clean, assess, and if needed repair one Assistant generation."""
     cleaned, cleanup = clean_assistant_reply_text(raw_text, answer_mode=behavior_mode.lower(), user_text=user_text)
@@ -541,18 +560,33 @@ def _finalize_assistant_output(
         "long_source_echo",
         "unverified_action_claim",
         "meta_summary_instead_of_deliverable",
+        "internal_planning_leak",
+        "internal_context_packet_leak",
+        "established_evidence_meta_refusal",
+        "evidence_item_answer_dump",
     }
     first_issues = list(assessment.get("issues") or [])
+    if established_evidence_meta_refusal(cleaned, grounding_policy):
+        first_issues.append("established_evidence_meta_refusal")
+        first_issues = list(dict.fromkeys(first_issues))
+        assessment["issues"] = first_issues
+        assessment["issue_count"] = len(first_issues)
+        assessment["repair_recommended"] = True
     should_repair = bool(severe.intersection(first_issues))
+    grounded_text, grounding_enforcement = enforce_grounding_output(cleaned, grounding_policy)
     diagnostics: dict[str, Any] = {
         "schema_id": "neo.assistant.output_guard.v1",
         "cleanup": cleanup,
         "assessment": assessment,
+        "grounding_enforcement": grounding_enforcement,
         "repair_attempted": False,
         "repair_used": False,
     }
+    if grounding_enforcement.get("enforced"):
+        diagnostics["repair_suppressed_by_grounding"] = True
+        return grounded_text, diagnostics, None
     if not should_repair:
-        return cleaned, diagnostics, None
+        return grounded_text, diagnostics, None
 
     repair_result = _repair_assistant_output(
         profile,
@@ -561,10 +595,19 @@ def _finalize_assistant_output(
         user_text=user_text,
         behavior_mode=behavior_mode,
         issues=first_issues,
+        grounding_policy=grounding_policy,
     )
     diagnostics["repair_attempted"] = True
     diagnostics["repair_provider_result"] = {k: repair_result.get(k) for k in ("ok", "error_type", "finish_reason", "warning", "model") if k in repair_result}
     if not repair_result.get("ok"):
+        if {"internal_planning_leak", "internal_context_packet_leak"}.intersection(first_issues):
+            diagnostics["repair_used"] = True
+            diagnostics["planning_leak_blocked"] = True
+            return "I couldn't produce a clean user-facing answer from the current backend. Please retry the response.", diagnostics, repair_result
+        if "established_evidence_meta_refusal" in first_issues:
+            diagnostics["repair_used"] = True
+            diagnostics["established_evidence_refusal_blocked"] = True
+            return "Neo found verified project evidence for this question, but the active language model failed to produce a grounded answer from it. Please retry the response.", diagnostics, repair_result
         return cleaned, diagnostics, repair_result
 
     repaired_raw = str(repair_result.get("text") or repair_result.get("partial_text") or "").strip()
@@ -576,14 +619,30 @@ def _finalize_assistant_output(
         behavior_mode=behavior_mode,
         action_succeeded=action_receipt_succeeded(payload),
     )
+    if established_evidence_meta_refusal(repaired, grounding_policy):
+        repaired_issues = list(repaired_assessment.get("issues") or [])
+        repaired_issues.append("established_evidence_meta_refusal")
+        repaired_issues = list(dict.fromkeys(repaired_issues))
+        repaired_assessment["issues"] = repaired_issues
+        repaired_assessment["issue_count"] = len(repaired_issues)
+        repaired_assessment["repair_recommended"] = True
     diagnostics["repair_cleanup"] = repaired_cleanup
     diagnostics["repair_assessment"] = repaired_assessment
+
+    if "established_evidence_meta_refusal" in (repaired_assessment.get("issues") or []):
+        diagnostics["repair_used"] = True
+        diagnostics["established_evidence_refusal_blocked"] = True
+        return "Neo found verified project evidence for this question, but the active language model failed to produce a grounded answer from it. Please retry the response.", diagnostics, repair_result
 
     first_score = int(assessment.get("issue_count") or 0)
     repair_score = int(repaired_assessment.get("issue_count") or 0)
     if repaired and (repair_score < first_score or not cleaned):
         diagnostics["repair_used"] = True
         return repaired, diagnostics, repair_result
+    if {"internal_planning_leak", "internal_context_packet_leak"}.intersection(first_issues):
+        diagnostics["repair_used"] = True
+        diagnostics["planning_leak_blocked"] = True
+        return "I couldn't produce a clean user-facing answer from the current backend. Please retry the response.", diagnostics, repair_result
     return cleaned, diagnostics, repair_result
 
 
@@ -624,6 +683,56 @@ def _safe_log_assistant_event(event: str, *, run_id: str = "", payload: dict[str
         pass
 
 
+def _continuation_semantic_query(session: dict[str, Any] | None, fallback: str = "") -> str:
+    """Return the last real user request for Continue turns.
+
+    Continue is a generation instruction, not a new retrieval topic. Reuse the
+    previous user-authored semantic query so retrieval remains in the same scope
+    and grounding context instead of searching for words like "Assistant" or
+    "continue".
+    """
+    messages = list((session or {}).get("messages") or [])
+    synthetic = "continue the previous assistant response from where it stopped."
+    for item in reversed(messages):
+        if str(item.get("role") or "") != "user":
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text or text.lower() == synthetic:
+            continue
+        return text
+    return str(fallback or "").strip()
+
+
+def _session_for_scope(
+    *,
+    session_id: str,
+    project_id: str,
+    title: str = "New assistant chat",
+    mode: str = "general",
+) -> tuple[dict[str, Any], str, bool]:
+    """Return a chat session that is bound to exactly one Assistant Scope.
+
+    A Project Sandbox must never inherit a thread from another Scope. If the UI
+    changes Scope while an older chat is still active, create a fresh chat in
+    the requested Scope instead of silently moving the old transcript across the
+    sandbox boundary.
+    """
+    requested_scope = str(project_id or "general").strip() or "general"
+    session = get_session(session_id) if session_id else None
+    if session:
+        session_scope = str(session.get("project_id") or "general").strip() or "general"
+        if session_scope == requested_scope:
+            return session, str(session.get("session_id") or session_id), False
+    created = create_session_payload({
+        "title": str(title or "New assistant chat"),
+        "project_id": requested_scope,
+        "scope_id": requested_scope,
+        "mode": str(mode or "general"),
+    })
+    record = created["session"]
+    return record, str(record.get("session_id") or ""), bool(session)
+
+
 def _retrieval_gateway_result_from_control(assistant_control: dict[str, Any] | None) -> dict[str, Any] | None:
     control = assistant_control if isinstance(assistant_control, dict) else {}
     control_center = control.get("control_center") if isinstance(control.get("control_center"), dict) else {}
@@ -636,12 +745,13 @@ def _retrieval_gateway_result_from_control(assistant_control: dict[str, Any] | N
 
 def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
     payload = resolve_assistant_brain_chat_payload(payload or {})
+    is_continue = bool(payload.get("continue_response") or str(payload.get("mode") or "").lower() in {"continue_response", "continue"})
     text = str(payload.get("message") or payload.get("text") or "").strip()
     raw_attachment_payload = payload.get("attachments") or payload.get("attachment_ids") or []
     has_attachment_payload = bool(raw_attachment_payload) if isinstance(raw_attachment_payload, (list, tuple, str)) else False
     if not text and has_attachment_payload:
         text = "Please review the attached file(s)."
-    if not text and (payload.get("continue_response") or str(payload.get("mode") or "").lower() in {"continue_response", "continue"}):
+    if not text and is_continue:
         text = "Continue the previous Assistant response from where it stopped."
     behavior_mode = assistant_behavior_mode(text, payload)
     answer_mode = behavior_mode.lower()
@@ -654,11 +764,14 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
 
     session_id = str(payload.get("session_id") or "").strip()
     project_id = str(payload.get("project_id") or "").strip() or str(assistant_profile().get("default_project_id") or "general")
-    session = get_session(session_id) if session_id else None
-    if not session:
-        created = create_session_payload({"title": str(payload.get("title") or "New assistant chat"), "project_id": project_id, "mode": str(payload.get("mode") or "general")})
-        session = created["session"]
-        session_id = session["session_id"]
+    session, session_id, scope_session_replaced = _session_for_scope(
+        session_id=session_id,
+        project_id=project_id,
+        title=str(payload.get("title") or "New assistant chat"),
+        mode=str(payload.get("mode") or "general"),
+    )
+
+    semantic_text = _continuation_semantic_query(session, text) if is_continue else text
 
     _safe_log_assistant_event("assistant.chat.started", run_id=session_id, payload=_assistant_chat_log_summary(session_id=session_id, project_id=project_id, text=text, status="started"))
 
@@ -671,7 +784,9 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
     retrieval_profile = str(payload.get("retrieval_profile") or assistant_profile().get("retrieval_profile") or "smart")
     assistant_control = get_assistant_brain_workspace().context({
         **payload,
-        "message": text,
+        "message": semantic_text,
+        "planner_query": semantic_text,
+        "continuation_query": semantic_text if is_continue else "",
         "session_id": session_id,
         "project_id": project_id,
         "retrieval_profile": retrieval_profile,
@@ -680,7 +795,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
     context_pack = build_context_pack(
         session_id=session_id,
         project_id=project_id,
-        message=text,
+        message=semantic_text,
         retrieval_profile=retrieval_profile,
         active_surface=str(payload.get("active_surface") or payload.get("surface") or ""),
         surface_context_snapshot=(payload.get("surface_context_snapshot") if isinstance(payload.get("surface_context_snapshot"), dict) else (payload.get("active_surface_context") if isinstance(payload.get("active_surface_context"), dict) else None)),
@@ -712,7 +827,11 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         "backend_reason": reason,
         "answer_mode": answer_mode,
         "behavior_mode": behavior_mode,
+        "scope_session_replaced": bool(scope_session_replaced),
     }
+    diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
+        context_pack=context_pack, diagnostics=diagnostics, session_id=session_id, project_id=project_id, user_text=text, status="context_ready"
+    )
     if not available:
         saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
         summary = _assistant_chat_log_summary(session_id=session_id, project_id=project_id, text=text, status="provider_gated", profile=profile, diagnostics=diagnostics)
@@ -731,9 +850,14 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         context_pack=context_pack,
         attachment_context=attachment_context,
         history_messages=history_messages,
+        grounding_mode=str(payload.get("grounding_mode") or ""),
     )
     request_messages = compiled_prompt.get("messages") if isinstance(compiled_prompt.get("messages"), list) else history_messages
     diagnostics["prompt_compiler"] = compiled_prompt.get("diagnostics") or {}
+    diagnostics["grounding"] = compiled_prompt.get("grounding_policy") or {}
+    diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
+        context_pack=context_pack, compiled_prompt=compiled_prompt, diagnostics=diagnostics, session_id=session_id, project_id=project_id, user_text=text, status="prompt_compiled"
+    )
     try:
         get_assistant_control_center().record_prompt_compilation(
             diagnostics.get("assistant_control_trace_id") or "",
@@ -763,9 +887,13 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         behavior_mode=behavior_mode,
         payload=payload,
         raw_text=raw_assistant_text,
+        grounding_policy=compiled_prompt.get("grounding_policy") if isinstance(compiled_prompt, dict) else {},
     )
     diagnostics["reply_cleanup"] = output_guard.get("cleanup") or {}
     diagnostics["output_guard"] = output_guard
+    diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
+        context_pack=context_pack, compiled_prompt=compiled_prompt, diagnostics=diagnostics, output_guard=output_guard, session_id=session_id, project_id=project_id, user_text=text, status="completed"
+    )
     if repair_result is not None:
         diagnostics["repair_provider_result"] = {k: repair_result.get(k) for k in ("ok", "error_type", "finish_reason", "warning", "model") if k in repair_result}
     if not assistant_text:
@@ -781,6 +909,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         "backend_profile_id": profile.get("profile_id") or "",
         "provider_id": profile.get("provider_id") or "",
         "model": result.get("model") or (profile.get("connection") or {}).get("model") or "",
+        "grounding_mode": str((diagnostics.get("grounding") or {}).get("mode") or ""),
         "diagnostics": diagnostics,
         "source_grounding": context_pack.get("source_grounding") or {},
     }
@@ -804,6 +933,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         user_text=text,
         assistant_text=assistant_text,
         behavior_mode=behavior_mode,
+        grounding_mode=str((diagnostics.get("grounding") or {}).get("mode") or ""),
         source_id=str(user_message.get("message_id") or ""),
     )
     assistant_message["diagnostics"] = diagnostics
@@ -821,12 +951,13 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
 def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Execute an Assistant turn and emit SSE-friendly event dictionaries."""
     payload = resolve_assistant_brain_chat_payload(payload or {})
+    is_continue = bool(payload.get("continue_response") or str(payload.get("mode") or "").lower() in {"continue_response", "continue"})
     text = str(payload.get("message") or payload.get("text") or "").strip()
     raw_attachment_payload = payload.get("attachments") or payload.get("attachment_ids") or []
     has_attachment_payload = bool(raw_attachment_payload) if isinstance(raw_attachment_payload, (list, tuple, str)) else False
     if not text and has_attachment_payload:
         text = "Please review the attached file(s)."
-    if not text and (payload.get("continue_response") or str(payload.get("mode") or "").lower() in {"continue_response", "continue"}):
+    if not text and is_continue:
         text = "Continue the previous Assistant response from where it stopped."
     behavior_mode = assistant_behavior_mode(text, payload)
     answer_mode = behavior_mode.lower()
@@ -837,11 +968,14 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
 
     session_id = str(payload.get("session_id") or "").strip()
     project_id = str(payload.get("project_id") or "").strip() or str(assistant_profile().get("default_project_id") or "general")
-    session = get_session(session_id) if session_id else None
-    if not session:
-        created = create_session_payload({"title": str(payload.get("title") or "New assistant chat"), "project_id": project_id, "mode": str(payload.get("mode") or "general")})
-        session = created["session"]
-        session_id = session["session_id"]
+    session, session_id, scope_session_replaced = _session_for_scope(
+        session_id=session_id,
+        project_id=project_id,
+        title=str(payload.get("title") or "New assistant chat"),
+        mode=str(payload.get("mode") or "general"),
+    )
+
+    semantic_text = _continuation_semantic_query(session, text) if is_continue else text
 
     run_id = uuid4().hex
     yield {"type": "status", "schema_id": "neo.assistant.chat_stream.v1", "status": "preparing_context", "session_id": session_id, "run_id": run_id, "message": "Preparing Assistant context…"}
@@ -855,7 +989,9 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
     retrieval_profile = str(payload.get("retrieval_profile") or assistant_profile().get("retrieval_profile") or "smart")
     assistant_control = get_assistant_brain_workspace().context({
         **payload,
-        "message": text,
+        "message": semantic_text,
+        "planner_query": semantic_text,
+        "continuation_query": semantic_text if is_continue else "",
         "session_id": session_id,
         "project_id": project_id,
         "retrieval_profile": retrieval_profile,
@@ -864,7 +1000,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
     context_pack = build_context_pack(
         session_id=session_id,
         project_id=project_id,
-        message=text,
+        message=semantic_text,
         retrieval_profile=retrieval_profile,
         active_surface=str(payload.get("active_surface") or payload.get("surface") or ""),
         surface_context_snapshot=(payload.get("surface_context_snapshot") if isinstance(payload.get("surface_context_snapshot"), dict) else (payload.get("active_surface_context") if isinstance(payload.get("active_surface_context"), dict) else None)),
@@ -897,9 +1033,13 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         "backend_reason": reason,
         "answer_mode": answer_mode,
         "behavior_mode": behavior_mode,
+        "scope_session_replaced": bool(scope_session_replaced),
         "streaming": True,
         "run_id": run_id,
     }
+    diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
+        context_pack=context_pack, diagnostics=diagnostics, session_id=session_id, project_id=project_id, user_text=text, status="context_ready"
+    )
 
     saved_user = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
     yield {"type": "start", "ok": True, "schema_id": "neo.assistant.chat_stream.v1", "status": "started", "session_id": session_id, "run_id": run_id, "user_message": user_message, "session": saved_user.get("session"), "context_pack": context_pack, "diagnostics": diagnostics}
@@ -921,9 +1061,14 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         context_pack=context_pack,
         attachment_context=attachment_context,
         history_messages=history_messages,
+        grounding_mode=str(payload.get("grounding_mode") or ""),
     )
     request_messages = compiled_prompt.get("messages") if isinstance(compiled_prompt.get("messages"), list) else history_messages
     diagnostics["prompt_compiler"] = compiled_prompt.get("diagnostics") or {}
+    diagnostics["grounding"] = compiled_prompt.get("grounding_policy") or {}
+    diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
+        context_pack=context_pack, compiled_prompt=compiled_prompt, diagnostics=diagnostics, session_id=session_id, project_id=project_id, user_text=text, status="prompt_compiled"
+    )
     try:
         get_assistant_control_center().record_prompt_compilation(
             diagnostics.get("assistant_control_trace_id") or "",
@@ -970,9 +1115,13 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         behavior_mode=behavior_mode,
         payload=payload,
         raw_text=raw_assistant_text,
+        grounding_policy=compiled_prompt.get("grounding_policy") if isinstance(compiled_prompt, dict) else {},
     )
     diagnostics["reply_cleanup"] = output_guard.get("cleanup") or {}
     diagnostics["output_guard"] = output_guard
+    diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
+        context_pack=context_pack, compiled_prompt=compiled_prompt, diagnostics=diagnostics, output_guard=output_guard, session_id=session_id, project_id=project_id, user_text=text, status="completed"
+    )
     if repair_result is not None:
         diagnostics["repair_provider_result"] = {k: repair_result.get(k) for k in ("ok", "error_type", "finish_reason", "warning", "model") if k in repair_result}
     diagnostics["provider_result"] = {"ok": bool(assistant_text), "finish_reason": "stream_complete", **provider_meta}
@@ -998,6 +1147,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         "backend_profile_id": profile.get("profile_id") or "",
         "provider_id": profile.get("provider_id") or "",
         "model": provider_meta.get("model") or (profile.get("connection") or {}).get("model") or "",
+        "grounding_mode": str((diagnostics.get("grounding") or {}).get("mode") or ""),
         "diagnostics": diagnostics,
         "source_grounding": context_pack.get("source_grounding") or {},
         "streaming": True,
@@ -1026,6 +1176,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         user_text=text,
         assistant_text=assistant_text,
         behavior_mode=behavior_mode,
+        grounding_mode=str((diagnostics.get("grounding") or {}).get("mode") or ""),
         source_id=str(user_message.get("message_id") or ""),
     )
     assistant_message["diagnostics"] = diagnostics

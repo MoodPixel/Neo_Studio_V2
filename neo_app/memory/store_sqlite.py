@@ -318,6 +318,35 @@ class SQLiteMemoryStore:
             out.append(item)
         return out
 
+
+    def reset_source_projection(self, source_id: str) -> dict[str, int]:
+        """Delete disposable legacy search projections for one registered source.
+
+        This never touches Unified Memory authority rows or native stores. It is
+        used by NKB-12 before a full static-source reindex so deleted/renamed
+        source files cannot survive as stale chunks.
+        """
+        source_id = str(source_id or "").strip()
+        if not source_id:
+            return {"documents": 0, "chunks": 0, "embeddings": 0}
+        with self._connect() as conn:
+            chunk_rows = conn.execute("SELECT chunk_id FROM memory_chunks WHERE source_id=?", (source_id,)).fetchall()
+            chunk_ids = [str(row["chunk_id"]) for row in chunk_rows]
+            doc_count = int(conn.execute("SELECT COUNT(*) FROM memory_documents WHERE source_id=?", (source_id,)).fetchone()[0])
+            emb_count = 0
+            if chunk_ids:
+                placeholders = ",".join("?" for _ in chunk_ids)
+                emb_count = int(conn.execute(f"SELECT COUNT(*) FROM memory_embeddings WHERE chunk_id IN ({placeholders})", chunk_ids).fetchone()[0])
+                conn.execute(f"DELETE FROM memory_embeddings WHERE chunk_id IN ({placeholders})", chunk_ids)
+                try:
+                    conn.executemany("DELETE FROM memory_chunks_fts WHERE chunk_id=?", [(chunk_id,) for chunk_id in chunk_ids])
+                except sqlite3.OperationalError:
+                    pass
+            chunk_count = len(chunk_ids)
+            conn.execute("DELETE FROM memory_chunks WHERE source_id=?", (source_id,))
+            conn.execute("DELETE FROM memory_documents WHERE source_id=?", (source_id,))
+        return {"documents": doc_count, "chunks": chunk_count, "embeddings": emb_count}
+
     def upsert_document(self, document: dict[str, Any]) -> dict[str, Any]:
         with self._connect() as conn:
             conn.execute(

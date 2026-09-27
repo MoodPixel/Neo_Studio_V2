@@ -13,8 +13,9 @@ from uuid import uuid4
 from fastapi import UploadFile
 
 from neo_app.assistant.contracts import compact_json_payload, normalize_surface_id, trim_text
-from neo_app.assistant.attachments import extract_document_text
-from neo_app.context_identity import resolve_canonical_identity
+from neo_app.assistant.attachments import MAX_DOCUMENT_UPLOAD_BYTES, extract_document_text
+from neo_app.knowledge.project_documents import extract_project_document
+from neo_app.context_identity import resolve_canonical_identity, is_builtin_scope
 from neo_app.memory.project_brain_ingestion import get_project_brain_ingestion_service
 from neo_app.memory.job_service import get_memory_job_service
 from neo_app.assistant.guides import load_guides, project_surface, search_guides
@@ -117,6 +118,38 @@ def _file_hash(path: Path) -> str:
                 break
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _document_id_for_upload(project_id: str, filename: str) -> str:
+    logical = f"{_project_id(project_id)}:{str(filename or 'project_document').strip().lower()}"
+    return f"pdoc_{hashlib.sha256(logical.encode('utf-8', errors='ignore')).hexdigest()[:20]}"
+
+
+def _knowledge_manifest_path(path: Path) -> Path:
+    return path.with_suffix(path.suffix + ".knowledge.json")
+
+
+def _ordered_project_upload_records(upload_dir: Path) -> list[tuple[Path, dict[str, Any]]]:
+    """Return real Project upload sidecars in deterministic revision order.
+
+    Upload filenames contain random UUIDs, so path ordering cannot represent revision
+    order. Rebuild replays oldest -> newest using the recorded creation timestamp,
+    with mtime/name only as deterministic fallbacks. Knowledge manifests are excluded.
+    """
+    rows: list[tuple[str, float, str, Path, dict[str, Any]]] = []
+    if not upload_dir.exists():
+        return []
+    for sidecar in upload_dir.glob("*.json"):
+        record = read_json(sidecar, {})
+        if not isinstance(record, dict) or not record.get("upload_id"):
+            continue
+        try:
+            mtime = float(sidecar.stat().st_mtime)
+        except OSError:
+            mtime = 0.0
+        rows.append((str(record.get("created_at") or ""), mtime, sidecar.name, sidecar, record))
+    rows.sort(key=lambda item: (item[0], item[1], item[2]))
+    return [(item[3], item[4]) for item in rows]
 
 
 def _short_json(value: Any, limit: int = 7000) -> str:
@@ -392,7 +425,53 @@ def project_brain_status_payload(project_id: str = "general", surface: str = "")
     snapshots = list_project_brain_snapshots(project_id, limit=20)
     indexes = list_project_brain_indexes(project_id, limit=20)
     uploads = [path for path in (root / "uploads").glob("*") if not path.name.endswith(".json")] if (root / "uploads").exists() else []
-    guides = search_guides("", project_id=project_id, surface=resolved_surface, limit=12)
+    structured_manifests = list((root / "uploads").glob("*.knowledge.json")) if (root / "uploads").exists() else []
+    upload_records: list[dict[str, Any]] = []
+    if (root / "uploads").exists():
+        for sidecar in (root / "uploads").glob("*.json"):
+            if sidecar.name.endswith(".knowledge.json"):
+                continue
+            record = read_json(sidecar, {})
+            if not isinstance(record, dict) or not record.get("upload_id"):
+                continue
+            stored_path = str(record.get("stored_path") or "")
+            record = {**record, "stored_exists": bool(stored_path and (ROOT_DIR / stored_path).exists())}
+            upload_records.append(record)
+        upload_records.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    newest_by_document: dict[str, str] = {}
+    first_by_hash: dict[str, str] = {}
+    for row in upload_records:
+        document_id = str(row.get("document_id") or "")
+        if document_id and document_id not in newest_by_document:
+            newest_by_document[document_id] = str(row.get("revision_id") or "")
+    for row in reversed(upload_records):
+        content_hash = str(row.get("content_hash") or "")
+        if content_hash and content_hash not in first_by_hash:
+            first_by_hash[content_hash] = str(row.get("filename") or "")
+    latest_uploads = []
+    for row in upload_records[:100]:
+        content_hash = str(row.get("content_hash") or "")
+        filename = str(row.get("filename") or "")
+        duplicate_of = first_by_hash.get(content_hash, "") if content_hash else ""
+        canonical = row.get("canonical_memory") if isinstance(row.get("canonical_memory"), dict) else {}
+        latest_uploads.append({
+            "upload_id": row.get("upload_id") or "",
+            "document_id": row.get("document_id") or "",
+            "revision_id": row.get("revision_id") or "",
+            "filename": filename,
+            "mime_type": row.get("mime_type") or "",
+            "size_bytes": int(row.get("size_bytes") or 0),
+            "content_hash": content_hash,
+            "created_at": row.get("created_at") or "",
+            "stored_exists": bool(row.get("stored_exists")),
+            "current_revision": newest_by_document.get(str(row.get("document_id") or ""), "") == str(row.get("revision_id") or ""),
+            "duplicate_content_of": duplicate_of if duplicate_of and duplicate_of != filename else "",
+            "status": canonical.get("status") or "stored",
+            "fragment_count": int(canonical.get("chunk_count") or 0),
+            "fact_count": len(canonical.get("fact_ids") or []),
+            "entity_count": int(canonical.get("entity_count") or 0),
+        })
+    guides = search_guides("", project_id=project_id, surface=resolved_surface, limit=12) if is_builtin_scope(identity.get("scope_id") or project_id) else {"count": 0, "total_available": 0}
     canonical = get_project_brain_ingestion_service().status(project_id=project_id, surface=resolved_surface, identity=identity)
     job_rows = (get_memory_job_service().list(job_type="project_brain_rebuild", limit=50).get("jobs") or [])
     project_jobs = [job for job in job_rows if str(job.get("scope_id") or "") == project_id and str(job.get("surface") or "") in {resolved_surface, "global", "assistant"}]
@@ -415,12 +494,14 @@ def project_brain_status_payload(project_id: str = "general", surface: str = "")
             "snapshots": len(snapshots),
             "indexes": len(indexes),
             "uploads": len(uploads),
+            "structured_project_documents": len(structured_manifests),
             "built_in_guides_visible": guides.get("total_available") or guides.get("count") or 0,
             "canonical_fragments": int((canonical.get("counts") or {}).get("active_fragments") or 0),
             "canonical_facts": int((canonical.get("counts") or {}).get("active_facts") or 0),
             "queued_embeddings": int((canonical.get("counts") or {}).get("queued_embeddings") or 0),
             "active_jobs": len(active_jobs),
         },
+        "latest_uploads": latest_uploads,
         "canonical_memory": canonical,
         "jobs": {
             "active": active_jobs[:4],
@@ -435,7 +516,7 @@ def project_brain_status_payload(project_id: str = "general", surface: str = "")
         },
         "latest_snapshots": [{k: row.get(k) for k in ("snapshot_id", "surface", "title", "created_at", "content_hash")} for row in snapshots[:6]],
         "latest_indexes": [{"index_id": row.get("index_id"), "surface": row.get("surface"), "record_count": row.get("record_count"), "created_at": row.get("created_at"), "content_hash": row.get("content_hash")} for row in indexes[:6]],
-        "policy": "Unified Memory is retrieval-authoritative; Project Brain files remain compatibility/audit projections.",
+        "policy": "Unified Memory is retrieval-authoritative; persistent project documents use NKB-7 source-direct structured fragments, while Project Brain JSON remains compatibility/audit projection.",
     }
 
 
@@ -535,13 +616,10 @@ def rebuild_project_brain_payload(
 
     upload_results = []
     upload_dir = root / "uploads"
-    sidecars = sorted(upload_dir.glob("*.json")) if upload_dir.exists() else []
-    total = len(sidecars)
-    for idx, sidecar in enumerate(sidecars, start=1):
+    upload_records = _ordered_project_upload_records(upload_dir)
+    total = len(upload_records)
+    for idx, (sidecar, record) in enumerate(upload_records, start=1):
         checkpoint("Cancelled while extracting project files.")
-        record = read_json(sidecar, {})
-        if not isinstance(record, dict) or not record.get("upload_id"):
-            continue
         stored_path = str(record.get("stored_path") or "")
         path = ROOT_DIR / stored_path if stored_path and not Path(stored_path).is_absolute() else Path(stored_path)
         if not stored_path or not path.exists() or not path.is_file():
@@ -549,10 +627,35 @@ def rebuild_project_brain_payload(
             continue
         progress("extract_documents", 55 + round(((idx - 1) / max(1, total)) * 20), f"Extracting {path.name} ({idx}/{total}).", current=idx - 1, total=total)
         suffix = path.suffix.lower()
-        extracted_text, extraction = extract_document_text(path, suffix)
+        structured = extract_project_document(path, suffix)
+        extracted_text = ""
+        extraction = {k: v for k, v in structured.items() if k != "blocks"}
+        if not structured.get("blocks"):
+            extracted_text, legacy = extract_document_text(path, suffix)
+            if extracted_text:
+                extraction = {**legacy, "fallback": "assistant_attachment_extractor", "legacy_preview_chars": len(extracted_text)}
         checkpoint("Cancelled after document extraction.")
         file_hash = str(record.get("content_hash") or "") or _file_hash(path)
-        upload_results.append(service.ingest_document(record, extracted_text=extracted_text, extraction=extraction, identity=identity, file_content_hash=file_hash))
+        if not record.get("document_id"):
+            record["document_id"] = _document_id_for_upload(project_id, str(record.get("filename") or path.name))
+        record["revision_id"] = f"rev_{file_hash[:24]}"
+        result = service.ingest_document(record, extracted_text=extracted_text, extraction=extraction, structured_extraction=structured, identity=identity, file_content_hash=file_hash)
+        manifest = result.get("manifest") if isinstance(result.get("manifest"), dict) else None
+        if manifest:
+            manifest_path = _knowledge_manifest_path(path)
+            write_json(manifest_path, manifest)
+            record["knowledge_manifest_path"] = str(manifest_path.relative_to(ROOT_DIR)) if manifest_path.is_relative_to(ROOT_DIR) else str(manifest_path)
+        record["extraction"] = extraction
+        record["extracted_text_chars"] = int((structured or {}).get("chars") or len(extracted_text))
+        record["canonical_memory"] = {
+            "status": result.get("status") or "", "phase": result.get("phase") or "",
+            "fragment_ids": result.get("fragment_ids") or [], "chunk_count": result.get("chunk_count") or 0,
+            "fact_ids": result.get("fact_ids") or [], "edge_ids": result.get("edge_ids") or [],
+            "entity_count": result.get("entity_count") or 0, "deduplicated_count": result.get("deduplicated_count") or 0,
+            "superseded_count": result.get("superseded_count") or 0,
+        }
+        write_json(path.with_suffix(path.suffix + ".json"), record)
+        upload_results.append(result)
         progress("extract_documents", 55 + round((idx / max(1, total)) * 20), f"Extracted and ingested {idx}/{total} project file(s).", current=idx, total=total)
     pipeline.append({
         "step": "extract_and_ingest_project_files",
@@ -659,25 +762,80 @@ async def save_project_file_upload(file: UploadFile, *, project_id: str = "gener
     identity = _project_identity(project_id, surface)
     root = ensure_project_brain_dirs(project_id) / "uploads"
     destination = _safe_upload_path(root, file.filename or "upload")
-    with destination.open("wb") as handle:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            handle.write(chunk)
+    written = 0
+    try:
+        with destination.open("wb") as handle:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > MAX_DOCUMENT_UPLOAD_BYTES:
+                    raise ValueError(f"Project file exceeds {MAX_DOCUMENT_UPLOAD_BYTES // (1024 * 1024)} MB upload limit")
+                handle.write(chunk)
+    except Exception:
+        try:
+            destination.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
     suffix = destination.suffix.lower()
     mime = file.content_type or mimetypes.guess_type(destination.name)[0] or "application/octet-stream"
     file_content_hash = _file_hash(destination)
+    document_id = _document_id_for_upload(project_id, file.filename or destination.name)
+    revision_id = f"rev_{file_content_hash[:24]}"
+
+    # Exact-content duplicate guard. The upload has to reach the backend before
+    # its hash is authoritative, but an identical source must not create another
+    # physical copy or another canonical ingestion pass.
+    for sidecar in root.glob("*.json"):
+        if sidecar.name.endswith(".knowledge.json"):
+            continue
+        existing = read_json(sidecar, {})
+        if not isinstance(existing, dict) or str(existing.get("content_hash") or "") != file_content_hash:
+            continue
+        existing_path = str(existing.get("stored_path") or "")
+        if existing_path and (ROOT_DIR / existing_path).exists():
+            destination.unlink(missing_ok=True)
+            return {
+                "ok": True,
+                "schema_id": PROJECT_UPLOAD_SCHEMA_ID,
+                "phase": "NKB-7",
+                "status": "duplicate",
+                "duplicate": True,
+                "duplicate_of": {
+                    "upload_id": existing.get("upload_id") or "",
+                    "filename": existing.get("filename") or "",
+                    "document_id": existing.get("document_id") or "",
+                    "revision_id": existing.get("revision_id") or "",
+                    "content_hash": file_content_hash,
+                },
+                "upload": existing,
+                "canonical_memory": existing.get("canonical_memory") or {},
+                "project_brain": project_brain_status_payload(project_id=project_id, surface=surface),
+            }
+
+    structured: dict[str, Any] = {}
     extracted_text = ""
     extraction: dict[str, Any] = {"status": "not_applicable" if mime.startswith("image/") else "stored_only"}
     if not mime.startswith("image/"):
         try:
-            extracted_text, extraction = extract_document_text(destination, suffix)
+            structured = extract_project_document(destination, suffix)
+            extraction = {k: v for k, v in structured.items() if k != "blocks"}
+            # Compatibility fallback for unsupported/corrupt formats and for legacy
+            # extractor extensions. This path is not the persistent-project default.
+            if not structured.get("blocks"):
+                extracted_text, legacy = extract_document_text(destination, suffix)
+                if extracted_text:
+                    extraction = {**legacy, "fallback": "assistant_attachment_extractor", "legacy_preview_chars": len(extracted_text)}
         except Exception as exc:
-            extracted_text, extraction = "", {"status": "stored_only", "reason": f"document_extract_failed: {exc}"}
+            extracted_text, extraction = "", {"status": "stored_only", "reason": f"project_document_extract_failed: {exc}"}
+
     record = {
         "schema_id": PROJECT_UPLOAD_SCHEMA_ID,
         "upload_id": slugify(f"upload_{uuid4().hex[:12]}", "upload"),
+        "document_id": document_id,
+        "revision_id": revision_id,
         "project_id": project_id,  # legacy Scope alias
         "scope_id": identity.get("scope_id") or project_id,
         "surface_id": identity.get("surface_id") or surface,
@@ -691,42 +849,77 @@ async def save_project_file_upload(file: UploadFile, *, project_id: str = "gener
         "size_bytes": destination.stat().st_size,
         "content_hash": file_content_hash,
         "extraction": extraction,
-        "extracted_text_chars": len(extracted_text),
+        "extracted_text_chars": int((structured or {}).get("chars") or len(extracted_text)),
         "created_at": now_iso(),
     }
     canonical = get_project_brain_ingestion_service().ingest_document(
         record,
         extracted_text=extracted_text,
         extraction=extraction,
+        structured_extraction=structured,
         identity=identity,
         file_content_hash=file_content_hash,
     )
-    if extracted_text:
+    manifest = canonical.get("manifest") if isinstance(canonical.get("manifest"), dict) else None
+    if manifest:
+        manifest_path = _knowledge_manifest_path(destination)
+        write_json(manifest_path, manifest)
+        record["knowledge_manifest_path"] = str(manifest_path.relative_to(ROOT_DIR)) if manifest_path.is_relative_to(ROOT_DIR) else str(manifest_path)
+
+    context = None
+    if canonical.get("fragment_ids"):
+        # Compatibility Scope card is deliberately pointer-only. The source body is
+        # retrieved from canonical fragments through the Retrieval Gateway.
+        headings = []
+        for item in (manifest or {}).get("fragments") or []:
+            path = " > ".join(item.get("heading_path") or [])
+            if path and path not in headings:
+                headings.append(path)
+            if len(headings) >= 8:
+                break
+        pointer_lines = [
+            f"Project source indexed: {record['filename']}",
+            f"Document ID: {document_id}",
+            f"Revision: {revision_id}",
+            f"Retrieval fragments: {canonical.get('chunk_count') or len(canonical.get('fragment_ids') or [])}",
+            "Source body is not duplicated in Scope Knowledge; retrieve relevant source-direct fragments when needed.",
+        ]
+        if headings:
+            pointer_lines.append("Sections: " + "; ".join(headings))
         context = save_context_item_payload({
-            "title": f"Uploaded project doc: {record['filename']}",
-            "text": trim_text(extracted_text, 18000),
+            "title": f"Indexed project source: {record['filename']}",
+            "text": "\n".join(pointer_lines),
             "project_id": project_id,
             "session_id": session_id,
             "surface": surface,
-            "source": "assistant_project_brain_upload",
-            "kind": "uploaded_project_doc",
-            "tags": [surface, "upload", suffix.lstrip(".")],
-            "metadata": {"upload_id": record["upload_id"], "stored_path": record["stored_path"], "mime_type": mime, "canonical_source": True},
+            "source": "assistant_project_brain_upload_pointer",
+            "kind": "uploaded_project_doc_pointer",
+            "tags": [surface, "upload", suffix.lstrip("."), "source_pointer"],
+            "metadata": {
+                "upload_id": record["upload_id"], "document_id": document_id, "revision_id": revision_id,
+                "stored_path": record["stored_path"], "mime_type": mime, "canonical_source": True,
+                "canonical_projection_only": True, "source_pointer_only": True,
+            },
             "canonical_projection_only": True,
         })
         record["context_id"] = (context.get("context_item") or {}).get("context_id", "")
-    else:
-        context = None
+
     record["canonical_memory"] = {
         "status": canonical.get("status") or "",
+        "phase": canonical.get("phase") or "",
         "fragment_ids": canonical.get("fragment_ids") or [],
         "chunk_count": canonical.get("chunk_count") or 0,
+        "fact_ids": canonical.get("fact_ids") or [],
+        "edge_ids": canonical.get("edge_ids") or [],
+        "entity_count": canonical.get("entity_count") or 0,
         "deduplicated_count": canonical.get("deduplicated_count") or 0,
+        "superseded_count": canonical.get("superseded_count") or 0,
     }
     write_json(destination.with_suffix(destination.suffix + ".json"), record)
     return {
         "ok": True,
         "schema_id": PROJECT_UPLOAD_SCHEMA_ID,
+        "phase": "NKB-7",
         "upload": record,
         "context_item": (context or {}).get("context_item"),
         "canonical_memory": canonical,

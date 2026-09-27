@@ -220,6 +220,52 @@ def assess_assistant_output(
     if any(re.search(pattern, lower_cleaned, flags=re.I | re.S) for pattern in _DEFERRED_TASK_PATTERNS):
         issues.append("task_deferred_instead_of_completed")
 
+    # Local backends occasionally emit their hidden task-analysis preamble instead
+    # of the user-facing answer. Treat that as a severe meta-output leak so the
+    # normal repair path can replace it before it reaches chat.
+    planning_leak = bool(
+        re.match(r"^\s*\[?note to neo assistant\s*:", lower_cleaned)
+        or re.match(r"^\s*(?:neo assistant\s*[:(-].*?\)?\s*)?the user is asking\b", lower_cleaned, flags=re.S)
+        or (
+            lower_cleaned.startswith("neo assistant")
+            and "the user is asking" in lower_cleaned[:900]
+            and "neo assistant" not in str(user_text or "").lower()
+        )
+    )
+    if planning_leak:
+        issues.append("internal_planning_leak")
+
+    # NKB-9 packets are provider-visible context, never user-facing prose. Some
+    # local models may echo that scaffold verbatim before answering. Detect the
+    # packet signature so the normal correction pass can strip it rather than
+    # showing retrieval diagnostics inside chat.
+    packet_leak = bool(
+        re.match(r"^\s*(?:\*\*)?neo context packet(?:\*\*)?\s*", lower_cleaned)
+        or (
+            "[active scope]" in lower_cleaned[:1800]
+            and "[verified/retrieved evidence]" in lower_cleaned[:5000]
+        )
+        or (
+            "intent:" in lower_cleaned[:900]
+            and "claim type:" in lower_cleaned[:1200]
+            and "evidence state:" in lower_cleaned[:1500]
+            and "neo context packet" in lower_cleaned[:500]
+        )
+    )
+    if packet_leak and "neo context packet" not in str(user_text or "").lower():
+        issues.append("internal_context_packet_leak")
+
+    # Some local models answer once per retrieved source ("[1] ... [2] ...")
+    # instead of synthesizing a single response. That shape is especially harmful
+    # for simple factual/canon questions because it turns retrieval candidates into
+    # competing pseudo-answers. Inline citations are fine; only standalone repeated
+    # evidence-number headings trigger this guard.
+    standalone_evidence_heads = re.findall(r"(?m)^\s*\[(\d{1,2})\]\s*$", cleaned)
+    simple_question = bool(re.match(r"^\s*(?:who|what|where|when)\b", str(user_text or ""), flags=re.I))
+    user_asked_source_breakdown = bool(re.search(r"\b(?:source[- ]by[- ]source|each source|per source|compare sources|list sources)\b", str(user_text or ""), flags=re.I))
+    if simple_question and not user_asked_source_breakdown and len(standalone_evidence_heads) >= 3:
+        issues.append("evidence_item_answer_dump")
+
     target_words = requested_word_target(user_text)
     actual_words = len(re.findall(r"\b\w+\b", cleaned))
     if target_words >= 100 and actual_words < max(60, int(target_words * 0.60)):

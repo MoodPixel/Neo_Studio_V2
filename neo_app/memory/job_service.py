@@ -440,6 +440,7 @@ class MemoryJobService:
             "embedding_reindex": self._handle_embedding_reindex,
             "memory_writeback": self._handle_memory_writeback,
             "roleplay_memory_vectors": self._handle_roleplay_memory_vectors,
+            "nkb12_migration": self._handle_nkb12_migration,
         }
         handler = handlers.get(job_type)
         if not handler:
@@ -447,7 +448,7 @@ class MemoryJobService:
         return handler
 
     def supported_job_types(self) -> list[str]:
-        return ["project_brain_rebuild", "memory_consolidation", "embedding_reindex", "memory_writeback", "roleplay_memory_vectors"]
+        return ["project_brain_rebuild", "memory_consolidation", "embedding_reindex", "memory_writeback", "roleplay_memory_vectors", "nkb12_migration"]
 
     def _handle_project_brain_rebuild(self, ctx: MemoryJobContext, payload: dict[str, Any]) -> dict[str, Any]:
         from neo_app.assistant.project_brain import rebuild_project_brain_payload
@@ -484,6 +485,17 @@ class MemoryJobService:
         ctx.progress(phase="writeback_finalizing", percent=95, message="Finalizing durable-memory writeback.")
         ctx.checkpoint()
         return result
+
+    def _handle_nkb12_migration(self, ctx: MemoryJobContext, payload: dict[str, Any]) -> dict[str, Any]:
+        from .migration_nkb12 import NKB12MigrationService
+
+        ctx.progress(phase="inventory", percent=2, message="Planning NKB-12 migration and reindex.")
+        ctx.checkpoint("Cancelled before NKB-12 migration start.")
+        return NKB12MigrationService(self.db_path).run(
+            payload,
+            progress_callback=ctx.progress,
+            cancel_callback=ctx.checkpoint,
+        )
 
     def _handle_roleplay_memory_vectors(self, ctx: MemoryJobContext, payload: dict[str, Any]) -> dict[str, Any]:
         from neo_app.roleplay.retrieval import index_roleplay_memory_vectors_payload

@@ -7,6 +7,14 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from neo_app.context_identity import CanonicalContextIdentity, resolve_canonical_identity
+from neo_app.knowledge.project_documents import (
+    build_contextual_fragments,
+    build_project_document_manifest,
+    extract_explicit_knowledge,
+    enrich_fragments_with_explicit_knowledge,
+    projection_bundle_for_fragment,
+    structured_extraction_from_text,
+)
 from neo_app.memory.consolidation_engine import UnifiedMemoryConsolidationEngine
 from neo_app.memory.surface_ingestion import DEFAULT_MEMORY_DB, UnifiedMemoryWriter
 from neo_app.memory.unified_schema import ensure_unified_memory_schema
@@ -14,6 +22,7 @@ from neo_app.memory.unified_schema import ensure_unified_memory_schema
 ROOT_DIR = Path(__file__).resolve().parents[2]
 PROJECT_BRAIN_INGESTION_SCHEMA_ID = "neo.memory.project_brain_ingestion.phase7.v1"
 PROJECT_BRAIN_INGESTION_PHASE = "7"
+PROJECT_BRAIN_PUBLIC_PROJECT_PHASE = "NKB-7"
 PROJECT_BRAIN_SOURCE_PREFIX = "assistant_project_brain"
 
 
@@ -466,60 +475,299 @@ class ProjectBrainIngestionService:
             "items": ingested,
         }
 
+    @staticmethod
+    def _retire_stale_document_fragments(conn: sqlite3.Connection, *, source_prefix: str, active_source_ids: set[str]) -> int:
+        rows = conn.execute(
+            "SELECT fragment_id, source_id FROM neo_memory_fragments WHERE source_type='assistant_project_brain_upload' AND source_id LIKE ? AND status='active'",
+            (f"{source_prefix}%",),
+        ).fetchall()
+        stale = [str(row[0]) for row in rows if str(row[1] or "") not in active_source_ids]
+        if not stale:
+            return 0
+        placeholders = ",".join("?" for _ in stale)
+        conn.execute(f"UPDATE neo_memory_fragments SET status='superseded', updated_at=datetime('now') WHERE fragment_id IN ({placeholders})", stale)
+        try:
+            conn.executemany("DELETE FROM neo_memory_fragments_fts WHERE fragment_id=?", [(item,) for item in stale])
+        except sqlite3.OperationalError:
+            pass
+        return len(stale)
+
+    @staticmethod
+    def _retire_legacy_document_summaries(conn: sqlite3.Connection, *, surface: str, project_id: str | None, scope_id: str | None) -> int:
+        rows = conn.execute(
+            "SELECT fragment_id, metadata_json FROM neo_memory_fragments WHERE surface=? AND project_id IS ? AND scope_id IS ? AND memory_type='consolidated_summary' AND status='active'",
+            (surface, project_id, scope_id),
+        ).fetchall()
+        stale: list[str] = []
+        for row in rows:
+            try:
+                meta = json.loads(row[1] or "{}")
+            except Exception:
+                meta = {}
+            if str(meta.get("group_key") or "").endswith("|uploaded_project_document"):
+                stale.append(str(row[0]))
+        if not stale:
+            return 0
+        placeholders = ",".join("?" for _ in stale)
+        conn.execute(f"UPDATE neo_memory_fragments SET status='superseded', updated_at=datetime('now') WHERE fragment_id IN ({placeholders})", stale)
+        try:
+            conn.executemany("DELETE FROM neo_memory_fragments_fts WHERE fragment_id=?", [(item,) for item in stale])
+        except sqlite3.OperationalError:
+            pass
+        return len(stale)
+
+    @staticmethod
+    def _retire_document_derived_rows(conn: sqlite3.Connection, *, table: str, document_id: str, revision_id: str, surface: str, project_id: str | None, scope_id: str | None) -> int:
+        if table not in {"neo_memory_facts", "neo_memory_edges"}:
+            return 0
+        rows = conn.execute(
+            f"SELECT {'fact_id' if table == 'neo_memory_facts' else 'edge_id'} AS row_id, metadata_json FROM {table} WHERE surface=? AND project_id IS ? AND scope_id IS ? AND status='active'",
+            (surface, project_id, scope_id),
+        ).fetchall()
+        stale: list[str] = []
+        for row in rows:
+            try:
+                meta = json.loads(row[1] or "{}")
+            except Exception:
+                meta = {}
+            if str(meta.get("document_id") or "") == document_id and str(meta.get("revision_id") or "") not in {"", revision_id}:
+                stale.append(str(row[0]))
+        if not stale:
+            return 0
+        key = "fact_id" if table == "neo_memory_facts" else "edge_id"
+        placeholders = ",".join("?" for _ in stale)
+        conn.execute(f"UPDATE {table} SET status='superseded', updated_at=datetime('now') WHERE {key} IN ({placeholders})", stale)
+        return len(stale)
+
     def ingest_document(
         self,
         record: dict[str, Any],
         *,
-        extracted_text: str,
+        extracted_text: str = "",
         extraction: dict[str, Any] | None = None,
+        structured_extraction: dict[str, Any] | None = None,
         identity: dict[str, Any] | None = None,
         file_content_hash: str = "",
     ) -> dict[str, Any]:
-        text = _text(extracted_text)
-        if not text:
+        """Ingest a persistent public-project document as source-direct evidence.
+
+        NKB-7 intentionally avoids the legacy 24k/6k Project Brain path. Persistent
+        project files are represented as structure-aware contextual fragments and
+        explicit source-backed facts. One-turn Assistant attachments keep their
+        tighter preview limits in ``assistant.attachments``.
+        """
+        structured = dict(structured_extraction or {})
+        if not structured.get("blocks") and extracted_text:
+            source_kind = str(Path(str(record.get("filename") or "")).suffix.lower().lstrip(".") or "legacy_text")
+            structured = structured_extraction_from_text(str(extracted_text), source_kind=source_kind)
+        if not structured.get("blocks"):
             return {
                 "ok": True,
                 "schema_id": PROJECT_BRAIN_INGESTION_SCHEMA_ID,
+                "phase": PROJECT_BRAIN_PUBLIC_PROJECT_PHASE,
                 "status": "stored_only",
                 "fragment_ids": [],
-                "reason": (extraction or {}).get("reason") or "no_extractable_text",
+                "reason": (structured or extraction or {}).get("reason") or "no_extractable_text",
             }
-        content_hash = file_content_hash or _hash(text, 64)
-        chunks = _chunks(text)
-        items: list[dict[str, Any]] = []
-        for index, chunk in enumerate(chunks):
-            items.append(self.ingest_text(
-                project_id=str(record.get("project_id") or "general"),
-                surface=str(record.get("surface") or "assistant"),
-                identity=identity,
+
+        ident = _identity(
+            project_id=str(record.get("project_id") or "general"),
+            surface=str(record.get("surface") or "assistant"),
+            identity=identity,
+        )
+        storage = self.storage_identity(ident)
+        filename = str(record.get("filename") or "Project document")
+        stored_path = str(record.get("stored_path") or "")
+        content_hash = str(file_content_hash or record.get("content_hash") or "") or _hash(structured, 64)
+        source_namespace = str(ident.project_id or ident.scope_id or storage.get("project_id") or "general")
+        document_id = str(record.get("document_id") or f"doc_{_hash(source_namespace + ':' + filename.lower(), 20)}")
+        revision_id = str(record.get("revision_id") or f"rev_{content_hash[:24]}")
+        fragments = build_contextual_fragments(structured, filename=filename)
+        explicit = extract_explicit_knowledge(structured)
+        fragments = enrich_fragments_with_explicit_knowledge(fragments, explicit)
+        manifest = build_project_document_manifest(
+            document_id=document_id,
+            revision_id=revision_id,
+            filename=filename,
+            stored_path=stored_path,
+            content_hash=content_hash,
+            extraction=structured,
+            fragments=fragments,
+            explicit=explicit,
+        )
+        context = {
+            "surface_id": ident.surface_id or storage.get("surface") or "assistant",
+            "scope_id": ident.scope_id or storage.get("scope_id") or "general",
+            "project_id": ident.project_id or "",
+            "workspace_id": ident.workspace_id or "",
+        }
+        source_prefix = f"{source_namespace}:project_document:{document_id}:"
+        fragment_ids: list[str] = []
+        fact_ids: list[str] = []
+        edge_ids: list[str] = []
+        deduplicated = 0
+        superseded = 0
+
+        with self._connect() as conn:
+            self._ensure_registry(conn, ident, storage)
+            writer = UnifiedMemoryWriter(conn)
+            superseded += self._retire_legacy_document_summaries(conn, surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None)
+            event_id = writer.upsert_event(
+                surface=storage["surface"],
+                project_id=storage["project_id"] or None,
+                scope_id=storage["scope_id"] or None,
                 source_type="assistant_project_brain_upload",
-                source_id=f"project_upload:{content_hash}:chunk:{index}",
-                memory_type="uploaded_project_document",
-                event_type="assistant.project_brain.document_ingested",
-                title=f"{record.get('filename') or 'Project document'} · part {index + 1}/{len(chunks)}",
-                content=chunk,
-                summary=chunk[:1200],
-                priority=0.84,
-                metadata={
-                    "upload_id": record.get("upload_id") or "",
-                    "filename": record.get("filename") or "",
-                    "stored_path": record.get("stored_path") or "",
-                    "mime_type": record.get("mime_type") or "",
-                    "file_content_hash": content_hash,
-                    "chunk_index": index,
-                    "chunk_count": len(chunks),
-                    "extraction": extraction or {},
+                source_id=f"{source_namespace}:project_document:{document_id}:revision:{revision_id}",
+                event_type="assistant.project_brain.document_revision_ingested",
+                title=f"Project document indexed · {filename}",
+                summary=f"Structured project source with {len(fragments)} retrieval fragments; original file remains authoritative.",
+                payload={
+                    "document_id": document_id,
+                    "revision_id": revision_id,
+                    "filename": filename,
+                    "stored_path": stored_path,
+                    "content_hash": content_hash,
+                    "extraction": {k: v for k, v in structured.items() if k != "blocks"},
                 },
-            ))
+                metadata={
+                    "phase": PROJECT_BRAIN_PUBLIC_PROJECT_PHASE,
+                    "document_id": document_id,
+                    "revision_id": revision_id,
+                    "evidence_role": "project_source",
+                    "derivation": "direct",
+                    "canonical_identity": ident.as_dict(),
+                },
+                importance="high",
+                confidence=1.0,
+                trust_level="confirmed",
+            )
+            document_object_id = writer.upsert_object(
+                surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None,
+                object_type="project_document", object_key=document_id, label=filename,
+                summary=f"Persistent project source · {len(fragments)} structured fragments",
+                attributes={"filename": filename, "stored_path": stored_path, "content_hash": content_hash, "revision_id": revision_id, "extraction_method": structured.get("method")},
+                metadata={"source_event_id": event_id, "document_id": document_id, "revision_id": revision_id, "authority": "original_uploaded_file"}, confidence=1.0,
+            )
+
+            active_source_ids: set[str] = set()
+            for fragment in fragments:
+                bundle = projection_bundle_for_fragment(
+                    document_id=document_id, revision_id=revision_id, filename=filename,
+                    stored_path=stored_path, fragment=fragment, context=context,
+                )
+                fragment_key = str(fragment.get("fragment_key") or "fragment")
+                source_id = f"{source_prefix}{fragment_key}"
+                active_source_ids.add(source_id)
+                content = str(fragment.get("search_text") or fragment.get("text") or "")
+                memory_type = "uploaded_project_document"
+                fragment_content_hash = _hash({"surface": storage["surface"], "source_type": "assistant_project_brain_upload", "source_id": source_id, "memory_type": memory_type, "content": content}, 32)
+                if self._source_existing(conn, source_type="assistant_project_brain_upload", source_id=source_id, memory_type=memory_type, content_hash=fragment_content_hash):
+                    deduplicated += 1
+                superseded += self._retire_old_source_fragments(conn, source_type="assistant_project_brain_upload", source_id=source_id, memory_type=memory_type, content_hash=fragment_content_hash)
+                fid = writer.upsert_fragment(
+                    surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None,
+                    source_type="assistant_project_brain_upload", source_id=source_id, memory_type=memory_type,
+                    title=str(fragment.get("title") or filename), content=content,
+                    summary=str(fragment.get("text") or "")[:1200], priority=0.88, confidence=1.0, trust_level="confirmed",
+                    metadata={
+                        "phase": PROJECT_BRAIN_PUBLIC_PROJECT_PHASE,
+                        "document_id": document_id, "revision_id": revision_id, "filename": filename,
+                        "stored_path": stored_path, "file_content_hash": content_hash,
+                        "fragment_key": fragment_key, "heading_path": fragment.get("heading_path") or [],
+                        "source_locator": fragment.get("source_locator") or {}, "source_block_ids": fragment.get("source_block_ids") or [],
+                        "source_event_id": event_id, "document_object_id": document_object_id,
+                        "evidence_role": "project_source", "derivation": "direct_contextual_projection",
+                        "canon_state": "candidate", "consolidation_policy": "source_direct",
+                        "epistemic_role": str(fragment.get("epistemic_role") or "declarative_passage"),
+                        "epistemic_state": str(fragment.get("epistemic_state") or "established"),
+                        "claim_type": str(fragment.get("claim_type") or "source_passage"),
+                        "supports_positive_claims": bool(fragment.get("supports_positive_claims", True)),
+                        "knowledge_ref": bundle.get("knowledge_ref") or {}, "evidence": bundle.get("evidence") or {},
+                    },
+                )
+                if fid:
+                    fragment_ids.append(fid)
+            superseded += self._retire_stale_document_fragments(conn, source_prefix=source_prefix, active_source_ids=active_source_ids)
+
+            superseded += self._retire_document_derived_rows(conn, table="neo_memory_facts", document_id=document_id, revision_id=revision_id, surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None)
+            superseded += self._retire_document_derived_rows(conn, table="neo_memory_edges", document_id=document_id, revision_id=revision_id, surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None)
+
+            entity_ids: dict[str, str] = {}
+            for entity in explicit.get("entities") or []:
+                if not isinstance(entity, dict):
+                    continue
+                entity_key = str(entity.get("entity_key") or "")
+                if not entity_key:
+                    continue
+                entity_ids[entity_key] = writer.upsert_object(
+                    surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None,
+                    object_type=str(entity.get("entity_type") or "document_entity"), object_key=entity_key,
+                    label=str(entity.get("label") or entity_key), summary=f"Explicit entity referenced by {filename}",
+                    attributes={"aliases": entity.get("aliases") or []},
+                    metadata={"document_id": document_id, "revision_id": revision_id, "source_block_ids": entity.get("source_block_ids") or [], "derivation": "source_explicit"},
+                    confidence=0.98,
+                )
+            for fact in explicit.get("facts") or []:
+                if not isinstance(fact, dict):
+                    continue
+                subject_id = entity_ids.get(str(fact.get("subject_key") or ""))
+                if not subject_id:
+                    continue
+                fid = writer.upsert_fact(
+                    surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None,
+                    subject_id=subject_id, predicate=str(fact.get("predicate") or "document.explicit"), object_value=str(fact.get("object_value") or ""),
+                    statement=str(fact.get("statement") or ""), fact_type=str(fact.get("fact_type") or "source_explicit_fact"),
+                    source_event_id=event_id, confidence=0.98, trust_level="confirmed",
+                    metadata={"document_id": document_id, "revision_id": revision_id, "source_block_id": fact.get("source_block_id") or "", "evidence_role": "project_source", "derivation": "source_explicit"},
+                )
+                if fid: fact_ids.append(fid)
+            entity_label_ids = {
+                str(entity.get("label") or "").strip().casefold(): entity_ids.get(str(entity.get("entity_key") or ""))
+                for entity in (explicit.get("entities") or []) if isinstance(entity, dict)
+            }
+            for relation in explicit.get("relationships") or []:
+                if not isinstance(relation, dict):
+                    continue
+                source_obj = entity_ids.get(str(relation.get("source_key") or ""))
+                target_label = str(relation.get("target_label") or "").strip()
+                if not source_obj or not target_label:
+                    continue
+                target_obj = entity_label_ids.get(target_label.casefold())
+                if not target_obj:
+                    target_key = f"entity:{_hash(target_label.lower(), 16)}"
+                    target_obj = writer.upsert_object(
+                        surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None,
+                        object_type="document_entity", object_key=target_key, label=target_label,
+                        summary=f"Entity explicitly named by a relationship in {filename}", attributes={},
+                        metadata={"document_id": document_id, "revision_id": revision_id, "derivation": "source_explicit_relation"}, confidence=0.9,
+                    )
+                eid = writer.upsert_edge(
+                    surface=storage["surface"], project_id=storage["project_id"] or None, scope_id=storage["scope_id"] or None,
+                    source_object_id=source_obj, target_object_id=target_obj, edge_type=str(relation.get("relation_type") or "document.related_to"),
+                    label=str(relation.get("relation_type") or "related"), confidence=0.95,
+                    metadata={"document_id": document_id, "revision_id": revision_id, "source_block_id": relation.get("source_block_id") or "", "evidence_role": "project_source", "derivation": "source_explicit"},
+                )
+                if eid: edge_ids.append(eid)
+            conn.commit()
+
         return {
             "ok": True,
             "schema_id": PROJECT_BRAIN_INGESTION_SCHEMA_ID,
-            "status": "ingested",
+            "phase": PROJECT_BRAIN_PUBLIC_PROJECT_PHASE,
+            "status": "deduplicated" if fragments and deduplicated == len(fragments) and superseded == 0 else "ingested",
+            "document_id": document_id,
+            "revision_id": revision_id,
             "file_content_hash": content_hash,
-            "chunk_count": len(chunks),
-            "fragment_ids": [fid for item in items for fid in item.get("fragment_ids", [])],
-            "deduplicated_count": sum(1 for item in items if item.get("deduplicated")),
-            "items": items,
+            "chunk_count": len(fragments),
+            "fragment_ids": fragment_ids,
+            "fact_ids": fact_ids,
+            "edge_ids": edge_ids,
+            "entity_count": len(entity_ids),
+            "deduplicated_count": deduplicated,
+            "superseded_count": superseded,
+            "extraction": {k: v for k, v in structured.items() if k != "blocks"},
+            "manifest": manifest,
+            "policy": "Persistent public-project documents are source-direct structured evidence. They are not automatically user-approved canon and are excluded from generic consolidation summaries.",
         }
 
     def status(

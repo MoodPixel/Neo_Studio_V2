@@ -9,12 +9,13 @@ from uuid import uuid4
 from neo_app.context_identity import memory_filter_from_payload, resolve_canonical_identity
 from neo_app.memory.retrieval_profiles import get_retrieval_profile
 from neo_app.memory.scope_priority import build_scope_priority_plan
+from neo_app.memory.retrieval_planner import UnifiedRetrievalPlanner, RETRIEVAL_PLANNER_PHASE
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = ROOT_DIR / "neo_data" / "memory" / "global" / "neo_memory.sqlite3"
 
 RETRIEVAL_GATEWAY_SCHEMA_ID = "neo.memory.retrieval_gateway.v1"
-RETRIEVAL_GATEWAY_PHASE = "6"
+RETRIEVAL_GATEWAY_PHASE = "NKB-8"
 
 # Phase 6 keeps experiential/project/surface memory in Unified M9, but routes it
 # through query-driven scope-priority targets. Static knowledge remains separate.
@@ -102,11 +103,19 @@ def _normalize_unified_item(item: dict[str, Any], *, target: dict[str, Any] | No
     content = _clean(item.get("content") or item.get("summary") or item.get("snippet"), limit=2200)
     fragment_id = str(item.get("fragment_id") or "")
     target = target if isinstance(target, dict) else {}
+    metadata = dict(item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {}
+    evidence = metadata.get("evidence") if isinstance(metadata.get("evidence"), dict) else {}
+    native_ref = evidence.get("native_ref") if isinstance(evidence.get("native_ref"), dict) else {}
+    source_locator = evidence.get("source_locator") if isinstance(evidence.get("source_locator"), dict) else {}
+    evidence_provenance = evidence.get("provenance") if isinstance(evidence.get("provenance"), dict) else {}
+    evidence_conflict = evidence.get("conflict") if isinstance(evidence.get("conflict"), dict) else {}
+    evidence_semantic = evidence.get("semantic") if isinstance(evidence.get("semantic"), dict) else {}
     base_score = _score(item.get("score"), 0.0)
     target_priority = _score(target.get("priority"), 1.0)
     # Scope affects priority, not eligibility. Keep query relevance dominant while
     # giving the active scope/project a modest, bounded preference.
     blended_score = min(1.0, (base_score * 0.9) + (target_priority * 0.1))
+    source_path = str(source_locator.get("path") or metadata.get("stored_path") or "")
     return {
         "item_id": fragment_id or f"unified:{_fingerprint(content)[:16]}",
         "source_lane": "unified_memory",
@@ -127,21 +136,37 @@ def _normalize_unified_item(item: dict[str, Any], *, target: dict[str, Any] | No
         "trust_level": str(item.get("trust_level") or ""),
         "memory_state": "active",
         "approval_state": "",
-        "citation": {},
+        "citation": {
+            "chunk_id": "",
+            "source_id": str(item.get("source_id") or fragment_id or ""),
+            "source_path": source_path,
+            "start_line": source_locator.get("start_line"),
+            "end_line": source_locator.get("end_line"),
+            "label": str(source_locator.get("label") or metadata.get("filename") or source_path or ""),
+            "viewer_endpoint": "",
+        } if source_path else {},
         "metadata": {
-            **(item.get("metadata") if isinstance(item.get("metadata"), dict) else {}),
+            **metadata,
             "scope_priority_target": target.get("target_id") or "",
             "scope_priority_reason": target.get("reason") or "",
+            "native_ref": native_ref,
         },
         "provenance": {
-            "adapter": "unified_memory",
+            "adapter": str(native_ref.get("adapter_id") or "unified_memory"),
             "fragment_id": fragment_id,
             "source_id": str(item.get("source_id") or ""),
+            "native_ref": native_ref,
             "scope_priority_target": target.get("target_id") or "",
             "scope_priority_reason": target.get("reason") or "",
             "target_surface": target.get("surface") or "",
             "target_project_id": target.get("project_id") or "",
             "target_scope_id": target.get("scope_id") or "",
+        },
+        "authority": {
+            "evidence_role": str(metadata.get("evidence_role") or evidence_semantic.get("evidence_role") or "experiential_memory"),
+            "lifecycle": str(item.get("status") or "active"),
+            "source_integrity": str(evidence_provenance.get("source_integrity") or "present"),
+            "conflict": str(evidence_conflict.get("state") or "none"),
         },
     }
 
@@ -151,6 +176,26 @@ def _normalize_knowledge_item(item: dict[str, Any]) -> dict[str, Any]:
     content = _clean(item.get("content") or item.get("snippet") or item.get("summary"), limit=2200)
     chunk_id = str(item.get("chunk_id") or citation.get("chunk_id") or "")
     source_path = str(item.get("source_path") or citation.get("source_path") or "")
+    source_id = str(item.get("source_id") or citation.get("source_id") or "knowledge_index")
+    start_line = item.get("start_line") or citation.get("start_line")
+    end_line = item.get("end_line") or citation.get("end_line")
+    native_ref: dict[str, Any] = {}
+    if source_path and source_id == "neo_codebase":
+        native_ref = {
+            "adapter_id": "neo.code",
+            "authority_namespace": "repository.test" if source_path.replace("\\", "/").startswith("tests/") else "repository.file",
+            "native_id": f"{source_path}::L{start_line}-{end_line}" if start_line else source_path,
+            "resolver_kind": "repository_range" if start_line else "file",
+            "resolver_key": {"path": source_path, "start_line": start_line or 0, "end_line": end_line or 0},
+        }
+    elif source_path and source_id == "system_records":
+        native_ref = {
+            "adapter_id": "neo.docs",
+            "authority_namespace": "system_record.section" if start_line else "system_record.document",
+            "native_id": f"{source_path}#L{start_line}-L{end_line}" if start_line else source_path,
+            "resolver_kind": "repository_range" if start_line else "file",
+            "resolver_key": {"path": source_path, "start_line": start_line or 0, "end_line": end_line or 0},
+        }
     return {
         "item_id": chunk_id or f"knowledge:{_fingerprint(source_path + content)[:16]}",
         "source_lane": "knowledge_index",
@@ -159,7 +204,7 @@ def _normalize_knowledge_item(item: dict[str, Any]) -> dict[str, Any]:
         "project_id": "",
         "scope_id": "",
         "source_type": str(item.get("source_type") or "indexed_document"),
-        "source_id": str(item.get("source_id") or citation.get("source_id") or "knowledge_index"),
+        "source_id": source_id,
         "memory_type": "knowledge_chunk",
         "title": _clean(item.get("title") or citation.get("title") or source_path or "Knowledge source", limit=220),
         "content": content,
@@ -173,16 +218,23 @@ def _normalize_knowledge_item(item: dict[str, Any]) -> dict[str, Any]:
             "chunk_id": chunk_id,
             "source_id": str(item.get("source_id") or citation.get("source_id") or ""),
             "source_path": source_path,
-            "start_line": item.get("start_line") or citation.get("start_line"),
-            "end_line": item.get("end_line") or citation.get("end_line"),
+            "start_line": start_line,
+            "end_line": end_line,
             "label": str(citation.get("label") or source_path or chunk_id),
             "viewer_endpoint": str(item.get("viewer_endpoint") or citation.get("viewer_endpoint") or ""),
         },
-        "metadata": {},
+        "metadata": {"native_ref": native_ref} if native_ref else {},
         "provenance": {
             "adapter": "knowledge_index",
             "chunk_id": chunk_id,
             "source_path": source_path,
+            "native_ref": native_ref,
+        },
+        "authority": {
+            "evidence_role": ("validation_test" if source_path.replace("\\", "/").startswith("tests/") else "runtime_implementation" if str(item.get("source_id") or "") == "neo_codebase" else "developer_reference"),
+            "lifecycle": str(item.get("memory_state") or citation.get("memory_state") or "active"),
+            "source_integrity": "present",
+            "conflict": "none",
         },
     }
 
@@ -242,6 +294,7 @@ def _normalize_guide_item(guide: dict[str, Any], *, rank: int) -> dict[str, Any]
             "version": guide.get("version"),
         },
         "provenance": {"adapter": "guide_index", "guide_id": guide_id, "path": path},
+        "authority": {"evidence_role": "current_guide", "lifecycle": str(guide.get("status") or "active"), "source_integrity": "present", "conflict": "none"},
     }
 
 
@@ -427,8 +480,10 @@ class RetrievalGateway:
     ranked/deduplicated result. Control Center remains the final selector.
     """
 
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
+    def __init__(self, db_path: Path = DEFAULT_DB_PATH, root_dir: Path = ROOT_DIR) -> None:
         self.db_path = Path(db_path)
+        self.root_dir = Path(root_dir).resolve()
+        self.planner = UnifiedRetrievalPlanner(self.db_path, self.root_dir)
 
     def status(self) -> dict[str, Any]:
         return {
@@ -436,9 +491,10 @@ class RetrievalGateway:
             "schema_id": RETRIEVAL_GATEWAY_SCHEMA_ID,
             "phase": RETRIEVAL_GATEWAY_PHASE,
             "status": "ready",
-            "adapters": ["unified_memory", "knowledge_index", "guide_index"],
+            "adapters": ["project_structured", "unified_memory", "native_authority", "knowledge_index", "guide_index"],
             "static_knowledge_sources": sorted(STATIC_KNOWLEDGE_SOURCES),
-            "policy": "Assistant retrieval uses one gateway result. Phase 6 adds query-driven scope priority while storage engines remain independent authorities behind adapters.",
+            "retrieval_planner": self.planner.status(),
+            "policy": "Assistant retrieval uses the NKB-8 Unified Retrieval Planner to select lanes, fuse ranks, rerank, adjudicate authority, and hydrate strong evidence before NKB-9 packet assembly.",
         }
 
     def retrieve(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -451,16 +507,44 @@ class RetrievalGateway:
         include_guides = data.get("include_guides", True) is not False
         consumer = str(data.get("consumer") or "assistant_retrieval_gateway")
 
+        # Historical Assistant APIs call the active Assistant Scope ``project_id``.
+        # Treat that field as a Scope at the Assistant retrieval boundary even
+        # when a caller forgot to duplicate it into ``legacy_project_id``. True
+        # Delivery Projects travel separately as delivery_project_id/identity.
+        assistant_scope_boundary = bool(
+            data.get("legacy_project_id")
+            or data.get("scope_id")
+            or str(consumer or "").startswith("assistant")
+            or str(data.get("controller") or "").lower() == "assistant"
+        )
         identity = resolve_canonical_identity(
             data,
-            legacy_project_is_scope=bool(data.get("legacy_project_id")),
+            legacy_project_is_scope=assistant_scope_boundary,
             source="retrieval_gateway",
         )
         memory_filter = memory_filter_from_payload(
             {**data, "identity": identity.as_dict()},
-            legacy_project_is_scope=bool(data.get("legacy_project_id")),
+            legacy_project_is_scope=assistant_scope_boundary,
         )
-        adapter_limit = max(limit, min(limit * 2, 30))
+        planner_query = str(data.get("planner_query") or query).strip()
+        planner_plan = self.planner.analyze({**data, "identity": identity.as_dict(), "query": planner_query, "retrieval_profile": requested_profile})
+        retrieval_query = str(planner_plan.get("retrieval_query") or query).strip() or query
+        planned_lanes = planner_plan.get("lanes") if isinstance(planner_plan.get("lanes"), dict) else {}
+        # Explicit caller source restrictions remain authoritative (for example
+        # the compatibility source-grounded route can request System Records only).
+        if data.get("include_project_structured") is False:
+            planned_lanes["project_structured"] = False
+            (planner_plan.get("lane_weights") or {})["project_structured"] = 0.0
+        if data.get("include_native") is False:
+            planned_lanes["native_authority"] = False
+            (planner_plan.get("lane_weights") or {})["native_authority"] = 0.0
+        if "include_unified" not in data:
+            include_unified = bool(planned_lanes.get("unified_memory", True))
+        if "include_knowledge" not in data:
+            include_knowledge = bool(planned_lanes.get("knowledge_index", True))
+        if "include_guides" not in data:
+            include_guides = bool(planned_lanes.get("guide_index", True))
+        adapter_limit = max(limit, min(limit * 3, 36))
         adapters: dict[str, Any] = {}
         normalized: list[dict[str, Any]] = []
 
@@ -480,7 +564,7 @@ class RetrievalGateway:
                     if unified_profile not in {"fast", "smart", "deep", "assistant_project", "roleplay_runtime", "creator_workflow", "code_audit", "admin_diagnostic"}:
                         unified_profile = "smart"
                     result = engine.retrieve({
-                        "query": query,
+                        "query": retrieval_query,
                         # Phase 6 target filters are already resolved by the scope-priority
                         # planner. Do not pass canonical identity here or M9 would translate
                         # them back into the active-scope storage filter.
@@ -531,7 +615,17 @@ class RetrievalGateway:
         else:
             adapters["unified_memory"] = {"ok": True, "status": "disabled", "result_count": 0, "target_count": 0}
 
-        knowledge_profile = _resolve_knowledge_profile(requested_profile, query)
+        planner_intent = str(planner_plan.get("intent") or "")
+        if planner_intent == "neo_development":
+            knowledge_profile = "code_audit"
+        elif planner_intent == "neo_admin_diagnostic":
+            knowledge_profile = "admin_diagnostic"
+        elif requested_profile == "fast":
+            knowledge_profile = "fast"
+        elif requested_profile == "deep":
+            knowledge_profile = "deep"
+        else:
+            knowledge_profile = "assistant_project"
         sources = _knowledge_sources(knowledge_profile, data.get("knowledge_sources") if isinstance(data.get("knowledge_sources"), list) else None)
         if include_knowledge and query:
             try:
@@ -607,17 +701,34 @@ class RetrievalGateway:
         else:
             adapters["guide_index"] = {"ok": True, "status": "disabled" if not include_guides else "no_query", "result_count": 0}
 
-        selected, duplicates_removed = _dedupe_rank(normalized, limit=limit)
+        project_candidates = self.planner.project_structured_candidates(planner_plan, limit=adapter_limit)
+        native_candidates, native_reports = self.planner.native_candidates(planner_plan, limit=adapter_limit)
+        normalized.extend(project_candidates)
+        normalized.extend(native_candidates)
+        adapters["project_structured"] = {"ok": True, "status": "ready" if (planner_plan.get("lanes") or {}).get("project_structured") else "disabled", "result_count": len(project_candidates)}
+        adapters["native_authority"] = {"ok": True, "status": "ready" if (planner_plan.get("lanes") or {}).get("native_authority") else "disabled", "result_count": len(native_candidates), "adapters": native_reports}
+
+        lane_items: dict[str, list[dict[str, Any]]] = {}
+        for item in normalized:
+            lane_items.setdefault(str(item.get("source_lane") or "unknown"), []).append(item)
+        fused = self.planner.fuse(planner_plan, lane_items, limit=max(limit * 4, 24))
+        reranked, reranker_status = self.planner.rerank(planner_plan, list(fused.get("items") or []), top_n=max(limit * 2, 12))
+        adjudicated = self.planner.adjudicate(planner_plan, reranked, limit=limit)
+        selected = list(adjudicated.get("items") or [])
+        duplicates_removed = int(fused.get("duplicates_removed") or 0)
         evidence = _evidence(selected)
         gateway_trace_id = f"gateway_{uuid4().hex[:12]}"
         counts = {
             "result_count": len(selected),
             "candidate_count": len(normalized),
             "duplicates_removed": duplicates_removed,
+            "project_structured": sum(1 for item in selected if item.get("source_lane") == "project_structured"),
             "unified_memory": sum(1 for item in selected if item.get("source_lane") == "unified_memory"),
+            "native_authority": sum(1 for item in selected if item.get("source_lane") == "native_authority"),
             "knowledge_index": sum(1 for item in selected if item.get("source_lane") == "knowledge_index"),
             "guide_index": sum(1 for item in selected if item.get("source_lane") == "guide_index"),
             "evidence_count": len(evidence),
+            "authority_rejected": len(adjudicated.get("rejected") or []),
         }
         adapter_errors = [name for name, state in adapters.items() if not state.get("ok", False)]
         return {
@@ -627,17 +738,25 @@ class RetrievalGateway:
             "status": "ready" if selected else ("partial" if adapter_errors else "no_results"),
             "gateway_trace_id": gateway_trace_id,
             "query": query,
+            "planner_query": planner_query,
             "profile": requested_profile,
             "identity": identity.as_dict(),
             "memory_filter": {k: memory_filter.get(k) for k in ("surface", "project_id", "scope_id")},
             "scope_policy": scope_policy,
             "retrieval_targets": list(scope_policy.get("targets") or []),
+            "planner": planner_plan,
+            "planner_trace_id": planner_plan.get("planner_trace_id") or "",
+            "planner_phase": RETRIEVAL_PLANNER_PHASE,
+            "known_state": adjudicated.get("known_state") or "not_established",
+            "fail_closed_recommended": bool(adjudicated.get("fail_closed_recommended")),
+            "fusion": {**fused, "items": [], "reranker": reranker_status},
+            "authority_rejections": [{k: item.get(k) for k in ("item_id", "title", "source_lane", "authority_reasons", "score")} for item in (adjudicated.get("rejected") or [])[:20]],
             "items": selected,
             "evidence": evidence,
             "counts": counts,
             "adapters": adapters,
             "adapter_errors": adapter_errors,
-            "policy": "One Assistant retrieval gateway ranks and deduplicates Unified M9 memory plus source-backed Knowledge/Guide adapters. Phase 6 applies bounded query-driven scope expansion: active Scope is prioritized, not treated as a prison.",
+            "policy": "NKB-8 plans evidence lanes by intent/claim type, fuses lane ranks with weighted RRF, reranks the fused shortlist, adjudicates task-sensitive authority, and hydrates strong native/Project evidence. NKB-9 owns final packet assembly.",
         }
 
 

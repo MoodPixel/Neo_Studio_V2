@@ -122,3 +122,29 @@ def query_chroma_chunks(query_vector: list[float], *, source_id: str, limit: int
             "metadata": meta,
         })
     return {"status": "ready", "store": "chroma", "collection": collection_name, "results": results, "count": len(results)}
+
+
+def reset_chroma_collection(source_id: str, engine_state: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Best-effort reset of one disposable Chroma mirror collection."""
+    state = engine_state or admin_engine_state_payload()
+    vector = dict(state.get("vector_store") or {})
+    if str(vector.get("active_store") or "") != "chroma" or not bool(vector.get("write_enabled")):
+        return {"status": "skipped", "reason": "chroma_not_active_or_write_disabled", "source_id": source_id}
+    try:
+        import chromadb  # type: ignore
+    except Exception as exc:
+        return {"status": "unavailable", "reason": "chromadb_missing", "error": str(exc)[:500], "source_id": source_id}
+    try:
+        root = ROOT_DIR / str(vector.get("persist_path") or vector.get("root") or "neo_data/vector_store")
+        root.mkdir(parents=True, exist_ok=True)
+        client = chromadb.PersistentClient(path=str(root))
+        name = _collection_name(source_id, state)
+        try:
+            client.delete_collection(name)
+            return {"status": "reset", "collection": name, "source_id": source_id}
+        except Exception as exc:
+            # Missing collection is already a clean state. Chroma versions differ
+            # in the exact missing-collection exception type, so keep this benign.
+            return {"status": "clean", "collection": name, "source_id": source_id, "note": str(exc)[:300]}
+    except Exception as exc:
+        return {"status": "failed", "reason": "chroma_reset_error", "error": str(exc)[:700], "source_id": source_id}

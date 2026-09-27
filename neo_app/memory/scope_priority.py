@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from neo_app.context_identity import CanonicalContextIdentity, builtin_scope_for_surface
+from neo_app.context_identity import CanonicalContextIdentity, builtin_scope_for_surface, is_builtin_scope
 from neo_app.memory.unified_schema import ensure_unified_memory_schema
 
 SCOPE_PRIORITY_SCHEMA_ID = "neo.memory.scope_priority.v1"
@@ -234,6 +234,54 @@ def build_scope_priority_plan(query: str, identity: CanonicalContextIdentity, *,
     active_scope = identity.scope_id or "general"
     active_project = identity.project_id or ""
     compat = identity.compatibility or {}
+    project_sandbox = bool(active_scope and active_scope != "general" and not is_builtin_scope(active_scope))
+
+    # Post-NKB hardening: user-created Assistant scopes are project sandboxes, not
+    # federated discovery workspaces. General and Neo built-ins may expand when the
+    # query warrants it; a custom project scope stays inside its own canonical/
+    # compatibility storage target unless a future explicit escape action is added.
+    if project_sandbox:
+        memory_surface = str(compat.get("memory_surface_id") or "assistant")
+        memory_project = str(compat.get("memory_project_id") or f"assistant:{active_scope}")
+        memory_scope = str(compat.get("memory_scope_id") or "")
+        _append_unique(targets, _target(
+            target_id="active_project_sandbox", surface=memory_surface, project_id=memory_project, scope_id=memory_scope,
+            priority=1.0, reason="project_sandbox", source="canonical_identity",
+            canonical_surface=active_surface, canonical_scope=active_scope, hard_boundary=True,
+        ))
+        if active_project:
+            # A linked Delivery Project and the Assistant scope are the same user
+            # project boundary, but older scope-local rows may still live under
+            # assistant:<scope>. Read both without granting cross-project access.
+            _append_unique(targets, _target(
+                target_id="active_project_sandbox_scope_compat", surface="assistant", project_id=f"assistant:{active_scope}", scope_id="",
+                priority=0.97, reason="project_sandbox_scope_compat", source="compatibility",
+                canonical_surface=active_surface, canonical_scope=active_scope, hard_boundary=True,
+            ))
+        return {
+            "schema_id": SCOPE_PRIORITY_SCHEMA_ID,
+            "phase": SCOPE_PRIORITY_PHASE,
+            "policy": "User-created project scopes are hard sandboxes by default. General and Neo built-in scopes remain federated/query-driven.",
+            "scope_class": "project_sandbox",
+            "hard_sandbox": True,
+            "active_identity": identity.as_dict(),
+            "surface_scores": {},
+            "targets": targets,
+            "blocked_expansions": [
+                {"target": "general_memory", "reason": "project_sandbox"},
+                {"target": "cross_project", "reason": "project_sandbox"},
+                {"target": "cross_surface", "reason": "project_sandbox"},
+            ],
+            "allow_cross_surface": False,
+            "allow_cross_project": False,
+            "allow_scope_expansion": False,
+            "expanded_surfaces": [],
+            "query_project_expansion": False,
+            "recall_discovery": False,
+            "general_memory_included": False,
+            "roleplay_sandbox_expansion": False,
+            "target_count": len(targets),
+        }
 
     if active_project:
         # Canonical future rows may use the real project ID on any surface.
@@ -329,7 +377,9 @@ def build_scope_priority_plan(query: str, identity: CanonicalContextIdentity, *,
     return {
         "schema_id": SCOPE_PRIORITY_SCHEMA_ID,
         "phase": SCOPE_PRIORITY_PHASE,
-        "policy": "Scope sets retrieval priority, not a hard prison. Expansion is bounded, query-driven, traceable, and Roleplay requires an explicit sandbox.",
+        "policy": "General and Neo built-in scopes use bounded query-driven expansion; user-created project scopes are handled above as hard sandboxes.",
+        "scope_class": "general_federated" if active_scope == "general" else "built_in_surface",
+        "hard_sandbox": False,
         "active_identity": identity.as_dict(),
         "surface_scores": scores,
         "targets": targets,

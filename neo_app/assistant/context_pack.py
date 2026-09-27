@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from neo_app.assistant.contracts import contract_lock_payload, clamp_retrieval_profile
+from neo_app.assistant.context_packet import build_context_packet
 from neo_app.assistant.memory_adapter import memory_health_payload, retrieve_assistant_memory_engine, search_assistant_memory  # compatibility exports; Phase 5 normal path does not call them
 from neo_app.assistant.source_grounded import build_source_grounded_context  # compatibility export; Phase 5 normal path projects grounding from Retrieval Gateway
 from neo_app.assistant.store import assistant_profile, get_project, get_session, list_memory_captures, list_context_items
@@ -280,6 +281,7 @@ def build_context_pack(
     gateway_reused = bool(isinstance(retrieval_gateway_result, dict) and retrieval_gateway_result.get("schema_id"))
     retrieval_gateway = dict(retrieval_gateway_result or {}) if gateway_reused else retrieve_context({
         "query": memory_query,
+        "planner_query": message,
         "identity": identity.as_dict(),
         "legacy_project_id": resolved_project_id,
         "retrieval_profile": retrieval_profile,
@@ -341,7 +343,35 @@ def build_context_pack(
         "Be practical, concise, and action-oriented. State uncertainty when context is thin.",
     ])
 
+    packet_live_context = []
+    if live_surface_text:
+        packet_live_context.append({
+            "kind": "live_surface_state",
+            "title": "Live surface project context",
+            "content": live_surface_text,
+        })
+    packet_legacy_context = []
+    if legacy_workspace_included and legacy_workspace_text:
+        packet_legacy_context.append({
+            "kind": "explicit_legacy_workspace",
+            "title": "Explicit legacy Project Workspace context",
+            "content": legacy_workspace_text,
+        })
+    context_packet = build_context_packet(
+        gateway_result=retrieval_gateway,
+        identity=identity.as_dict(),
+        retrieval_profile=retrieval_profile,
+        scope={
+            "name": project.get("name") or "General Assistant",
+            "type": project.get("type") or "assistant_workspace",
+            "description": project.get("description") or "",
+            "notes": project.get("notes") or "",
+        },
+        live_context=packet_live_context,
+        legacy_context=packet_legacy_context,
+    )
     sections = [
+        _section("context_packet", "NKB-9 provider context packet", context_packet.get("rendered_text") or "No Context Packet content.", source="nkb9_context_packet", items=len(context_packet.get("evidence") or [])),
         _section("persona", "Assistant persona and rules", persona_text, source="assistant"),
         _section("current_message", "Current user message", current_text, source="composer"),
         _section("project", "Active Assistant scope", scope_text, source="assistant_scope"),
@@ -387,6 +417,20 @@ def build_context_pack(
         "retrieval_gateway_counts": retrieval_gateway.get("counts") if isinstance(retrieval_gateway.get("counts") if isinstance(retrieval_gateway, dict) else None, dict) else {},
         "retrieval_gateway_adapters": retrieval_gateway.get("adapters") if isinstance(retrieval_gateway.get("adapters") if isinstance(retrieval_gateway, dict) else None, dict) else {},
         "retrieval_gateway_adapter_errors": retrieval_gateway.get("adapter_errors") if isinstance(retrieval_gateway.get("adapter_errors") if isinstance(retrieval_gateway, dict) else None, list) else [],
+        "retrieval_planner": retrieval_gateway.get("planner") if isinstance(retrieval_gateway.get("planner") if isinstance(retrieval_gateway, dict) else None, dict) else {},
+        "retrieval_planner_trace_id": retrieval_gateway.get("planner_trace_id") if isinstance(retrieval_gateway, dict) else "",
+        "retrieval_known_state": retrieval_gateway.get("known_state") if isinstance(retrieval_gateway, dict) else "not_established",
+        "retrieval_fail_closed_recommended": bool(retrieval_gateway.get("fail_closed_recommended")) if isinstance(retrieval_gateway, dict) else False,
+        "context_packet_schema_id": context_packet.get("schema_id") or "",
+        "context_packet_phase": context_packet.get("phase") or "",
+        "context_packet_id": context_packet.get("packet_id") or "",
+        "context_packet_chars": len(context_packet.get("rendered_text") or ""),
+        "context_packet_evidence_count": len(context_packet.get("evidence") or []),
+        "context_packet_candidate_evidence_count": len(context_packet.get("candidate_evidence") or []),
+        "context_packet_provider_visible": True,
+        "compatibility_context_provider_visible": False,
+        "retrieval_fusion": retrieval_gateway.get("fusion") if isinstance(retrieval_gateway.get("fusion") if isinstance(retrieval_gateway, dict) else None, dict) else {},
+        "retrieval_authority_rejection_count": len(retrieval_gateway.get("authority_rejections") or []) if isinstance(retrieval_gateway, dict) else 0,
         "assistant_scope_context_primary": True,
         "global_project_workspace_decoupled": True,
         "legacy_project_workspace_policy": "excluded_by_default_unless_explicit",
@@ -425,10 +469,10 @@ def build_context_pack(
         "section_count": len(sections),
         "chars": len(prompt_block),
         "memory_health": health,
-        "precedence": ["current_message", "active_surface_context", "retrieval_gateway", "source_grounding", "built_in_guides", "project_brain", "assistant_scope", "scope_knowledge", "thread", "persona", "legacy_project_workspace_explicit_only"],
+        "precedence": ["current_message", "context_packet", "active_surface_context", "retrieval_gateway", "source_grounding", "built_in_guides", "project_brain", "assistant_scope", "scope_knowledge", "thread", "persona", "legacy_project_workspace_explicit_only"],
         "lock": contract_lock_payload(),
     }
-    pack = {"ok": True, "sections": sections, "prompt_block": prompt_block, "diagnostics": diagnostics, "source_grounding": grounding, "retrieval_gateway": retrieval_gateway}
+    pack = {"ok": True, "sections": sections, "prompt_block": prompt_block, "diagnostics": diagnostics, "source_grounding": grounding, "retrieval_gateway": retrieval_gateway, "context_packet": context_packet}
     run_id = str((session or {}).get("session_id") or session_id or resolved_project_id or "context_pack")
     summary = _assistant_context_log_summary(
         session_id=run_id,

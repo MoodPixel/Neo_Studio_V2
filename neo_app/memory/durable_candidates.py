@@ -140,6 +140,7 @@ def assistant_turn_candidates(payload: dict[str, Any] | None = None) -> list[dic
     common_payload = {
         "assistant_text_preview": _clean(data.get("assistant_text"), 900),
         "behavior_mode": _clean(data.get("behavior_mode"), 40) or "COMPLETE",
+        "grounding_mode": _clean(data.get("grounding_mode"), 40) or "",
         "explicit_user_statement": True,
     }
     out: list[dict[str, Any]] = []

@@ -43,6 +43,37 @@ BUILTIN_WORKSPACES: list[dict[str, Any]] = [
 ]
 
 
+def _stored_scope_workspace(project: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a stored user-created Assistant Scope into workspace shape.
+
+    Built-in workspaces are declared statically, but public/user scopes live in
+    Assistant storage.  They must remain first-class workspace identities;
+    falling back to General here silently destroys project sandbox semantics.
+    """
+    record = dict(project or {})
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    canonical = metadata.get("canonical_identity") if isinstance(metadata.get("canonical_identity"), dict) else {}
+    project_id = str(record.get("project_id") or record.get("scope_id") or "general").strip() or "general"
+    scope_id = str(record.get("scope_id") or canonical.get("scope_id") or project_id).strip() or project_id
+    surface_id = normalize_surface_id(record.get("surface_id") or canonical.get("surface_id") or record.get("surface") or "assistant", default="assistant")
+    delivery_project_id = str(record.get("delivery_project_id") or canonical.get("project_id") or "").strip()
+    workspace_id = str(metadata.get("workspace_id") or record.get("workspace_id") or f"assistant_scope_{project_id}").strip()
+    return {
+        "workspace_id": workspace_id,
+        "project_id": project_id,  # legacy Assistant Scope storage key
+        "scope_id": scope_id,
+        "surface": surface_id,
+        "surface_id": surface_id,
+        "delivery_project_id": delivery_project_id,
+        "name": str(record.get("name") or project_id),
+        "type": str(record.get("type") or metadata.get("scope_class") or "project_sandbox"),
+        "description": str(record.get("description") or ""),
+        "memory_lanes": list(record.get("memory_lanes") or []),
+        "metadata": metadata,
+        "project": record,
+    }
+
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -308,18 +339,28 @@ class AssistantBrainWorkspace:
             workspace = by_scope[request.scope_id]
         elif request.project_id and request.project_id in by_project:
             workspace = by_project[request.project_id]
-        elif request.surface and request.surface in by_surface:
-            workspace = by_surface[request.surface]
-        elif request.surface == "admin":
-            workspace = by_scope["neo_development_workspace"]
-        elif request.query and any(token in request.query.lower() for token in ("client", "fiverr", "brief", "price", "proposal")):
-            workspace = by_scope["client_work_workspace"]
-        elif request.query and any(token in request.query.lower() for token in ("neo", "phase", "repo", "implementation", "bug", "fix")):
-            workspace = by_scope["neo_development_workspace"]
         else:
-            default_project_id = str(assistant_profile().get("default_project_id") or "general")
-            workspace = by_scope.get(default_project_id, by_project.get(default_project_id, by_scope["general"]))
-        return {**workspace, "project": get_project(workspace["project_id"]) or {"project_id": workspace["project_id"], "name": workspace["name"]}}
+            # User-created Assistant Scopes are stored records, not members of
+            # BUILTIN_WORKSPACES.  Resolve an explicitly requested custom scope
+            # before any surface/query heuristic; otherwise a perfectly valid
+            # project sandbox silently falls back to General.
+            requested_scope_id = str(request.scope_id or request.project_id or "").strip()
+            stored_scope = get_project(requested_scope_id) if requested_scope_id else None
+            if isinstance(stored_scope, dict) and stored_scope.get("project_id"):
+                workspace = _stored_scope_workspace(stored_scope)
+            elif request.surface and request.surface in by_surface:
+                workspace = by_surface[request.surface]
+            elif request.surface == "admin":
+                workspace = by_scope["neo_development_workspace"]
+            elif request.query and any(token in request.query.lower() for token in ("client", "fiverr", "brief", "price", "proposal")):
+                workspace = by_scope["client_work_workspace"]
+            elif request.query and any(token in request.query.lower() for token in ("neo", "phase", "repo", "implementation", "bug", "fix")):
+                workspace = by_scope["neo_development_workspace"]
+            else:
+                default_project_id = str(assistant_profile().get("default_project_id") or "general")
+                stored_default = get_project(default_project_id) if default_project_id not in by_project and default_project_id not in by_scope else None
+                workspace = _stored_scope_workspace(stored_default) if isinstance(stored_default, dict) and stored_default.get("project_id") else by_scope.get(default_project_id, by_project.get(default_project_id, by_scope["general"]))
+        return {**workspace, "project": workspace.get("project") or get_project(workspace["project_id"]) or {"project_id": workspace["project_id"], "name": workspace["name"]}}
 
     def _workspace_notes(self, workspace: dict[str, Any]) -> str:
         return "\n".join([

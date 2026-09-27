@@ -34,6 +34,7 @@ CAPTION_COMPONENTS_PATH = DATA_DIR / "caption_components.json"
 CAPTION_BATCH_RESULTS_PATH = DATA_DIR / "caption_batch_results.json"
 HANDOFF_HISTORY_PATH = DATA_DIR / "handoff_history.json"
 RESULT_METADATA_PATH = DATA_DIR / "result_metadata.json"
+QPE_HISTORY_PATH = DATA_DIR / "qwen_image_21_pe_history.json"
 CATEGORIES_PATH = DATA_DIR / "categories.json"
 
 
@@ -77,6 +78,52 @@ def append_prompt_history(record: dict[str, Any]) -> dict[str, Any]:
     _write_list(HISTORY_PATH, records[:100])
     return item
 
+
+
+def append_qpe_history_record(record: dict[str, Any]) -> dict[str, Any]:
+    records = _read_list(QPE_HISTORY_PATH)
+    item = dict(record or {})
+    item.setdefault("result_id", f"qpe_{uuid4().hex[:12]}")
+    item.setdefault("created_at", _now())
+    item.setdefault("schema_id", "neo.prompt_captioning.qwen_image_21_pe.result.v1")
+    records.insert(0, item)
+    _write_list(QPE_HISTORY_PATH, records[:200])
+    return item
+
+
+def list_qpe_history_records(limit: int = 50, task: str = "") -> dict[str, Any]:
+    records = _read_list(QPE_HISTORY_PATH)
+    clean_task = str(task or "").strip().lower()
+    if clean_task in {"t2i", "edit"}:
+        records = [item for item in records if str(item.get("task") or "").strip().lower() == clean_task]
+    safe_limit = max(1, min(int(limit or 50), 200))
+    return {"ok": True, "records": records[:safe_limit], "count": len(records)}
+
+
+def get_qpe_history_record(result_id: str) -> dict[str, Any]:
+    rid = str(result_id or "").strip()
+    if not rid:
+        return {"ok": False, "errors": ["QPE result id is required."]}
+    for item in _read_list(QPE_HISTORY_PATH):
+        if str(item.get("result_id") or "") == rid:
+            return {"ok": True, "record": item}
+    return {"ok": False, "errors": ["QPE result record not found."]}
+
+
+def update_qpe_history_record(result_id: str, updates: dict[str, Any] | None = None) -> dict[str, Any]:
+    rid = str(result_id or "").strip()
+    if not rid:
+        return {"ok": False, "errors": ["QPE result id is required."]}
+    records = _read_list(QPE_HISTORY_PATH)
+    patch = dict(updates or {})
+    for index, item in enumerate(records):
+        if str(item.get("result_id") or "") != rid:
+            continue
+        updated = {**item, **patch, "result_id": rid, "updated_at": _now()}
+        records[index] = updated
+        _write_list(QPE_HISTORY_PATH, records[:200])
+        return {"ok": True, "record": updated, "records": records[:200]}
+    return {"ok": False, "errors": ["QPE result record not found."]}
 
 def save_prompt_record(payload: dict[str, Any]) -> dict[str, Any]:
     records = _read_profile_records("saved_prompts", PROMPTS_PATH)
@@ -699,6 +746,7 @@ LIBRARY_KIND_PATHS: dict[str, Path] = {
     "caption_batch_results": CAPTION_BATCH_RESULTS_PATH,
     "handoff_history": HANDOFF_HISTORY_PATH,
     "result_metadata": RESULT_METADATA_PATH,
+    "qpe_history": QPE_HISTORY_PATH,
 }
 
 LIBRARY_KIND_ID_KEYS: dict[str, str] = {
@@ -713,6 +761,7 @@ LIBRARY_KIND_ID_KEYS: dict[str, str] = {
     "caption_batch_results": "batch_id",
     "handoff_history": "handoff_id",
     "result_metadata": "metadata_id",
+    "qpe_history": "result_id",
 }
 
 
@@ -962,7 +1011,7 @@ def migrate_profile_storage(*, dry_run: bool = True, backup: bool = True) -> dic
 
 def clear_library_history(history_kind: str) -> dict[str, Any]:
     safe = _safe_kind(history_kind)
-    if safe not in {"prompt_history", "caption_history", "caption_batch_results", "result_metadata"}:
+    if safe not in {"prompt_history", "caption_history", "caption_batch_results", "result_metadata", "qpe_history"}:
         return {"ok": False, "errors": ["Only history/result libraries can be cleared through this route."], "kind": safe}
     _write_list(LIBRARY_KIND_PATHS[safe], [])
     return {"ok": True, "kind": safe, "records": []}
@@ -987,6 +1036,23 @@ def list_result_metadata(limit: int = 100, tool_id: str = "") -> dict[str, Any]:
         records = [item for item in records if str(item.get("tool_id") or "") == str(tool_id)]
     safe_limit = max(1, min(int(limit or 100), 500))
     return {"ok": True, "records": records[:safe_limit], "count": len(records)}
+
+def update_result_metadata_record(metadata_id: str, updates: dict[str, Any] | None = None) -> dict[str, Any]:
+    mid = str(metadata_id or "").strip()
+    if not mid:
+        return {"ok": False, "errors": ["Metadata id is required."]}
+    records = _read_profile_records("result_metadata", RESULT_METADATA_PATH)
+    patch = dict(updates or {})
+    for index, item in enumerate(records):
+        if str(item.get("metadata_id") or "") != mid:
+            continue
+        updated = {**item, **patch, "metadata_id": mid, "updated_at": _now()}
+        updated = _profile_record_for_write("result_metadata", updated)
+        records[index] = updated
+        _write_list(RESULT_METADATA_PATH, records[:500])
+        return {"ok": True, "record": updated}
+    return {"ok": False, "errors": ["Metadata record not found."]}
+
 
 def get_result_metadata(metadata_id: str) -> dict[str, Any]:
     mid = str(metadata_id or "").strip()

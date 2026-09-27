@@ -26,6 +26,7 @@ from neo_app.providers.comfy_artifact_paths import (
     parse_comfy_artifact_name,
 )
 from neo_app.providers.capability_discovery import discover_comfy_backend_capabilities, discovery_result_to_dict
+from neo_app.providers.qwen_image_21_pe_discovery import discover_qwen_image_21_pe, T2I_NODE as QPE_T2I_NODE, EDIT_NODE as QPE_EDIT_NODE, NEO_IMAGE_INPUT_NODE as QPE_IMAGE_INPUT_NODE, NEO_RESULT_OUTPUT_NODE as QPE_RESULT_OUTPUT_NODE
 from neo_app.providers.compile_router import select_comfy_compile_route
 from neo_app.providers.comfy_workflows.checkpoint_sd import resolve_sd_checkpoint_defaults
 from neo_app.providers.comfy_workflows.flux_native import compile_flux_native_txt2img, compile_flux_klein_txt2img, compile_flux_fill_workflow, compile_flux_krea_workflow
@@ -631,6 +632,7 @@ class ComfyProvider(BaseProvider):
         *,
         object_info: dict[str, Any] | None = None,
         discovery_error: str = "",
+        text_encoder_names: list[str] | None = None,
     ) -> dict[str, Any]:
         adapter_registry = lanpaint_family_adapter_registry(self.manifest.provider_id)
         active_adapters = [
@@ -689,6 +691,12 @@ class ComfyProvider(BaseProvider):
             )
             payload = discovery_result_to_dict(result)
             payload["object_info_node_inputs"] = {}
+            payload["qwen_image_21_prompt_enhancer"] = discover_qwen_image_21_pe(
+                {},
+                text_encoders=text_encoder_names,
+                reachable=False,
+                error=error_message,
+            )
             payload["krea2_anypaint_capabilities"] = inspect_krea2_anypaint_capabilities(
                 {},
                 provider_id=self.manifest.provider_id,
@@ -755,6 +763,11 @@ class ComfyProvider(BaseProvider):
 
         result = discover_comfy_backend_capabilities(info, provider_id=self.manifest.provider_id, reachable=True)
         payload = discovery_result_to_dict(result)
+        payload["qwen_image_21_prompt_enhancer"] = discover_qwen_image_21_pe(
+            info,
+            text_encoders=text_encoder_names,
+            reachable=True,
+        )
         # Phase M.2: expose a tiny safe object_info slice for provider compilers.
         # Qwen Image Edit node variants differ across Comfy core/Rapid custom nodes:
         # some expose only prompt/images, while Rapid patches expose target_size.
@@ -772,6 +785,7 @@ class ComfyProvider(BaseProvider):
         # Omitting these classes previously made live nodes look unavailable and
         # caused CFGNorm / FluxKontext parity stages to be silently skipped.
         qwen21_runtime_nodes = ["TextEncodeQwenImage21", "QwenImage21Cache", "EmptyLatentImage"]
+        qpe_runtime_nodes = [QPE_T2I_NODE, QPE_EDIT_NODE, QPE_IMAGE_INPUT_NODE, QPE_RESULT_OUTPUT_NODE]
         qwen_native_parity_nodes = [
             "CFGNorm",
             "FluxKontextImageScale",
@@ -806,6 +820,7 @@ class ComfyProvider(BaseProvider):
             for node_name in [
                 *qwen_edit_nodes,
                 *qwen21_runtime_nodes,
+                *qpe_runtime_nodes,
                 *qwen_native_parity_nodes,
                 *stitch_nodes,
                 *context_latent_nodes,

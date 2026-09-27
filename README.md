@@ -59,7 +59,7 @@ Neo Studio does **not** bundle third-party AI models, ComfyUI, Forge Neo, Kobold
 
 ### ✍️ Prompt & Captioning
 
-- Prompt building, captioning, prompt libraries, reusable presets, batch captioning, and edit/video prompt helpers.
+- Prompt building, captioning, prompt libraries, reusable presets, batch captioning, and edit/video prompt helpers. Prompt Studio supports the optional **Qwen Image 2.1 PE T2I Prompt Enhancer**, while Caption Studio adds the image-aware **Qwen Image 2.1 PE Edit Prompt Enhancer** with up to 10 ordered references. The Qwen Image 2.1 Image prompt panel also has a review-first **Enhance with Qwen 2.1 PE** shortcut that reuses the same engine instead of duplicating it. All routes reuse any compatible connected ComfyUI runtime when their specialist node/models are installed, including an already-connected **Prompt & Captioning ComfyUI LLM/VLM** profile; you do not need to configure the same Comfy server twice. The T2I enhancer path now has physical runtime evidence on the Windows/NVIDIA host, while the Edit enhancer remains implemented and repository-qualified pending its final physical multi-reference pass.
 
 ### 🎭 Roleplay
 
@@ -84,6 +84,7 @@ Neo Studio V2 has grown well beyond a simple launcher around third-party backend
 - **Krea 2 family growth:** separate Krea 2 RAW and Krea 2 Turbo families, Krea-native editing paths, Krea Identity Edit, and Krea-specific control workflows such as Depth, Composition / Silhouette, OpenPose / Ostris, and Canny / NK2E where the required routes and nodes are installed.
 - **Voice workspace is fully real now:** Neo Voice Engine runs isolated Voice worker environments outside the main repo, with validated local Chatterbox and Qwen3-TTS CustomVoice management, reusable Voice assets, Dialogue, Batch, Results, and Finish tools.
 - **Admin now owns more of the day-to-day setup:** backend profiles, model install status, extension management, Node Manager, runtime diagnostics, and provider capability checks are first-class product surfaces.
+- **Prompt enhancement is now a first-class specialist workflow:** Qwen Image 2.1 PE T2I is physically validated, the shared QPE engine can be called from Prompt Studio, Caption Studio, and the Image tab, and Neo can reuse either a compatible Image Comfy runtime or an already-connected Prompt & Captioning Comfy runtime instead of forcing duplicate Comfy profiles.
 - **Public-facing workflow transparency:** route status, capability gating, Output Inspector, replay records, portable PNG metadata, and preserved runtime lineage make Neo much easier to troubleshoot and reuse.
 
 ## 🖼️ Workspace Screenshots
@@ -403,7 +404,7 @@ Then start Neo Studio normally with `run_neo_studio.bat`.
 | **Image** | Generate, edit, refine, inspect, replay, reference, and finish images. | Active |
 | **Video** | Generate and finish local video workflows. | Active / expanding |
 | **Voice** | TTS, clone, Dialogue, Batch, reusable Voice assets, Results and Finish. | Active |
-| **Prompt & Captioning** | Prompt generation, libraries, captioning and batch tools. | Active |
+| **Prompt & Captioning** | Prompt generation, libraries, captioning, batch tools, and optional Qwen Image 2.1 prompt enhancement. | Active |
 | **Roleplay** | Character/world creation, scenes, stories and memory-aware writing. | Active |
 | **Assistant** | Scope-aware local Assistant and project context. | Active |
 | **Admin** | Backends, models, extensions, custom nodes, runtime and settings. | Active |
@@ -775,7 +776,8 @@ ComfyUI/custom_nodes/
 | `RES4LYF` | RES4LYF sampler routes | RES4LYF sampler support | https://github.com/ClownsharkBatwing/RES4LYF |
 | `rgthree-comfy` | Shared workflow utility nodes | Workflow utility nodes | https://github.com/rgthree/rgthree-comfy.git |
 | `ComfyUI-llama-cpp_vlm` | Prompt & Captioning optional Comfy backend | Local GGUF LLM/VLM execution used by the optional ComfyUI Prompt & Captioning backend | https://github.com/lihaoyun6/ComfyUI-llama-cpp_vlm.git |
-| `neo_prompt_captioning` | Neo Prompt & Captioning bridge | Neo-owned Comfy bridge for stable Prompt/Caption image input, text output, and Generic MTMD VLM fallback | Included in this repo; copy `neo_prompt_captioning` into ComfyUI `custom_nodes` |
+| `ComfyUI-Qwen-Image-2.1-Prompt-Enhancer` | **Required for Qwen Image 2.1 Prompt Enhancer** — Prompt Studio · PE T2I; Caption Studio · PE Edit (1–10 ordered references); Image · Qwen 2.1 prompt shortcut | Provides the dedicated T2I/Edit prompt-rewrite nodes that Neo calls through a connected ComfyUI runtime. The PE checkpoints are separate text-encoder models and must be installed under `ComfyUI/models/text_encoders/`. | https://github.com/benjiyaya/ComfyUI-Qwen-Image-2.1-Prompt-Enhancer.git |
+| `neo_prompt_captioning` | Neo Prompt & Captioning bridge, Qwen Image 2.1 PE structured result handoff | Neo-owned Comfy bridge for stable Prompt/Caption image input, text output, Generic MTMD VLM fallback, and structured Qwen Image 2.1 PE results | Included in this repo; copy `neo_prompt_captioning` into ComfyUI `custom_nodes` |
 | `neo_scene_director` | Image `Scene Director` support | Neo Studio Scene Director node support | Included in this repo; copy `neo_scene_director` into ComfyUI `custom_nodes` if needed |
 
 ### Built-in ComfyUI core nodes Neo also relies on
@@ -788,6 +790,8 @@ Some important Neo features use **current ComfyUI core nodes**, not separate thi
 
 ### Custom-node setup notes
 
+- **Qwen Image 2.1 Prompt Enhancer:** install `ComfyUI-Qwen-Image-2.1-Prompt-Enhancer` in `ComfyUI/custom_nodes/`, then install the PE checkpoint(s) you plan to use under `ComfyUI/models/text_encoders/`. The T2I route uses `qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors`; the image-aware Edit route uses `qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors`. Neo also requires the current bundled `neo_prompt_captioning` bridge because it supplies the structured QPE result terminal and Neo image-input bridge. Restart ComfyUI after installing/updating the node or bridge, then run **Connect/Test** on the compatible Comfy profile you want QPE to use. Neo can reuse either an Image ComfyUI/Portable profile or an already-connected Prompt & Captioning ComfyUI LLM/VLM profile that points to the same Comfy server. You only need the PE checkpoint for the enhancer task you intend to run; install both if you want both T2I and Edit enhancement.
+- **QPE runtime status:** the T2I enhancer path has physical runtime evidence using `qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors` on the Windows/NVIDIA host. The image-aware Edit enhancer is implemented, discovered, replay-capable, and handoff-ready, but its final physical multi-reference qualification is still the remaining runtime check before it can be called fully physically closed.
 - **ComfyUI-llama-cpp_vlm:** installing the folder alone is not enough. Install its Python requirements with the same Python environment that runs ComfyUI, restart ComfyUI, then reconnect/test the backend in Neo. GGUF LLM/VLM files belong under `ComfyUI/models/LLM`; VLMs also need their matching `mmproj` file.
 - **Krea 2 Control (Depth):** `comfyui-krea2-controlnet` loads its Control LoRA from `ComfyUI/models/loras`. It does not generate depth/canny/pose maps itself; use normal Comfy nodes or `comfyui_controlnet_aux` for the control map.
 - **Krea 2 Control (Composition / Silhouette):** `comfyui-krea2-controlnetPlus` adds the Krea2 Control Plus loader/image-encode/apply nodes and is required before Neo can expose the Composition / Silhouette intent.

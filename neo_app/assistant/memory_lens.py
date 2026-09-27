@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from neo_app.context_identity import resolve_canonical_identity
+from neo_app.context_identity import resolve_canonical_identity, is_builtin_scope
 from neo_app.assistant.store import get_project, list_context_items, list_memory_captures
 
 MEMORY_LENS_SCHEMA_ID = "neo.assistant.memory_lens.phase11.v1"
@@ -90,8 +90,9 @@ def assistant_memory_lens_payload(project_id: str = "general", surface: str = ""
     current_memory = current_snapshot.get("memory_inspector") or {}
     current_retrieval = current_snapshot.get("retrieval_inspector") or {}
 
+    project_sandbox = bool(identity.scope_id and identity.scope_id != "general" and not is_builtin_scope(identity.scope_id))
     general_memory: dict[str, Any] = {}
-    if identity.scope_id != "general":
+    if identity.scope_id != "general" and not project_sandbox:
         general_identity = resolve_canonical_identity(
             {"project_id": "general", "scope_id": "general", "surface_id": "global"},
             legacy_project_is_scope=True,
@@ -129,9 +130,10 @@ def assistant_memory_lens_payload(project_id: str = "general", surface: str = ""
         if len(traces) >= 8:
             break
 
+    allowed_capture_scopes = {legacy_scope_id} if project_sandbox else {legacy_scope_id, "general" if identity.scope_id != "general" else legacy_scope_id}
     captures = [
         row for row in list_memory_captures(limit=40)
-        if str(row.get("project_id") or "general") in {legacy_scope_id, "general" if identity.scope_id != "general" else legacy_scope_id}
+        if str(row.get("project_id") or "general") in allowed_capture_scopes
     ][:limit]
     scope_knowledge = list_context_items(project_id=legacy_scope_id, limit=limit)
 
@@ -151,6 +153,8 @@ def assistant_memory_lens_payload(project_id: str = "general", surface: str = ""
             "type": project.get("type") or "assistant_workspace",
             "surface_id": identity.surface_id,
             "delivery_project_id": identity.project_id or "",
+            "scope_class": "project_sandbox" if project_sandbox else ("general_federated" if identity.scope_id == "general" else "built_in_surface"),
+            "hard_sandbox": project_sandbox,
         },
         "summary": {
             "active_memory_count": int(counts.get("fragments") or 0),

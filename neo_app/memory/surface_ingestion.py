@@ -199,6 +199,31 @@ class UnifiedMemoryWriter:
         )
         return fact_id
 
+    def upsert_edge(self, *, surface: str, project_id: str | None, scope_id: str | None, source_object_id: str, target_object_id: str, edge_type: str, label: str = "", weight: float = 1.0, confidence: float = 0.75, metadata: dict[str, Any] | None = None) -> str | None:
+        if not source_object_id or not target_object_id or not edge_type:
+            return None
+        stamp = _now()
+        edge_id = f"edge_{_hash(surface + (project_id or '') + (scope_id or '') + source_object_id + target_object_id + edge_type, length=24)}"
+        self.conn.execute(
+            """
+            INSERT INTO neo_memory_edges (edge_id, surface, project_id, scope_id, source_object_id, target_object_id, edge_type, label, weight, confidence, status, metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+            ON CONFLICT(surface, project_id, scope_id, source_object_id, target_object_id, edge_type) DO UPDATE SET
+                label=excluded.label,
+                weight=excluded.weight,
+                confidence=excluded.confidence,
+                status='active',
+                metadata_json=excluded.metadata_json,
+                updated_at=excluded.updated_at
+            """,
+            (edge_id, surface or "global", project_id, scope_id, source_object_id, target_object_id, edge_type, _safe_text(label, limit=500), float(weight), float(confidence), _json_dumps(metadata or {}), stamp, stamp),
+        )
+        row = self.conn.execute(
+            "SELECT edge_id FROM neo_memory_edges WHERE surface=? AND project_id IS ? AND scope_id IS ? AND source_object_id=? AND target_object_id=? AND edge_type=?",
+            (surface or "global", project_id, scope_id, source_object_id, target_object_id, edge_type),
+        ).fetchone()
+        return str(row[0]) if row else edge_id
+
     def upsert_fragment(self, *, surface: str, project_id: str | None, scope_id: str | None, source_type: str, source_id: str, memory_type: str, title: str, content: str, summary: str = "", priority: float = 0.5, confidence: float = 0.75, trust_level: str = "inferred", metadata: dict[str, Any] | None = None, embedding_status: str = "queued") -> str | None:
         content = _safe_text(content, limit=24000)
         if not content:

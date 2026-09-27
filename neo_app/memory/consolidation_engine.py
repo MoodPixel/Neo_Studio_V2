@@ -177,6 +177,13 @@ class UnifiedMemoryConsolidationEngine:
 
         grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
         for row in rows:
+            metadata = _json_loads(row["metadata_json"], {})
+            if isinstance(metadata, dict) and str(metadata.get("consolidation_policy") or "") == "source_direct":
+                # NKB-7 public-project source fragments must stay source-direct. A
+                # derived consolidation summary can blend nearby canon facts, so
+                # these fragments are intentionally excluded from generic M4
+                # summarization. Retrieval continues to use the original fragments.
+                continue
             key_parts = [row["surface"] or "global", row["project_id"] or "", row["scope_id"] or "", row["memory_type"] or "fragment"]
             group_key = "|".join(key_parts)
             grouped[group_key].append(row)

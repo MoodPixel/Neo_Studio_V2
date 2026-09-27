@@ -394,6 +394,7 @@ const state = {
       selectedCharacterId: '',
       providerProfileId: '',
       generationMode: 'prompt_generate',
+      qpe: { runtimeProfileId: '', model: '', isRunning: false, status: '', whRatio: '', ratioFollow: '', parseOk: null, lastInput: '', lastPromptId: '', resultId: '', metadataId: '', ratioSelection: { kind: 'none', value: '' }, lastResult: null, replayPayload: null, params: { temperature: 1.0, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_new_tokens: 16256, seed: 42 } },
       promptStyle: 'cinematic',
       profile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'transformative', analysis_scope: 'full_image', output_format: 'natural_prompt', target_media: 'image', prompt_task: 'text_to_image', edit_intent: 'general_edit', preservation_policy: 'preserve_unrequested', motion_profile: 'natural_balanced', camera_behavior: 'preserve_auto' },
       params: { temperature: 0.7, top_p: 0.9, max_tokens: 512, cleanup_enabled: true },
@@ -415,6 +416,7 @@ const state = {
       selectedPresetId: '',
       providerProfileId: '',
       activeTool: 'image_captioning',
+      qpeEdit: { runtimeProfileId: '', model: '', references: [], uploading: false, isRunning: false, status: '', whRatio: '', ratioFollow: '', parseOk: null, lastPromptId: '', resultId: '', metadataId: '', ratioSelection: { kind: 'none', value: '' }, lastResult: null, replayPayload: null, params: { temperature: 1.0, top_p: 0.95, presence_penalty: 0.0, max_length: 24000, seed: 42 } },
       isRunning: false,
       runStartedAt: '',
       runFinishedAt: '',
@@ -426,7 +428,7 @@ const state = {
       lastPayload: null,
       status: '',
     },
-    library: { promptRecords: [], promptHistory: [], promptPresets: [], captionRecords: [], captionHistory: [], captionPresets: [], characterRecords: [], reusableComponents: [], captionComponents: [], captionBatchResults: [], resultMetadata: [], lastReplayPayload: null },
+    library: { promptRecords: [], promptHistory: [], promptPresets: [], captionRecords: [], captionHistory: [], captionPresets: [], characterRecords: [], reusableComponents: [], captionComponents: [], captionBatchResults: [], resultMetadata: [], qpeHistory: [], qpeHistoryLoaded: false, lastReplayPayload: null },
   },
   assistant: {
     profile: null,
@@ -442,6 +444,24 @@ const state = {
     actionReview: { status: null, plan: null, run: null, command: '' },
     projectManager: null,
     pendingAttachments: [],
+  },
+  imageQpeHandoff: {
+    isRunning: false,
+    status: '',
+    task: '',
+    inputPrompt: '',
+    runtimeProfileId: '',
+    model: '',
+    promptId: '',
+    resultId: '',
+    metadataId: '',
+    positivePrompt: '',
+    negativePrompt: '',
+    whRatio: '',
+    ratioFollow: '',
+    parseOk: null,
+    ratioSelection: { kind: 'none', value: '' },
+    warning: '',
   },
   imageDraft: {
     family: 'sdxl',
@@ -713,6 +733,7 @@ function normalizePromptCaptioningState(saved = {}) {
       selectedCharacterId: '',
       providerProfileId: '',
       generationMode: 'prompt_generate',
+      qpe: { runtimeProfileId: '', model: '', isRunning: false, status: '', whRatio: '', ratioFollow: '', parseOk: null, lastInput: '', lastPromptId: '', resultId: '', metadataId: '', ratioSelection: { kind: 'none', value: '' }, lastResult: null, replayPayload: null, params: { temperature: 1.0, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_new_tokens: 16256, seed: 42 } },
       promptStyle: 'cinematic',
       profile: { purpose: 'general', visual_treatment: 'source_accurate', grounding: 'transformative', analysis_scope: 'full_image', output_format: 'natural_prompt', target_media: 'image', prompt_task: 'text_to_image', edit_intent: 'general_edit', preservation_policy: 'preserve_unrequested', motion_profile: 'natural_balanced', camera_behavior: 'preserve_auto' },
       params: { temperature: 0.7, top_p: 0.9, max_tokens: 512, cleanup_enabled: true },
@@ -734,6 +755,7 @@ function normalizePromptCaptioningState(saved = {}) {
       selectedPresetId: '',
       providerProfileId: '',
       activeTool: 'image_captioning',
+      qpeEdit: { runtimeProfileId: '', model: '', references: [], uploading: false, isRunning: false, status: '', whRatio: '', ratioFollow: '', parseOk: null, lastPromptId: '', resultId: '', metadataId: '', ratioSelection: { kind: 'none', value: '' }, lastResult: null, replayPayload: null, params: { temperature: 1.0, top_p: 0.95, presence_penalty: 0.0, max_length: 24000, seed: 42 } },
       isRunning: false,
       runStartedAt: '',
       runFinishedAt: '',
@@ -745,7 +767,7 @@ function normalizePromptCaptioningState(saved = {}) {
       lastPayload: null,
       status: '',
     },
-    library: { promptRecords: [], promptHistory: [], promptPresets: [], captionRecords: [], captionHistory: [], captionPresets: [], characterRecords: [], reusableComponents: [], captionComponents: [], captionBatchResults: [], resultMetadata: [], lastReplayPayload: null },
+    library: { promptRecords: [], promptHistory: [], promptPresets: [], captionRecords: [], captionHistory: [], captionPresets: [], characterRecords: [], reusableComponents: [], captionComponents: [], captionBatchResults: [], resultMetadata: [], qpeHistory: [], qpeHistoryLoaded: false, lastReplayPayload: null },
     ui: { collapsedSections: {} },
   };
   const clean = saved && typeof saved === 'object' ? saved : {};
@@ -764,8 +786,8 @@ function normalizePromptCaptioningState(saved = {}) {
     activeWorkspaceMode,
     activeChildTabsByMode,
     // isRunning: false is applied after each run; normalization preserves live in-memory running state.
-    promptBuilder: { ...base.promptBuilder, ...(clean.promptBuilder || {}), isRunning: Boolean((clean.promptBuilder || {}).isRunning), params: { ...base.promptBuilder.params, ...((clean.promptBuilder || {}).params || {}) }, profile: { ...base.promptBuilder.profile, ...(((clean.promptBuilder || {}).profile) || {}) } },
-    captioning: { ...base.captioning, ...(clean.captioning || {}), isRunning: Boolean((clean.captioning || {}).isRunning), params: { ...base.captioning.params, ...((clean.captioning || {}).params || {}) }, singleProfile: { ...base.captioning.singleProfile, ...(((clean.captioning || {}).singleProfile) || {}) }, batch: { ...base.captioning.batch, ...(((clean.captioning || {}).batch) || {}), datasetProfile: { ...base.captioning.batch.datasetProfile, ...((((clean.captioning || {}).batch) || {}).datasetProfile || {}) }, libraryProfile: { ...base.captioning.batch.libraryProfile, ...((((clean.captioning || {}).batch) || {}).libraryProfile || {}) }, datasetParams: { ...base.captioning.batch.datasetParams, ...((((clean.captioning || {}).batch) || {}).datasetParams || {}) }, libraryParams: { ...base.captioning.batch.libraryParams, ...((((clean.captioning || {}).batch) || {}).libraryParams || {}) } }, batchQueue: Array.isArray((clean.captioning || {}).batchQueue) ? clean.captioning.batchQueue : [] },
+    promptBuilder: { ...base.promptBuilder, ...(clean.promptBuilder || {}), isRunning: Boolean((clean.promptBuilder || {}).isRunning), params: { ...base.promptBuilder.params, ...((clean.promptBuilder || {}).params || {}) }, profile: { ...base.promptBuilder.profile, ...(((clean.promptBuilder || {}).profile) || {}) }, qpe: { ...base.promptBuilder.qpe, ...(((clean.promptBuilder || {}).qpe) || {}), isRunning: false, ratioSelection: { ...base.promptBuilder.qpe.ratioSelection, ...((((clean.promptBuilder || {}).qpe) || {}).ratioSelection || {}) }, params: { ...base.promptBuilder.qpe.params, ...(((((clean.promptBuilder || {}).qpe) || {}).params) || {}) } } },
+    captioning: { ...base.captioning, ...(clean.captioning || {}), isRunning: Boolean((clean.captioning || {}).isRunning), qpeEdit: { ...base.captioning.qpeEdit, ...(((clean.captioning || {}).qpeEdit) || {}), isRunning: false, uploading: false, references: Array.isArray((((clean.captioning || {}).qpeEdit) || {}).references) ? (((clean.captioning || {}).qpeEdit) || {}).references.slice(0, 9) : [], ratioSelection: { ...base.captioning.qpeEdit.ratioSelection, ...((((clean.captioning || {}).qpeEdit) || {}).ratioSelection || {}) }, params: { ...base.captioning.qpeEdit.params, ...(((((clean.captioning || {}).qpeEdit) || {}).params) || {}) } }, params: { ...base.captioning.params, ...((clean.captioning || {}).params || {}) }, singleProfile: { ...base.captioning.singleProfile, ...(((clean.captioning || {}).singleProfile) || {}) }, batch: { ...base.captioning.batch, ...(((clean.captioning || {}).batch) || {}), datasetProfile: { ...base.captioning.batch.datasetProfile, ...((((clean.captioning || {}).batch) || {}).datasetProfile || {}) }, libraryProfile: { ...base.captioning.batch.libraryProfile, ...((((clean.captioning || {}).batch) || {}).libraryProfile || {}) }, datasetParams: { ...base.captioning.batch.datasetParams, ...((((clean.captioning || {}).batch) || {}).datasetParams || {}) }, libraryParams: { ...base.captioning.batch.libraryParams, ...((((clean.captioning || {}).batch) || {}).libraryParams || {}) } }, batchQueue: Array.isArray((clean.captioning || {}).batchQueue) ? clean.captioning.batchQueue : [] },
     library: { ...base.library, ...(clean.library || {}) },
     ui: { ...base.ui, ...(clean.ui || {}), collapsedSections: { ...base.ui.collapsedSections, ...(((clean.ui || {}).collapsedSections) || {}) } },
   };
@@ -29857,6 +29879,11 @@ function adminEngineIndexJobsHtml(engine) {
         <div class="neo-ui-toolbar admin-engine-badge-row"><button type="button" class="neo-btn admin-engine-btn" onclick="reloadAdminMemoryJobs()">Refresh unified jobs</button></div>
       </div>
       <div class="neo-ui-card admin-engine-card wide">
+        <div class="neo-ui-section-head admin-engine-row-between"><div><strong>NKB-12 migration + reindex</strong><p>Plan or queue a non-destructive Unified Brain migration. Native stores stay authoritative; Project files are replayed through NKB-7 and disposable indexes/embeddings are refreshed.</p></div><span class="neo-badge">non-destructive</span></div>
+        ${state.adminNkb12Plan ? listItems([`Projects: ${(state.adminNkb12Plan.projects || []).length}`, `Queued embeddings: ${state.adminNkb12Plan.memory?.queued_embeddings ?? 0}`, `Legacy confirmed fragments: ${state.adminNkb12Plan.memory?.legacy_confirmed_fragments ?? 0}`, `Native adapters: ${(state.adminNkb12Plan.native_knowledge?.adapters || []).length}`]) : '<div class="neo-ui-empty admin-engine-empty"><strong>No migration plan loaded.</strong><p>Run a dry plan first. It does not mutate memory or native authority.</p></div>'}
+        <div class="neo-ui-toolbar admin-engine-badge-row"><button type="button" class="neo-btn admin-engine-btn" onclick="planAdminNkb12Migration()">Dry-run plan</button><button type="button" class="neo-btn primary admin-engine-btn" onclick="runAdminNkb12Migration()">Queue migration + reindex</button></div>
+      </div>
+      <div class="neo-ui-card admin-engine-card wide">
         <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Roleplay index compatibility bridge</strong><p>The historical Admin index-job routes now project the same unified memory job rows. This panel remains during migration compatibility.</p></div><span class="neo-badge ${queue.status === 'ready' ? 'success' : ''}">${escapeHtml(queue.status || 'ready')}</span></div>
         ${listItems([`Total: ${summary.total ?? 0}`, `Running: ${summary.running ?? 0}`, `Pending: ${summary.pending ?? 0}`, `Completed: ${summary.completed ?? 0}`, `Failed: ${summary.failed ?? 0}`, `Cancelled: ${summary.cancelled ?? 0}`])}
       </div>
@@ -30138,6 +30165,23 @@ async function reloadAdminIndexJobs() {
 }
 
 async function reloadAdminMemoryJobs() {
+  state.adminEngine = await loadJson('/api/admin/engine/state', state.adminEngine || null);
+  render();
+}
+
+async function planAdminNkb12Migration() {
+  const response = await fetch('/api/memory/migration/nkb12/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+  if (!response.ok) { window.alert(`NKB-12 plan failed: ${await response.text()}`); return; }
+  state.adminNkb12Plan = await response.json();
+  render();
+}
+
+async function runAdminNkb12Migration() {
+  const confirmed = window.confirm('Queue the non-destructive NKB-12 migration + reindex? Existing native stores are not rewritten.');
+  if (!confirmed) return;
+  const response = await fetch('/api/memory/migration/nkb12/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ background: true, reindex_static: true, reindex_embeddings: true }) });
+  if (!response.ok) { window.alert(`NKB-12 migration failed to queue: ${await response.text()}`); return; }
+  state.adminNkb12Run = await response.json();
   state.adminEngine = await loadJson('/api/admin/engine/state', state.adminEngine || null);
   render();
 }
@@ -42361,6 +42405,292 @@ function renderForgeImageRouteControls(p = {}) {
   </section>`;
 }
 
+function imageQpeHandoffState() {
+  if (!state.imageQpeHandoff || typeof state.imageQpeHandoff !== 'object') {
+    state.imageQpeHandoff = { isRunning: false, status: '', task: '', inputPrompt: '', runtimeProfileId: '', model: '', promptId: '', resultId: '', metadataId: '', positivePrompt: '', negativePrompt: '', whRatio: '', ratioFollow: '', parseOk: null, ratioSelection: { kind: 'none', value: '' }, warning: '' };
+  }
+  state.imageQpeHandoff.ratioSelection = state.imageQpeHandoff.ratioSelection || { kind: 'none', value: '' };
+  return state.imageQpeHandoff;
+}
+
+function imageQpeTaskForMode(mode = activeImageMode()) {
+  const clean = String(mode || '').trim().toLowerCase();
+  if (clean === 'txt2img' || clean === 'generate') return 't2i';
+  if (['img2img', 'edit', 'inpaint', 'outpaint'].includes(clean)) return 'edit';
+  return '';
+}
+
+function imageQpeReferenceAsset(slot) {
+  const lane = Number(slot || 1);
+  const path = lane === 1 ? String(state.imageDraft.source_image || '') : String(state.imageDraft[`source_image_${lane}`] || '');
+  const url = lane === 1 ? String(state.imageDraft.source_image_url || '') : String(state.imageDraft[`source_image_${lane}_url`] || '');
+  const name = lane === 1 ? String(state.imageDraft.source_image_name || basename(path || url || '')) : String(state.imageDraft[`source_image_${lane}_name`] || basename(path || url || ''));
+  const ref = path || url;
+  if (!ref) return null;
+  return {
+    slot: lane,
+    reference: ref,
+    asset_ref: path || ref,
+    path,
+    filename: name || basename(path || url || `image_${lane}`),
+    original_name: name || basename(path || url || `image_${lane}`),
+    url,
+  };
+}
+
+function imageQpeOrderedReferences() {
+  const refs = [];
+  for (let lane = 1; lane <= 10; lane += 1) {
+    const record = imageQpeReferenceAsset(lane);
+    if (record) refs.push(record);
+  }
+  return refs;
+}
+
+function imageQpeRoleState() {
+  const task = imageQpeTaskForMode();
+  const profiles = promptCaptioningQpeRuntimeProfiles();
+  const readinessKey = task === 'edit' ? 'edit_execution_ready' : 't2i_execution_ready';
+  const isReady = (profile) => Boolean(profile && backendProfileConnectedForRuntime(profile) && promptCaptioningQpeCaps(profile)[readinessKey]);
+  const activeImage = activeImageProfile();
+  const activeImageShared = profiles.find((item) => String(item.profile_id || '') === String(activeImage?.profile_id || '')) || null;
+  const pc = promptCaptioningState();
+  const preferredId = task === 'edit' ? String(pc.captioning?.qpeEdit?.runtimeProfileId || '') : String(pc.promptBuilder?.qpe?.runtimeProfileId || '');
+  const preferred = profiles.find((item) => String(item.profile_id || '') === preferredId) || null;
+  let profile = null;
+  if (isReady(activeImageShared)) profile = activeImageShared;
+  else if (isReady(preferred)) profile = preferred;
+  else profile = profiles.find(isReady) || null;
+  if (!profile) profile = activeImageShared || preferred || profiles.find((item) => backendProfileConnectedForRuntime(item)) || profiles[0] || null;
+  const caps = promptCaptioningQpeCaps(profile);
+  const connected = Boolean(profile && backendProfileConnectedForRuntime(profile));
+  const models = task === 'edit' ? (Array.isArray(caps.edit_model_candidates) ? caps.edit_model_candidates : []) : (Array.isArray(caps.t2i_model_candidates) ? caps.t2i_model_candidates : []);
+  const ready = task === 'edit' ? Boolean(caps.edit_execution_ready) : Boolean(caps.t2i_execution_ready);
+  const blockers = task === 'edit'
+    ? (Array.isArray(caps?.readiness?.edit_blockers) ? caps.readiness.edit_blockers : [])
+    : (Array.isArray(caps?.readiness?.t2i_blockers) ? caps.readiness.t2i_blockers : []);
+  const preferredModel = task === 'edit' ? String(pc.captioning?.qpeEdit?.model || '') : String(pc.promptBuilder?.qpe?.model || '');
+  const model = models.includes(preferredModel) ? preferredModel : (models[0] || '');
+  return { task, profile, caps, connected, ready: Boolean(profile && connected && ready), models, model, blockers };
+}
+
+function imageQpeCanvasSuggestion() {
+  const qpe = imageQpeHandoffState();
+  if (!qpe.parseOk) return { kind: 'none', value: '', canApply: false, reason: 'Structured parsing did not succeed.' };
+  const mode = String(activeImageMode() || '').toLowerCase();
+  if (['inpaint', 'outpaint'].includes(mode)) {
+    return { kind: qpe.whRatio ? 'wh_ratio' : (qpe.ratioFollow ? 'ratio_follow' : 'none'), value: qpe.whRatio || qpe.ratioFollow || '', canApply: false, reason: 'Inpaint and Outpaint keep their mask/padding canvas authority; use the enhanced prompt without changing the canvas.' };
+  }
+  if (!qpe.resultId) return { kind: qpe.whRatio ? 'wh_ratio' : (qpe.ratioFollow ? 'ratio_follow' : 'none'), value: qpe.whRatio || qpe.ratioFollow || '', canApply: false, reason: 'This result was not saved to durable QPE history, so its canvas suggestion cannot be accepted safely.' };
+  if (qpe.whRatio) return { kind: 'wh_ratio', value: qpe.whRatio, canApply: true, reason: '' };
+  if (qpe.ratioFollow) return { kind: 'ratio_follow', value: qpe.ratioFollow, canApply: true, reason: '' };
+  return { kind: 'none', value: '', canApply: false, reason: 'The enhancer did not return a canvas suggestion.' };
+}
+
+function renderImageQpeHandoffCard() {
+  if (!qwen21FamilyActive()) return '';
+  const qpe = imageQpeHandoffState();
+  const role = imageQpeRoleState();
+  const prompt = String(state.imageDraft.positive_prompt || '').trim();
+  const refs = imageQpeOrderedReferences();
+  const taskLabel = role.task === 'edit' ? 'Edit prompt rewrite' : 'Text-to-image prompt rewrite';
+  const stateLabel = role.ready ? 'Available' : role.profile ? (role.connected ? 'Needs setup' : 'Not connected') : 'No runtime';
+  const stateClass = role.ready ? 'success' : 'warning';
+  const missingInput = !prompt ? 'Enter a positive prompt first.' : (role.task === 'edit' && !refs.length ? 'Add Image 1 before using the Edit enhancer.' : '');
+  const blocker = missingInput || (!role.ready ? (role.blockers.join(' ') || 'Install the PE node/model and run Connect/Test for a compatible Comfy runtime.') : '');
+  const stale = Boolean(qpe.positivePrompt && qpe.inputPrompt && prompt !== qpe.inputPrompt && prompt !== qpe.positivePrompt);
+  const suggestion = imageQpeCanvasSuggestion();
+  const suggestionLabel = suggestion.kind === 'wh_ratio' ? `Suggested ratio: ${suggestion.value}` : suggestion.kind === 'ratio_follow' ? `Suggested canvas: ${suggestion.value}` : '';
+  const result = qpe.positivePrompt ? `<div class="neo-inline-status ${qpe.parseOk ? 'success' : 'warning'}"><strong>${qpe.parseOk ? 'Enhanced prompt ready.' : 'Fallback enhanced text ready.'}</strong>${suggestionLabel ? ` ${escapeHtml(suggestionLabel)}.` : ''}${stale ? ' The Image prompt changed after this enhancement; rerun before applying its canvas suggestion.' : ''}${qpe.warning ? ` ${escapeHtml(qpe.warning)}` : ''}</div>
+    <div class="neo-qpe-result-preview"><p>${escapeHtml(qpe.positivePrompt)}</p></div>
+    <div class="neo-button-row"><button type="button" class="neo-btn primary" id="imageQpeUsePromptBtn">Use Enhanced Prompt</button>${suggestion.kind !== 'none' ? `<button type="button" class="neo-btn secondary" id="imageQpeUseCanvasBtn" ${suggestion.canApply && !stale ? '' : 'disabled'}>Use Prompt + ${escapeHtml(suggestion.kind === 'wh_ratio' ? `Ratio ${suggestion.value}` : `Canvas ${suggestion.value}`)}</button>` : ''}<button type="button" class="neo-btn ghost" id="imageQpeDismissBtn">Dismiss</button></div>${suggestion.reason ? `<p class="neo-muted">${escapeHtml(suggestion.reason)}</p>` : ''}` : '';
+  return `<div class="neo-mini-card neo-image-qpe-card" data-testid="image-qpe-handoff-card">
+    <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Qwen Image 2.1 Prompt Enhancer</strong><p>Convenience handoff to the shared Prompt & Captioning PE engine. ${escapeHtml(taskLabel)} uses this Image tab's current prompt${role.task === 'edit' ? ' and ordered Image 1–10 references' : ''}.</p></div><span class="neo-state-pill ${escapeAttr(stateClass)}">${escapeHtml(stateLabel)}</span></div>
+    <div class="neo-meta-grid"><span><small>Task</small><b>${escapeHtml(role.task === 'edit' ? 'PE-I2I / Edit' : 'PE-T2I')}</b></span><span><small>Runtime</small><b>${escapeHtml(role.profile?.display_name || role.profile?.profile_id || 'No Comfy profile')}</b></span><span><small>Model</small><b>${escapeHtml(role.model || 'Not discovered')}</b></span>${role.task === 'edit' ? `<span><small>References</small><b>${refs.length}/10</b></span>` : ''}</div>
+    ${blocker ? `<p class="neo-muted">${escapeHtml(blocker)}</p>` : '<p class="neo-muted">The enhancer result is staged for review first. Neo never replaces your prompt or canvas until you choose an apply action.</p>'}
+    <div class="neo-button-row"><button type="button" class="neo-btn secondary" id="imageQpeEnhanceBtn" ${role.ready && !missingInput && !qpe.isRunning ? '' : 'disabled'}>${qpe.isRunning ? 'Enhancing…' : '✨ Enhance with Qwen 2.1 PE'}</button></div>
+    ${qpe.status ? `<div class="neo-inline-status ${qpe.status.toLowerCase().includes('failed') ? 'danger' : 'muted'}">${escapeHtml(qpe.status)}</div>` : ''}
+    ${result}
+  </div>`;
+}
+
+function imageQpeParseRatio(value = '') {
+  const match = String(value || '').trim().match(/^\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*$/);
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!(width > 0) || !(height > 0)) return null;
+  return width / height;
+}
+
+function imageQpeApplyAspectRatioValue(ratioValue) {
+  const ratio = imageQpeParseRatio(ratioValue);
+  if (!ratio) throw new Error(`Unsupported ratio suggestion: ${ratioValue}`);
+  const currentWidth = Number(state.imageDraft.width || numberValue('imageWidth', 1024) || 1024);
+  const currentHeight = Number(state.imageDraft.height || numberValue('imageHeight', 1024) || 1024);
+  const area = Math.max(1, currentWidth * currentHeight);
+  let width = Math.sqrt(area * ratio);
+  let height = width / ratio;
+  const policy = activeImageResolutionPolicy();
+  const maxDim = Number(policy.maximum || 16384);
+  const scale = Math.min(1, maxDim / Math.max(width, height));
+  width *= scale;
+  height *= scale;
+  syncImageSizeInputs(width, height);
+  if (imageQpeTaskForMode() === 'edit' && ['img2img', 'edit'].includes(String(activeImageMode() || '').toLowerCase())) state.imageDraft.qwen21_edit_canvas_mode = 'custom';
+}
+
+function imageQpeReferenceSlotFromFollow(value = '') {
+  const match = String(value || '').trim().match(/^<image(\d+)>$/i);
+  const slot = match ? Number(match[1]) : 0;
+  return slot >= 1 && slot <= 10 ? slot : 0;
+}
+
+function imageQpeLoadDimensions(url = '') {
+  return new Promise((resolve, reject) => {
+    if (!url) { reject(new Error('Reference preview URL is unavailable.')); return; }
+    const image = new Image();
+    image.onload = () => resolve({ width: Number(image.naturalWidth || image.width || 0), height: Number(image.naturalHeight || image.height || 0) });
+    image.onerror = () => reject(new Error('Neo could not read the selected reference dimensions.'));
+    image.src = url;
+  });
+}
+
+async function imageQpeApplyRatioFollow(value = '') {
+  const slot = imageQpeReferenceSlotFromFollow(value);
+  if (!slot) throw new Error(`Unsupported canvas-follow suggestion: ${value}`);
+  const mode = String(activeImageMode() || '').toLowerCase();
+  if (!['img2img', 'edit'].includes(mode)) throw new Error('Canvas-follow suggestions are applied only to Qwen Image 2.1 Img2Img/Edit.');
+  if (slot === 1) {
+    state.imageDraft.qwen21_edit_canvas_mode = 'source';
+    return;
+  }
+  const record = imageQpeReferenceAsset(slot);
+  if (!record) throw new Error(`Image ${slot} is no longer available.`);
+  const dims = await imageQpeLoadDimensions(record.url || `/api/image/source-file/${encodeURIComponent(record.filename || basename(record.path || ''))}`);
+  if (!(dims.width > 0) || !(dims.height > 0)) throw new Error(`Image ${slot} dimensions are unavailable.`);
+  imageQpeApplyAspectRatioValue(`${dims.width}:${dims.height}`);
+  state.imageDraft.qwen21_edit_canvas_mode = 'custom';
+}
+
+async function runImageQpeEnhancer() {
+  const qpe = imageQpeHandoffState();
+  const role = imageQpeRoleState();
+  const prompt = String(state.imageDraft.positive_prompt || valueOf('imagePositivePrompt') || '').trim();
+  const refs = imageQpeOrderedReferences();
+  if (!qwen21FamilyActive() || !role.task) return;
+  if (!prompt) { qpe.status = 'Enter a positive prompt before enhancing.'; render(); return; }
+  if (role.task === 'edit' && !refs.length) { qpe.status = 'QPE Edit requires Image 1.'; render(); return; }
+  if (!role.ready || !role.model) { qpe.status = 'QPE is not ready on the selected Comfy runtime. Install/refresh the PE dependencies and run Connect/Test first.'; render(); return; }
+  qpe.isRunning = true;
+  qpe.status = role.task === 'edit' ? `Rewriting the current edit instruction with ${refs.length} ordered reference image(s)…` : 'Enhancing the current text-to-image prompt…';
+  qpe.task = role.task;
+  qpe.inputPrompt = prompt;
+  qpe.runtimeProfileId = String(role.profile?.profile_id || '');
+  qpe.model = role.model;
+  qpe.positivePrompt = '';
+  qpe.negativePrompt = '';
+  qpe.whRatio = '';
+  qpe.ratioFollow = '';
+  qpe.parseOk = null;
+  qpe.resultId = '';
+  qpe.metadataId = '';
+  qpe.warning = '';
+  qpe.ratioSelection = { kind: 'none', value: '' };
+  render();
+  try {
+    const pc = promptCaptioningState();
+    const params = role.task === 'edit'
+      ? { ...(pc.captioning?.qpeEdit?.params || { temperature: 1.0, top_p: 0.95, presence_penalty: 0.0, max_length: 24000, seed: 42 }) }
+      : { ...(pc.promptBuilder?.qpe?.params || { temperature: 1.0, top_p: 0.95, top_k: 20, presence_penalty: 1.5, max_new_tokens: 16256, seed: 42 }) };
+    const payload = {
+      prompt,
+      runtime_profile_id: qpe.runtimeProfileId,
+      model: qpe.model,
+      params,
+      source_surface: 'image',
+      ...(role.task === 'edit' ? {
+        references: refs.map((row) => row.reference),
+        reference_assets: refs.map(({ reference, ...row }) => row),
+      } : {}),
+    };
+    const endpoint = role.task === 'edit' ? '/api/prompt-captioning/qwen-image-21-pe/edit/run' : '/api/prompt-captioning/qwen-image-21-pe/t2i/run';
+    const data = await promptCaptioningFetchJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (data.ok === false || !String(data.positive_prompt || '').trim()) throw new Error(data.error || data.detail || 'QPE returned no enhanced prompt.');
+    qpe.positivePrompt = String(data.positive_prompt || '').trim();
+    qpe.negativePrompt = String(data.negative_prompt || '').trim();
+    qpe.whRatio = data.parse_ok ? String(data.wh_ratio || '').trim() : '';
+    qpe.ratioFollow = data.parse_ok ? String(data.ratio_follow || '').trim() : '';
+    qpe.parseOk = Boolean(data.parse_ok);
+    qpe.promptId = String(data.prompt_id || '');
+    qpe.resultId = String(data.result_id || '');
+    qpe.metadataId = String(data.metadata?.metadata_id || '');
+    qpe.ratioSelection = data.ratio_selection || { kind: 'none', value: '' };
+    qpe.warning = String(data.warning || '');
+    qpe.status = qpe.parseOk ? 'Enhanced prompt ready for review. Nothing has been applied yet.' : 'Enhancer returned fallback text. Review it before using it; canvas suggestions were discarded.';
+  } catch (error) {
+    qpe.status = `QPE enhancement failed: ${error.message || error}`;
+  } finally {
+    qpe.isRunning = false;
+    render();
+  }
+}
+
+async function useImageQpeResult({ applyCanvas = false } = {}) {
+  const qpe = imageQpeHandoffState();
+  const prompt = String(qpe.positivePrompt || '').trim();
+  if (!prompt) return;
+  try {
+    if (applyCanvas) {
+      const suggestion = imageQpeCanvasSuggestion();
+      if (!suggestion.canApply) throw new Error(suggestion.reason || 'No safe canvas suggestion is available.');
+      const accepted = await promptCaptioningFetchJson('/api/prompt-captioning/qwen-image-21-pe/ratio-selection', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result_id: qpe.resultId, kind: suggestion.kind }),
+      });
+      qpe.ratioSelection = accepted.record?.ratio_selection || accepted.draft?.ratio_selection || { kind: suggestion.kind, value: suggestion.value };
+      if (suggestion.kind === 'wh_ratio') imageQpeApplyAspectRatioValue(suggestion.value);
+      else if (suggestion.kind === 'ratio_follow') await imageQpeApplyRatioFollow(suggestion.value);
+    }
+    state.imageDraft.positive_prompt = prompt;
+    const input = document.getElementById('imagePositivePrompt');
+    if (input) input.value = prompt;
+    qpe.status = applyCanvas ? 'Enhanced prompt and the explicitly accepted canvas suggestion were applied to Image.' : 'Enhanced prompt applied. Canvas settings were left unchanged.';
+    saveUiState();
+    render();
+  } catch (error) {
+    qpe.status = `QPE handoff failed: ${error.message || error}`;
+    render();
+  }
+}
+
+function dismissImageQpeResult() {
+  const qpe = imageQpeHandoffState();
+  qpe.status = '';
+  qpe.inputPrompt = '';
+  qpe.positivePrompt = '';
+  qpe.negativePrompt = '';
+  qpe.whRatio = '';
+  qpe.ratioFollow = '';
+  qpe.parseOk = null;
+  qpe.promptId = '';
+  qpe.resultId = '';
+  qpe.metadataId = '';
+  qpe.warning = '';
+  qpe.ratioSelection = { kind: 'none', value: '' };
+  render();
+}
+
+function bindImageQpeHandoffControls() {
+  const enhance = document.getElementById('imageQpeEnhanceBtn');
+  if (enhance) enhance.addEventListener('click', () => runImageQpeEnhancer());
+  const usePrompt = document.getElementById('imageQpeUsePromptBtn');
+  if (usePrompt) usePrompt.addEventListener('click', () => useImageQpeResult({ applyCanvas: false }));
+  const useCanvas = document.getElementById('imageQpeUseCanvasBtn');
+  if (useCanvas) useCanvas.addEventListener('click', () => useImageQpeResult({ applyCanvas: true }));
+  const dismiss = document.getElementById('imageQpeDismissBtn');
+  if (dismiss) dismiss.addEventListener('click', () => dismissImageQpeResult());
+}
+
 function imageSectionBody(section, imageSetup, surface, subtab) {
   const workspaceExtensions = activeWorkspaceExtensions('image', activeWorkspaceApp().id, subtab.subtab_id);
   const activeProviders = (state.providers?.providers || []).filter((provider) => provider.surfaces?.includes('image'));
@@ -42386,7 +42716,7 @@ function imageSectionBody(section, imageSetup, surface, subtab) {
       ? `<label>Negative Prompt</label><textarea id="imageNegativePrompt" placeholder="Things to avoid...">${escapeHtml(state.imageDraft.negative_prompt)}</textarea>`
       : `<p class="neo-muted neo-cloud-hidden-note">Negative prompt is hidden because the selected cloud image profile does not expose a native negative prompt field.</p>`;
     const libraryBar = renderImagePromptLibraryBar();
-    return `${help}${libraryBar}<label>Positive Prompt</label><textarea id="imagePositivePrompt" placeholder="Describe the image...">${escapeHtml(state.imageDraft.positive_prompt)}</textarea>${negativeBlock}${state.detailMode !== 'compact' ? badgeRow(['Prompt Assist', 'Style chips', isCloudImageProfile() ? 'Cloud profile gated' : 'Saved prompt pairs']) : ''}${expert}`;
+    return `${help}${libraryBar}<label>Positive Prompt</label><textarea id="imagePositivePrompt" placeholder="Describe the image...">${escapeHtml(state.imageDraft.positive_prompt)}</textarea>${renderImageQpeHandoffCard()}${negativeBlock}${state.detailMode !== 'compact' ? badgeRow(['Prompt Assist', 'Style chips', isCloudImageProfile() ? 'Cloud profile gated' : 'Saved prompt pairs']) : ''}${expert}`;
   }
   if (section.section_id === 'source') {
     return `${help}${renderImageSourcePanelBody()}${expert}`;
@@ -43943,6 +44273,404 @@ function promptCaptioningProviderOptions(modeId) {
 }
 
 
+function promptCaptioningQpeCaps(profile) {
+  const direct = profile?.backend_capabilities || profile?.runtime?.backend_capabilities || profile?.runtime?.capabilities?.backend_capabilities || {};
+  return direct?.qwen_image_21_prompt_enhancer || {};
+}
+
+function promptCaptioningQpeRuntimeRank(profile) {
+  const connected = backendProfileConnectedForRuntime(profile);
+  const providerId = String(profile?.provider_id || '');
+  const surface = String(profile?.surface || '');
+  let surfaceRank = 4;
+  if (surface === 'image' && ['comfyui', 'comfyui_portable'].includes(providerId)) surfaceRank = 0;
+  else if (['prompt_captioning', 'text'].includes(surface) && providerId === 'comfy_llamacpp') surfaceRank = 1;
+  else if (surface === 'image') surfaceRank = 2;
+  else if (['prompt_captioning', 'text'].includes(surface)) surfaceRank = 3;
+  return [connected ? 0 : 1, surfaceRank, String(profile?.display_name || profile?.profile_id || '').toLowerCase()];
+}
+
+function promptCaptioningQpeRuntimeProfiles() {
+  const providers = new Set(['comfyui', 'comfyui_portable', 'comfy_llamacpp']);
+  const profiles = (state.backendProfiles?.profiles || []).filter((profile) => {
+    if (!profile || profile.enabled === false) return false;
+    if (!providers.has(String(profile.provider_id || ''))) return false;
+    if (profile.profile_role === 'image_background_removal_backend') return false;
+    return true;
+  });
+  return profiles.sort((a, b) => {
+    const aa = promptCaptioningQpeRuntimeRank(a);
+    const bb = promptCaptioningQpeRuntimeRank(b);
+    return aa[0] - bb[0] || aa[1] - bb[1] || aa[2].localeCompare(bb[2]);
+  });
+}
+
+function promptCaptioningQpeRuntimeOptions(selectedId = '', role = 't2i') {
+  const profiles = promptCaptioningQpeRuntimeProfiles();
+  if (!profiles.length) return '<option value="">No compatible ComfyUI runtime</option>';
+  const readinessKey = role === 'edit' ? 'edit_execution_ready' : 't2i_execution_ready';
+  return profiles.map((profile) => {
+    const caps = promptCaptioningQpeCaps(profile);
+    const connected = backendProfileConnectedForRuntime(profile);
+    const ready = Boolean(caps[readinessKey]) && connected;
+    const stateLabel = ready ? 'Ready' : connected ? 'Needs setup' : 'Not connected';
+    const surfaceLabel = profile.surface === 'prompt_captioning' ? 'Prompt & Captioning' : humanize(profile.surface || 'ComfyUI');
+    const label = `${profile.display_name || profile.profile_id} · ${surfaceLabel} · ${stateLabel}`;
+    return `<option value="${escapeAttr(profile.profile_id || '')}" ${String(profile.profile_id || '') === String(selectedId || '') ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
+
+function promptCaptioningQpeHistoryRecords(task = '') {
+  const records = Array.isArray(promptCaptioningState().library?.qpeHistory) ? promptCaptioningState().library.qpeHistory : [];
+  const cleanTask = String(task || '').trim();
+  return cleanTask ? records.filter((item) => String(item?.task || '') === cleanTask) : records;
+}
+
+function promptCaptioningQpeResultHistoryPanel(task = 't2i', qpe = {}) {
+  const isEdit = task === 'edit';
+  const result = qpe.lastResult && typeof qpe.lastResult === 'object' ? qpe.lastResult : null;
+  const selection = qpe.ratioSelection && typeof qpe.ratioSelection === 'object' ? qpe.ratioSelection : { kind: 'none', value: '' };
+  const ratioButtons = [];
+  if (qpe.resultId && qpe.parseOk && qpe.whRatio) ratioButtons.push(`<button type="button" class="neo-btn secondary" data-qpe-ratio-kind="wh_ratio" data-qpe-task="${escapeAttr(task)}">Accept ratio ${escapeHtml(qpe.whRatio)}</button>`);
+  if (qpe.resultId && qpe.parseOk && qpe.ratioFollow) ratioButtons.push(`<button type="button" class="neo-btn secondary" data-qpe-ratio-kind="ratio_follow" data-qpe-task="${escapeAttr(task)}">Accept canvas ${escapeHtml(qpe.ratioFollow)}</button>`);
+  if (qpe.resultId && selection.kind && selection.kind !== 'none') ratioButtons.push(`<button type="button" class="neo-btn ghost" data-qpe-ratio-kind="none" data-qpe-task="${escapeAttr(task)}">Clear accepted ratio</button>`);
+  const accepted = selection.kind && selection.kind !== 'none'
+    ? `<div class="neo-inline-status success">Accepted suggestion: <strong>${escapeHtml(selection.value || selection.kind)}</strong>. This is stored for QPE replay and future Image handoff; the Image canvas has not been changed.</div>`
+    : '';
+  const promptText = String(result?.positive_prompt || '').trim();
+  const history = promptCaptioningQpeHistoryRecords(task).slice(0, 6);
+  const historyRows = history.length
+    ? history.map((row) => {
+        const selected = row?.ratio_selection && row.ratio_selection.kind && row.ratio_selection.kind !== 'none' ? ` · accepted ${row.ratio_selection.value || row.ratio_selection.kind}` : '';
+        const refs = isEdit ? ` · ${Number(row?.reference_count || 0)} ref${Number(row?.reference_count || 0) === 1 ? '' : 's'}` : '';
+        const created = row?.created_at ? new Date(row.created_at).toLocaleString() : '';
+        return `<div class="neo-pc-qpe-history-row"><div><strong>${escapeHtml(String(row?.positive_prompt || '').slice(0, 92) || 'QPE result')}</strong><small>${escapeHtml(`${created}${refs}${selected}`)}</small></div><button type="button" class="neo-btn ghost" data-qpe-replay-result="${escapeAttr(row?.result_id || '')}">Replay</button></div>`;
+      }).join('')
+    : '<div class="neo-inline-status muted">No durable QPE history loaded yet.</div>';
+  if (!result && !qpe.resultId && !history.length) return `<details class="neo-pc-qpe-history"><summary>QPE results & replay</summary><div class="neo-button-row"><button type="button" class="neo-btn ghost" data-qpe-history-refresh="${escapeAttr(task)}">Refresh history</button></div>${historyRows}</details>`;
+  return `<div class="neo-mini-card neo-pc-qpe-result-card" data-qpe-result-card="${escapeAttr(task)}">
+    <div class="neo-ui-section-head admin-engine-row-between"><div><strong>${isEdit ? 'Enhanced Edit Prompt' : 'Enhanced Prompt'}</strong><p>Structured QPE result, ratio decision, and replay lineage.</p></div>${qpe.resultId ? `<span class="neo-state-pill success">Saved</span>` : `<span class="neo-state-pill warning">Session only</span>`}</div>
+    ${promptText ? `<div class="neo-pc-qpe-result-text">${escapeHtml(promptText)}</div>` : ''}
+    <div class="neo-button-row"><button type="button" class="neo-btn ghost" data-qpe-copy-result="${escapeAttr(task)}" ${promptText ? '' : 'disabled'}>Copy enhanced prompt</button>${ratioButtons.join('')}</div>
+    ${accepted}
+    <details class="neo-pc-qpe-history"><summary>Recent QPE history</summary><div class="neo-button-row"><button type="button" class="neo-btn ghost" data-qpe-history-refresh="${escapeAttr(task)}">Refresh history</button></div>${historyRows}</details>
+  </div>`;
+}
+
+async function refreshPromptCaptioningQpeHistory(task = '', renderAfter = true) {
+  const pc = promptCaptioningState();
+  pc.library = pc.library || {};
+  const cleanTask = ['t2i', 'edit'].includes(String(task || '').trim()) ? String(task).trim() : '';
+  try {
+    const suffix = cleanTask ? `&task=${encodeURIComponent(cleanTask)}` : '';
+    const data = await promptCaptioningFetchJson(`/api/prompt-captioning/qwen-image-21-pe/history?limit=50${suffix}`);
+    const incoming = Array.isArray(data.records) ? data.records : [];
+    if (cleanTask) {
+      const existing = Array.isArray(pc.library.qpeHistory) ? pc.library.qpeHistory : [];
+      pc.library.qpeHistory = [...incoming, ...existing.filter((row) => String(row?.task || '') !== cleanTask)].slice(0, 200);
+    } else {
+      pc.library.qpeHistory = incoming.slice(0, 200);
+    }
+    pc.library.qpeHistoryLoaded = true;
+  } catch (error) {
+    const target = cleanTask === 'edit' ? pc.captioning?.qpeEdit : pc.promptBuilder?.qpe;
+    if (target) target.status = `QPE history refresh failed: ${error.message || error}`;
+  }
+  if (renderAfter) render();
+}
+
+function promptCaptioningQpeStateForTask(task = 't2i') {
+  const pc = promptCaptioningState();
+  return task === 'edit'
+    ? (pc.captioning.qpeEdit || (pc.captioning.qpeEdit = { references: [], params: {} }))
+    : (pc.promptBuilder.qpe || (pc.promptBuilder.qpe = { params: {} }));
+}
+
+function promptCaptioningQpeReplaceHistoryRecord(record = {}) {
+  if (!record?.result_id) return;
+  const pc = promptCaptioningState();
+  pc.library = pc.library || {};
+  const existing = Array.isArray(pc.library.qpeHistory) ? pc.library.qpeHistory : [];
+  pc.library.qpeHistory = [record, ...existing.filter((row) => String(row?.result_id || '') !== String(record.result_id))].slice(0, 200);
+  pc.library.qpeHistoryLoaded = true;
+}
+
+async function setPromptCaptioningQpeRatioSelection(task = 't2i', kind = 'none') {
+  const qpe = promptCaptioningQpeStateForTask(task);
+  if (!qpe.resultId) {
+    qpe.status = 'Run or replay a saved QPE result before accepting a ratio suggestion.';
+    render();
+    return;
+  }
+  try {
+    const data = await promptCaptioningFetchJson('/api/prompt-captioning/qwen-image-21-pe/ratio-selection', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ result_id: qpe.resultId, kind }),
+    });
+    const record = data.record || {};
+    const draft = data.draft || {};
+    qpe.ratioSelection = draft.ratio_selection || record.ratio_selection || { kind: 'none', value: '' };
+    qpe.replayPayload = data.replay_payload || record.replay_payload || qpe.replayPayload || null;
+    qpe.lastResult = {
+      positive_prompt: String(record.positive_prompt || qpe.lastResult?.positive_prompt || ''),
+      negative_prompt: String(record.negative_prompt || qpe.lastResult?.negative_prompt || ''),
+      wh_ratio: String(record.wh_ratio || qpe.whRatio || ''),
+      ratio_follow: String(record.ratio_follow || qpe.ratioFollow || ''),
+      parse_ok: Boolean(record.parse_ok ?? qpe.parseOk),
+    };
+    promptCaptioningQpeReplaceHistoryRecord(record);
+    if (data.metadata?.metadata_id) {
+      const pc = promptCaptioningState();
+      const rows = Array.isArray(pc.library.resultMetadata) ? pc.library.resultMetadata : [];
+      pc.library.resultMetadata = [data.metadata, ...rows.filter((row) => String(row?.metadata_id || '') !== String(data.metadata.metadata_id))].slice(0, 50);
+    }
+    qpe.status = qpe.ratioSelection.kind === 'none'
+      ? 'Cleared the accepted QPE ratio choice. Image canvas remains unchanged.'
+      : `Accepted ${qpe.ratioSelection.value || qpe.ratioSelection.kind} for QPE replay and future Image handoff. Image canvas remains unchanged.`;
+  } catch (error) {
+    qpe.status = `QPE ratio selection failed: ${error.message || error}`;
+  }
+  render();
+}
+
+function promptCaptioningQpeNormalizeReplayAsset(row = {}) {
+  const assetRef = String(row.asset_ref || row.assetRef || row.path || '');
+  const path = String(row.path || assetRef || '');
+  const filename = String(row.filename || row.stored_filename || (path ? path.split(/[\\/]/).pop() : ''));
+  const url = String(row.url || row.preview_url || row.previewUrl || '');
+  return {
+    asset_ref: assetRef,
+    assetRef,
+    path,
+    filename,
+    stored_filename: filename,
+    original_name: String(row.original_name || row.name || filename || ''),
+    url,
+    preview_url: url,
+  };
+}
+
+async function replayPromptCaptioningQpeResult(resultId = '') {
+  if (!resultId) return;
+  const pc = promptCaptioningState();
+  try {
+    const data = await promptCaptioningFetchJson('/api/prompt-captioning/qwen-image-21-pe/replay', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result_id: resultId }),
+    });
+    const draft = data.draft || {};
+    const record = data.record || {};
+    const task = String(draft.task || record.task || '');
+    if (task === 't2i') {
+      promptCaptioningSetWorkspaceMode('prompt_builder');
+      promptCaptioningApplyPromptTask('text_to_image');
+      const pb = pc.promptBuilder;
+      const qpe = pb.qpe || (pb.qpe = { params: {} });
+      pb.sourceText = String(draft.input_prompt || '');
+      pb.outputText = String(draft.positive_prompt || '');
+      pb.negativeOutputText = String(draft.negative_prompt || '');
+      qpe.runtimeProfileId = String(draft.runtime_profile_id || '');
+      qpe.model = String(draft.model || '');
+      qpe.params = { ...(qpe.params || {}), ...(draft.params || {}) };
+      qpe.whRatio = String(draft.wh_ratio || '');
+      qpe.ratioFollow = String(draft.ratio_follow || '');
+      qpe.parseOk = Boolean(draft.parse_ok);
+      qpe.lastPromptId = String(draft.prompt_id || '');
+      qpe.resultId = String(draft.result_id || resultId);
+      qpe.metadataId = String(draft.metadata_id || '');
+      qpe.ratioSelection = draft.ratio_selection || { kind: 'none', value: '' };
+      qpe.replayPayload = data.replay_payload || record.replay_payload || null;
+      qpe.lastResult = { positive_prompt: pb.outputText, negative_prompt: pb.negativeOutputText, wh_ratio: qpe.whRatio, ratio_follow: qpe.ratioFollow, parse_ok: qpe.parseOk };
+      qpe.status = 'QPE T2I replay staged from durable history. Nothing was rerun and the Image canvas was not changed.';
+    } else if (task === 'edit') {
+      promptCaptioningSetWorkspaceMode('captioning');
+      promptCaptioningApplyCaptionTaskDefaults('image_edit');
+      const cap = pc.captioning;
+      const qpe = cap.qpeEdit || (cap.qpeEdit = { references: [], params: {} });
+      cap.captionInstruction = String(draft.input_prompt || '');
+      cap.outputCaption = String(draft.positive_prompt || '');
+      const refs = Array.isArray(draft.references) ? draft.references : [];
+      if (refs[0]?.replayable) setCaptionImageStateFromUpload(promptCaptioningQpeNormalizeReplayAsset(refs[0]));
+      qpe.references = refs.slice(1, 10).filter((row) => row?.replayable).map((row) => promptCaptioningQpeNormalizeReplayAsset(row));
+      qpe.runtimeProfileId = String(draft.runtime_profile_id || '');
+      qpe.model = String(draft.model || '');
+      qpe.params = { ...(qpe.params || {}), ...(draft.params || {}) };
+      qpe.whRatio = String(draft.wh_ratio || '');
+      qpe.ratioFollow = String(draft.ratio_follow || '');
+      qpe.parseOk = Boolean(draft.parse_ok);
+      qpe.lastPromptId = String(draft.prompt_id || '');
+      qpe.resultId = String(draft.result_id || resultId);
+      qpe.metadataId = String(draft.metadata_id || '');
+      qpe.ratioSelection = draft.ratio_selection || { kind: 'none', value: '' };
+      qpe.replayPayload = data.replay_payload || record.replay_payload || null;
+      qpe.lastResult = { positive_prompt: cap.outputCaption, negative_prompt: String(draft.negative_prompt || ''), wh_ratio: qpe.whRatio, ratio_follow: qpe.ratioFollow, parse_ok: qpe.parseOk };
+      const missing = Array.isArray(draft.missing_reference_slots) ? draft.missing_reference_slots : [];
+      qpe.status = missing.length
+        ? `QPE Edit replay staged. Reference slot${missing.length === 1 ? '' : 's'} ${missing.join(', ')} could not be restored; re-add them before rerunning. Nothing was rerun.`
+        : 'QPE Edit replay staged with its stored references. Nothing was rerun and the Image canvas was not changed.';
+    } else {
+      throw new Error('Unsupported QPE replay task.');
+    }
+    promptCaptioningQpeReplaceHistoryRecord(record);
+    pc.library.lastReplayPayload = data.replay_payload || null;
+    render();
+    if (task === 't2i') promptCaptioningWritePromptOutputToDom('prompt_generate', pc.promptBuilder.outputText || '');
+    else promptCaptioningWriteCaptionOutputToDom(pc.captioning.outputCaption || '');
+  } catch (error) {
+    const pb = pc.promptBuilder;
+    const cap = pc.captioning;
+    if (promptCaptioningWorkspaceMode() === 'captioning') cap.qpeEdit.status = `QPE replay failed: ${error.message || error}`;
+    else pb.qpe.status = `QPE replay failed: ${error.message || error}`;
+    render();
+  }
+}
+
+async function copyPromptCaptioningQpeResult(task = 't2i') {
+  const qpe = promptCaptioningQpeStateForTask(task);
+  const fallback = task === 'edit' ? promptCaptioningState().captioning.outputCaption : promptCaptioningState().promptBuilder.outputText;
+  const text = String(qpe.lastResult?.positive_prompt || fallback || '').trim();
+  if (!text) {
+    qpe.status = 'No enhanced QPE prompt is available to copy.';
+    render();
+    return;
+  }
+  try {
+    await promptCaptioningCopyTextToClipboard(text);
+    qpe.status = 'Copied enhanced QPE prompt.';
+  } catch (error) {
+    qpe.status = `Copy failed: ${error.message || error}`;
+  }
+  render();
+}
+
+function promptCaptioningQpeT2ICard() {
+  const pb = promptCaptioningState().promptBuilder;
+  const qpe = pb.qpe || (pb.qpe = { runtimeProfileId: '', model: '', params: {} });
+  qpe.params = qpe.params || {};
+  const profiles = promptCaptioningQpeRuntimeProfiles();
+  let profile = profiles.find((item) => String(item.profile_id || '') === String(qpe.runtimeProfileId || '')) || null;
+  if (!profile) profile = profiles.find((item) => Boolean(promptCaptioningQpeCaps(item).t2i_execution_ready) && backendProfileConnectedForRuntime(item)) || profiles[0] || null;
+  if (profile && !qpe.runtimeProfileId) qpe.runtimeProfileId = profile.profile_id || '';
+  const caps = promptCaptioningQpeCaps(profile);
+  const models = Array.isArray(caps.t2i_model_candidates) ? caps.t2i_model_candidates : [];
+  if ((!qpe.model || !models.includes(qpe.model)) && models.length) qpe.model = models[0];
+  const connected = Boolean(profile && backendProfileConnectedForRuntime(profile));
+  const ready = Boolean(profile && connected && caps.t2i_execution_ready);
+  const dependencyReady = Boolean(caps.t2i_dependency_ready);
+  const blockers = Array.isArray(caps?.readiness?.t2i_blockers) ? caps.readiness.t2i_blockers : [];
+  const stateLabel = ready ? 'Available' : profile ? (connected ? 'Needs setup' : 'Not connected') : 'No runtime';
+  const stateClass = ready ? 'success' : dependencyReady ? 'warning' : 'danger';
+  const modelOptions = models.length
+    ? models.map((name) => `<option value="${escapeAttr(name)}" ${name === qpe.model ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')
+    : '<option value="">No PE T2I model discovered</option>';
+  const resultLine = qpe.parseOk === null || qpe.parseOk === undefined
+    ? ''
+    : qpe.parseOk
+      ? `<div class="neo-inline-status success">Structured enhancer result parsed successfully.${qpe.whRatio ? ` Suggested ratio: <strong>${escapeHtml(qpe.whRatio)}</strong>.` : ''} Ratio is informational only in this release until you explicitly accept it for replay/future handoff; accepting it still does not change the Image canvas automatically.</div>`
+      : '<div class="neo-inline-status warning">Enhancer returned usable fallback text, but structured parsing failed. Ratio metadata was discarded.</div>';
+  const blockerText = ready
+    ? 'Ready on the selected Comfy runtime. Input uses Prompt output when present, otherwise Source text / idea.'
+    : blockers.length
+      ? blockers.join(' ')
+      : 'Install the Qwen Image 2.1 Prompt Enhancer node + T2I PE model, recopy Neo\'s updated neo_prompt_captioning bridge, restart ComfyUI, then Connect/Test.';
+  return `<div class="neo-mini-card neo-pc-qpe-card" data-testid="qpe-t2i-card">
+    <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Qwen Image 2.1 Prompt Enhancer</strong><p>Optional specialist T2I rewrite through any compatible connected ComfyUI runtime. This does not replace the normal Text Backend Profile.</p></div><span class="neo-state-pill ${escapeAttr(stateClass)}">${escapeHtml(stateLabel)}</span></div>
+    <div class="neo-form-grid">
+      <label>Comfy Runtime<select id="promptCaptioningQpeRuntime">${promptCaptioningQpeRuntimeOptions(qpe.runtimeProfileId || '')}</select></label>
+      <label>PE T2I Model<select id="promptCaptioningQpeT2IModel" ${models.length ? '' : 'disabled'}>${modelOptions}</select></label>
+    </div>
+    <p class="neo-muted">${escapeHtml(blockerText)}</p>
+    <details class="neo-pc-qpe-advanced"><summary>Enhancer sampling</summary>
+      <div class="neo-form-grid">
+        <label>Temperature${promptCaptioningInput('promptCaptioningQpeTemperature', qpe.params.temperature ?? 1.0, '1.0', 'number')}</label>
+        <label>Top-p${promptCaptioningInput('promptCaptioningQpeTopP', qpe.params.top_p ?? 0.95, '0.95', 'number')}</label>
+        <label>Top-k${promptCaptioningInput('promptCaptioningQpeTopK', qpe.params.top_k ?? 20, '20', 'number')}</label>
+        <label>Presence penalty${promptCaptioningInput('promptCaptioningQpePresencePenalty', qpe.params.presence_penalty ?? 1.5, '1.5', 'number')}</label>
+        <label>Max new tokens${promptCaptioningInput('promptCaptioningQpeMaxNewTokens', qpe.params.max_new_tokens ?? 16256, '16256', 'number')}</label>
+        <label>Seed${promptCaptioningInput('promptCaptioningQpeSeed', qpe.params.seed ?? 42, '42', 'number')}</label>
+      </div>
+    </details>
+    ${qpe.isRunning ? `<div class="neo-pc-running-card" data-qpe-running="true" role="status"><span class="neo-pc-spinner" aria-hidden="true"></span><div><strong>Enhancing with Qwen Image 2.1 PE…</strong><small>The PE text encoder is running through the selected compatible ComfyUI runtime.</small></div></div>` : ''}
+    <div class="neo-button-row"><button type="button" id="promptCaptioningQpeEnhanceT2I" class="neo-btn primary" ${ready && qpe.model && !qpe.isRunning ? '' : 'disabled'}>✨ Enhance with Qwen 2.1 PE</button></div>
+    ${resultLine}
+    ${qpe.status ? `<div class="neo-inline-status">${escapeHtml(qpe.status)}</div>` : ''}
+    ${promptCaptioningQpeResultHistoryPanel('t2i', qpe)}
+    <p class="neo-muted">The PE model weights use the Qwen Research License. Neo unloads the PE model after each normal enhancement run to return shared Comfy GPU memory.</p>
+  </div>`;
+}
+
+
+function promptCaptioningQpeEditReferenceRows(qpe = {}) {
+  const refs = Array.isArray(qpe.references) ? qpe.references.slice(0, 9) : [];
+  if (!refs.length) return '<div class="neo-inline-status muted">Image 1 is the Caption Studio source. Add up to nine more ordered references here for Image 2–10.</div>';
+  return `<div class="neo-pc-qpe-ref-list">${refs.map((ref, index) => {
+    const slot = index + 2;
+    const url = ref.url || ref.preview_url || '';
+    const name = ref.original_name || ref.filename || `Reference ${slot}`;
+    return `<div class="neo-mini-card neo-pc-qpe-ref-row" data-qpe-edit-ref-index="${index}">
+      <div class="neo-pc-qpe-ref-meta">${url ? `<img src="${escapeAttr(url)}" alt="${escapeAttr(name)}" class="neo-pc-qpe-ref-thumb" />` : ''}<div><strong>Image ${slot}</strong><small>${escapeHtml(name)}</small></div></div>
+      <div class="neo-button-row compact"><button type="button" class="neo-btn ghost" data-qpe-edit-ref-up="${index}" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" class="neo-btn ghost" data-qpe-edit-ref-down="${index}" ${index === refs.length - 1 ? 'disabled' : ''}>↓</button><button type="button" class="neo-btn danger" data-qpe-edit-ref-remove="${index}">Remove</button></div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function promptCaptioningQpeEditCard() {
+  const cap = promptCaptioningState().captioning;
+  const qpe = cap.qpeEdit || (cap.qpeEdit = { runtimeProfileId: '', model: '', references: [], params: {} });
+  qpe.params = qpe.params || {};
+  qpe.references = Array.isArray(qpe.references) ? qpe.references.slice(0, 9) : [];
+  const profiles = promptCaptioningQpeRuntimeProfiles();
+  let profile = profiles.find((item) => String(item.profile_id || '') === String(qpe.runtimeProfileId || '')) || null;
+  if (!profile) profile = profiles.find((item) => Boolean(promptCaptioningQpeCaps(item).edit_execution_ready) && backendProfileConnectedForRuntime(item)) || profiles[0] || null;
+  if (profile && !qpe.runtimeProfileId) qpe.runtimeProfileId = profile.profile_id || '';
+  const caps = promptCaptioningQpeCaps(profile);
+  const models = Array.isArray(caps.edit_model_candidates) ? caps.edit_model_candidates : [];
+  if ((!qpe.model || !models.includes(qpe.model)) && models.length) qpe.model = models[0];
+  const connected = Boolean(profile && backendProfileConnectedForRuntime(profile));
+  const ready = Boolean(profile && connected && caps.edit_execution_ready);
+  const dependencyReady = Boolean(caps.edit_dependency_ready);
+  const blockers = Array.isArray(caps?.readiness?.edit_blockers) ? caps.readiness.edit_blockers : [];
+  const primaryReady = Boolean(cap.assetRef || cap.selectedImage);
+  const totalRefs = primaryReady ? 1 + qpe.references.length : qpe.references.length;
+  const stateLabel = ready ? 'Available' : profile ? (connected ? 'Needs setup' : 'Not connected') : 'No runtime';
+  const stateClass = ready ? 'success' : dependencyReady ? 'warning' : 'danger';
+  const modelOptions = models.length
+    ? models.map((name) => `<option value="${escapeAttr(name)}" ${name === qpe.model ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')
+    : '<option value="">No PE Edit model discovered</option>';
+  const resultLine = qpe.parseOk === null || qpe.parseOk === undefined
+    ? ''
+    : qpe.parseOk
+      ? `<div class="neo-inline-status success">Structured edit rewrite parsed successfully.${qpe.whRatio ? ` Suggested ratio: <strong>${escapeHtml(qpe.whRatio)}</strong>.` : ''}${qpe.ratioFollow ? ` Suggested canvas: <strong>${escapeHtml(qpe.ratioFollow)}</strong>.` : ''} Suggestions are not applied automatically.</div>`
+      : '<div class="neo-inline-status warning">Enhancer returned usable fallback text, but structured parsing failed. Ratio metadata was discarded.</div>';
+  const blockerText = ready
+    ? 'Ready on the selected Comfy runtime. Caption Studio source stays Image 1; additional references keep their visible Image 2–10 order.'
+    : blockers.length ? blockers.join(' ') : "Install the Qwen Image 2.1 Prompt Enhancer node + I2I PE model, recopy Neo's updated neo_prompt_captioning bridge, restart ComfyUI, then Connect/Test.";
+  const canAdd = qpe.references.length < 9 && !qpe.uploading;
+  const instructionReady = Boolean(String(cap.captionInstruction || '').trim());
+  return `<div class="neo-mini-card neo-pc-qpe-card" data-testid="qpe-edit-card">
+    <div class="neo-ui-section-head admin-engine-row-between"><div><strong>Qwen Image 2.1 Edit Prompt Enhancer</strong><p>Image-aware specialist rewrite for Caption Studio's Image Edit task. The source image is always Image 1 and up to nine additional ordered references can be added.</p></div><span class="neo-state-pill ${escapeAttr(stateClass)}">${escapeHtml(stateLabel)}</span></div>
+    <div class="neo-form-grid">
+      <label>Comfy Runtime<select id="promptCaptioningQpeEditRuntime">${promptCaptioningQpeRuntimeOptions(qpe.runtimeProfileId || '', 'edit')}</select></label>
+      <label>PE Edit Model<select id="promptCaptioningQpeEditModel" ${models.length ? '' : 'disabled'}>${modelOptions}</select></label>
+    </div>
+    <p class="neo-muted">${escapeHtml(blockerText)}</p>
+    <div class="neo-inline-status ${primaryReady ? 'success' : 'warning'}">Image 1 · ${primaryReady ? escapeHtml(cap.selectedImageName || cap.selectedImageFilename || 'Caption Studio source ready') : 'Upload the Caption Studio source image first.'}</div>
+    ${promptCaptioningQpeEditReferenceRows(qpe)}
+    <div class="neo-button-row"><input id="promptCaptioningQpeEditReferenceFiles" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" multiple hidden><button type="button" id="promptCaptioningQpeEditAddReferences" class="neo-btn secondary" ${canAdd ? '' : 'disabled'}>${qpe.uploading ? 'Uploading references…' : `➕ Add reference images (${totalRefs}/10)`}</button><button type="button" id="promptCaptioningQpeEditClearReferences" class="neo-btn ghost" ${qpe.references.length ? '' : 'disabled'}>Clear extra refs</button></div>
+    <details class="neo-pc-qpe-advanced"><summary>Enhancer sampling</summary><div class="neo-form-grid">
+      <label>Temperature${promptCaptioningInput('promptCaptioningQpeEditTemperature', qpe.params.temperature ?? 1.0, '1.0', 'number')}</label>
+      <label>Top-p${promptCaptioningInput('promptCaptioningQpeEditTopP', qpe.params.top_p ?? 0.95, '0.95', 'number')}</label>
+      <label>Presence penalty${promptCaptioningInput('promptCaptioningQpeEditPresencePenalty', qpe.params.presence_penalty ?? 0.0, '0.0', 'number')}</label>
+      <label>Max length${promptCaptioningInput('promptCaptioningQpeEditMaxLength', qpe.params.max_length ?? 24000, '24000', 'number')}</label>
+      <label>Seed${promptCaptioningInput('promptCaptioningQpeEditSeed', qpe.params.seed ?? 42, '42', 'number')}</label>
+    </div></details>
+    ${qpe.isRunning ? `<div class="neo-pc-running-card" data-qpe-edit-running="true" role="status"><span class="neo-pc-spinner" aria-hidden="true"></span><div><strong>Rewriting edit prompt with Qwen Image 2.1 PE…</strong><small>${totalRefs} ordered reference image${totalRefs === 1 ? '' : 's'} will be sent to the selected compatible ComfyUI runtime.</small></div></div>` : ''}
+    <div class="neo-button-row"><button type="button" id="promptCaptioningQpeEnhanceEdit" class="neo-btn primary" ${ready && qpe.model && primaryReady && instructionReady && !qpe.isRunning && !qpe.uploading ? '' : 'disabled'}>✨ Rewrite Edit Prompt with Qwen 2.1 PE</button></div>
+    ${resultLine}${qpe.status ? `<div class="neo-inline-status">${escapeHtml(qpe.status)}</div>` : ''}
+    ${promptCaptioningQpeResultHistoryPanel('edit', qpe)}
+    <p class="neo-muted">The PE model weights use the Qwen Research License. Neo unloads the PE model after each normal rewrite to return shared Comfy GPU memory.</p>
+  </div>`;
+}
+
 function promptCaptioningRunningPanel(toolId = 'prompt_generate') {
   const labels = {
     prompt_generate: 'Generating prompt',
@@ -44037,6 +44765,7 @@ function promptCaptioningPromptStudioPanel() {
       <label>Top-p${promptCaptioningInput('promptCaptioningTopP', params.top_p ?? 0.9, '0.9', 'number')}</label>
     </div>
     ${promptCaptioningComfyLlamaCppSettingsPanel('prompt_builder', promptCaptioningSelectedBackendProfile('prompt_builder'))}
+    ${isTextToImage ? promptCaptioningQpeT2ICard() : ''}
     ${isVideo ? `<div class="neo-mini-card"><strong>Temporal prompt contract</strong><p class="neo-muted">Neo will keep the source idea intact while organizing the result around starting state → motion/action → continuity → camera behavior → ending state. It will not invent extra cuts, characters, locations, or actions unless you ask for them.</p></div>` : ''}
     ${isEdit ? `<div class="neo-mini-card"><strong>Text-only edit contract</strong><p class="neo-muted">Prompt Studio does not see an image. It will describe the requested change and preservation constraints without pretending to know unseen source details.</p></div>` : ''}
     ${pb.isRunning ? promptCaptioningRunningPanel(pb.activeTool || pb.generationMode || 'prompt_generate') : ''}
@@ -44279,6 +45008,22 @@ function syncPromptCaptioningPromptFormFromDom() {
     const key = id === 'promptCaptioningMaxTokens' ? 'max_tokens' : id === 'promptCaptioningTemperature' ? 'temperature' : 'top_p';
     pb.params[key] = Number(field.value);
   });
+  pb.qpe = pb.qpe || { params: {} };
+  pb.qpe.params = pb.qpe.params || {};
+  pb.qpe.runtimeProfileId = read('promptCaptioningQpeRuntime') || pb.qpe.runtimeProfileId || '';
+  pb.qpe.model = read('promptCaptioningQpeT2IModel') || pb.qpe.model || '';
+  [
+    ['promptCaptioningQpeTemperature', 'temperature'],
+    ['promptCaptioningQpeTopP', 'top_p'],
+    ['promptCaptioningQpeTopK', 'top_k'],
+    ['promptCaptioningQpePresencePenalty', 'presence_penalty'],
+    ['promptCaptioningQpeMaxNewTokens', 'max_new_tokens'],
+    ['promptCaptioningQpeSeed', 'seed'],
+  ].forEach(([id, key]) => {
+    const field = document.getElementById(id);
+    if (!field || field.value === '') return;
+    pb.qpe.params[key] = Number(field.value);
+  });
   return pb;
 }
 
@@ -44399,6 +45144,67 @@ async function copyPromptStudioOutput() {
     pb.status = 'Copied Prompt output.';
   } catch (error) {
     pb.status = `Copy failed: ${error.message || error}`;
+    render();
+  }
+}
+
+
+async function runPromptCaptioningQpeT2I() {
+  const pc = promptCaptioningState();
+  const pb = syncPromptCaptioningPromptFormFromDom();
+  const qpe = pb.qpe || (pb.qpe = { params: {} });
+  if (qpe.isRunning) return;
+  const source = String(pb.outputText || '').trim() || String(pb.sourceText || '').trim();
+  if (!source) {
+    qpe.status = 'Enter Source text / idea or generate a Prompt output before running the Qwen Image 2.1 Prompt Enhancer.';
+    render();
+    return;
+  }
+  qpe.isRunning = true;
+  qpe.status = 'Running Qwen Image 2.1 PE through ComfyUI…';
+  qpe.lastInput = source;
+  render();
+  try {
+    const response = await fetch('/api/prompt-captioning/qwen-image-21-pe/t2i/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: source,
+        runtime_profile_id: qpe.runtimeProfileId || '',
+        model: qpe.model || '',
+        params: { ...(qpe.params || {}) },
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false || !String(data.positive_prompt || '').trim()) {
+      throw new Error(data.error || data.errors?.[0] || 'Qwen Image 2.1 Prompt Enhancer failed.');
+    }
+    pb.outputText = String(data.positive_prompt || '').trim();
+    qpe.whRatio = data.parse_ok ? String(data.wh_ratio || '') : '';
+    qpe.ratioFollow = data.parse_ok ? String(data.ratio_follow || '') : '';
+    qpe.parseOk = Boolean(data.parse_ok);
+    qpe.lastPromptId = String(data.prompt_id || '');
+    qpe.resultId = String(data.result_id || '');
+    qpe.metadataId = String(data.metadata?.metadata_id || data.history?.metadata_id || '');
+    qpe.ratioSelection = data.ratio_selection || { kind: 'none', value: '' };
+    qpe.lastResult = { positive_prompt: pb.outputText, negative_prompt: String(data.negative_prompt || ''), wh_ratio: qpe.whRatio, ratio_follow: qpe.ratioFollow, parse_ok: qpe.parseOk };
+    qpe.replayPayload = data.replay_payload || null;
+    qpe.model = String(data.model || qpe.model || '');
+    qpe.runtimeProfileId = String(data.runtime_profile_id || qpe.runtimeProfileId || '');
+    if (data.history?.result_id) promptCaptioningQpeReplaceHistoryRecord(data.history);
+    if (data.metadata?.metadata_id) {
+      const rows = Array.isArray(pc.library.resultMetadata) ? pc.library.resultMetadata : [];
+      pc.library.resultMetadata = [data.metadata, ...rows.filter((row) => String(row?.metadata_id || '') !== String(data.metadata.metadata_id))].slice(0, 50);
+    }
+    qpe.status = data.warning || (qpe.parseOk
+      ? `Enhanced prompt ready${qpe.whRatio ? ` · suggested ratio ${qpe.whRatio}` : ''}.`
+      : 'Enhanced prompt returned as fallback text; review it manually.');
+    const field = document.getElementById('promptCaptioningOutputText');
+    if (field) field.value = pb.outputText;
+  } catch (error) {
+    qpe.status = `Qwen Image 2.1 PE error: ${error.message || error}`;
+  } finally {
+    qpe.isRunning = false;
     render();
   }
 }
@@ -45762,6 +46568,7 @@ function promptCaptioningCaptionStudioPanel() {
         <label>Output<textarea id="promptCaptioningCaptionOutput" data-pc-caption-output="true" class="neo-textarea" rows="4" placeholder="Generated result appears here.">${escapeHtml(cap.outputCaption || '')}</textarea></label>
       </div>
     </div>
+    ${task === 'image_edit' ? promptCaptioningQpeEditCard() : ''}
     <div class="neo-pc-caption-action-layout" data-testid="caption-studio-action-layout">
       <div class="neo-action-row prompt-captioning-actions neo-pc-caption-main-output-row" data-testid="caption-studio-main-output-row">
         ${promptCaptioningActionGroup('Main actions', `
@@ -45826,6 +46633,93 @@ async function uploadCaptionSourceImage(file) {
 const uploadPromptCaptioningCaptionImage = uploadCaptionSourceImage;
 
 
+
+async function uploadPromptCaptioningQpeEditReferences(files) {
+  const cap = promptCaptioningState().captioning;
+  const qpe = cap.qpeEdit || (cap.qpeEdit = { references: [], params: {} });
+  qpe.references = Array.isArray(qpe.references) ? qpe.references : [];
+  const incoming = Array.from(files || []).filter((file) => String(file?.type || '').startsWith('image/'));
+  const available = Math.max(0, 9 - qpe.references.length);
+  if (!incoming.length || !available) return;
+  qpe.uploading = true;
+  qpe.status = `Uploading ${Math.min(incoming.length, available)} QPE Edit reference image(s)…`;
+  render();
+  let added = 0;
+  try {
+    for (const file of incoming.slice(0, available)) {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch('/api/prompt-captioning/caption/upload-image', { method: 'POST', body: form });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) throw new Error((data.errors || []).join('\n') || data.detail || data.message || `Reference upload failed: ${file.name}`);
+      const asset = normalizeCaptionUploadResponse(data, file);
+      qpe.references.push(asset);
+      added += 1;
+    }
+    qpe.status = `Added ${added} reference image${added === 1 ? '' : 's'}. Image ordering is explicit and preserved.`;
+  } catch (error) {
+    qpe.status = `QPE Edit reference upload error: ${error.message || error}`;
+  } finally {
+    qpe.uploading = false;
+    render();
+  }
+}
+
+function promptCaptioningQpeEditReferencePaths(cap = promptCaptioningState().captioning) {
+  const qpe = cap.qpeEdit || {};
+  const primary = cap.assetRef || cap.selectedImage || '';
+  const refs = [primary, ...(Array.isArray(qpe.references) ? qpe.references.map((item) => item.asset_ref || item.assetRef || item.path || '') : [])].map((item) => String(item || '').trim()).filter(Boolean);
+  return refs.slice(0, 10);
+}
+
+async function runPromptCaptioningQpeEdit() {
+  const pc = promptCaptioningState();
+  const cap = syncPromptCaptioningCaptionFormFromDom();
+  const qpe = cap.qpeEdit || (cap.qpeEdit = { references: [], params: {} });
+  if (qpe.isRunning) return;
+  const prompt = String(cap.captionInstruction || '').trim();
+  const references = promptCaptioningQpeEditReferencePaths(cap);
+  const referenceAssets = [captionAssetFromState(cap), ...(Array.isArray(qpe.references) ? qpe.references : [])].slice(0, 10);
+  if (!prompt) { qpe.status = 'Enter an Edit instruction before running the Qwen Image 2.1 Edit Prompt Enhancer.'; render(); return; }
+  if (!references.length) { qpe.status = 'Upload the Caption Studio source image first. It becomes Image 1.'; render(); return; }
+  qpe.isRunning = true;
+  qpe.status = `Running Qwen Image 2.1 PE Edit with ${references.length} ordered reference image${references.length === 1 ? '' : 's'}…`;
+  render();
+  try {
+    const response = await fetch('/api/prompt-captioning/qwen-image-21-pe/edit/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        runtime_profile_id: qpe.runtimeProfileId || '', model: qpe.model || '', prompt, references, reference_assets: referenceAssets, params: { ...(qpe.params || {}) },
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || data.errors?.[0] || 'Qwen Image 2.1 Edit Prompt Enhancer failed.');
+    cap.outputCaption = String(data.positive_prompt || '').trim();
+    promptCaptioningWriteCaptionOutputToDom(cap.outputCaption);
+    qpe.whRatio = data.parse_ok ? String(data.wh_ratio || '') : '';
+    qpe.ratioFollow = data.parse_ok ? String(data.ratio_follow || '') : '';
+    qpe.parseOk = Boolean(data.parse_ok);
+    qpe.lastPromptId = String(data.prompt_id || '');
+    qpe.resultId = String(data.result_id || '');
+    qpe.metadataId = String(data.metadata?.metadata_id || data.history?.metadata_id || '');
+    qpe.ratioSelection = data.ratio_selection || { kind: 'none', value: '' };
+    qpe.lastResult = { positive_prompt: cap.outputCaption, negative_prompt: String(data.negative_prompt || ''), wh_ratio: qpe.whRatio, ratio_follow: qpe.ratioFollow, parse_ok: qpe.parseOk };
+    qpe.replayPayload = data.replay_payload || null;
+    qpe.model = String(data.model || qpe.model || '');
+    qpe.runtimeProfileId = String(data.runtime_profile_id || qpe.runtimeProfileId || '');
+    if (data.history?.result_id) promptCaptioningQpeReplaceHistoryRecord(data.history);
+    if (data.metadata?.metadata_id) {
+      const rows = Array.isArray(pc.library.resultMetadata) ? pc.library.resultMetadata : [];
+      pc.library.resultMetadata = [data.metadata, ...rows.filter((row) => String(row?.metadata_id || '') !== String(data.metadata.metadata_id))].slice(0, 50);
+    }
+    qpe.status = data.warning || (qpe.parseOk ? `Enhanced edit prompt ready${qpe.whRatio ? ` · suggested ratio ${qpe.whRatio}` : ''}${qpe.ratioFollow ? ` · suggested canvas ${qpe.ratioFollow}` : ''}.` : 'Enhanced edit prompt returned as fallback text; review it manually.');
+  } catch (error) {
+    qpe.status = `Qwen Image 2.1 PE Edit error: ${error.message || error}`;
+  } finally {
+    qpe.isRunning = false;
+    render();
+    promptCaptioningWriteCaptionOutputToDom(cap.outputCaption || '');
+  }
+}
 
 function promptCaptioningSaveCaptionPanel() {
   const cap = promptCaptioningState().captioning;
@@ -52786,7 +53680,14 @@ function assistantState() {
 
 function assistantProjectOptions(selectedId = '') {
   const a = assistantState();
-  return (a.projects || []).map((project) => `<option value="${escapeAttr(project.project_id || '')}" ${project.project_id === selectedId ? 'selected' : ''}>${escapeHtml(project.name || project.project_id || 'Scope')}</option>`).join('');
+  const projects = Array.isArray(a.projects) ? a.projects : [];
+  const builtIn = projects.filter((project) => Boolean(project?.metadata?.builtin_scope));
+  const userScopes = projects.filter((project) => !Boolean(project?.metadata?.builtin_scope));
+  const option = (project) => `<option value="${escapeAttr(project.project_id || '')}" ${project.project_id === selectedId ? 'selected' : ''}>${escapeHtml(project.name || project.project_id || 'Scope')}</option>`;
+  const groups = [];
+  if (builtIn.length) groups.push(`<optgroup label="Neo built-in scopes">${builtIn.map(option).join('')}</optgroup>`);
+  if (userScopes.length) groups.push(`<optgroup label="Your project scopes">${userScopes.map(option).join('')}</optgroup>`);
+  return groups.join('');
 }
 
 
@@ -53235,16 +54136,22 @@ function assistantMessageCards() {
 function assistantSessionListHtml() {
   const a = assistantState();
   const query = String(a.searchQuery || '').toLowerCase();
+  const selectedScopeId = String(a.selectedProjectId || 'general');
   const sessions = (a.sessions || []).filter((session) => {
-    const haystack = `${session.title || ''} ${session.preview || ''} ${session.mode || ''} ${session.project_id || ''}`.toLowerCase();
+    if (String(session.project_id || 'general') !== selectedScopeId) return false;
+    const haystack = `${session.title || ''} ${session.preview || ''} ${session.mode || ''} ${session.project_id || ''} ${session.scope_name || ''}`.toLowerCase();
     return !query || haystack.includes(query);
   });
   if (!sessions.length) return `<div class="assistant-mini-empty">No chats match yet.</div>`;
   return sessions.map((session) => {
     const active = session.session_id === a.activeSession?.session_id ? ' active' : '';
     const count = session.message_count ?? (Array.isArray(session.messages) ? session.messages.length : 0);
+    const scopeRecord = (a.projects || []).find((project) => String(project.project_id || '') === String(session.project_id || 'general')) || {};
+    const scopeName = session.scope_name || scopeRecord.name || session.project_id || 'General Assistant';
+    const isProjectSandbox = session.scope_class === 'project_sandbox' || (!!session.project_id && session.project_id !== 'general' && !scopeRecord?.metadata?.builtin_scope);
+    const scopeBadge = isProjectSandbox ? `🔒 ${scopeName}` : scopeName;
     return `<button class="assistant-chat-card${active}" type="button" onclick="assistantLoadSession('${escapeAttr(session.session_id || '')}')">
-      <span class="assistant-chat-card-top"><strong>${escapeHtml(session.title || 'New assistant chat')}</strong><em>${escapeHtml(session.mode || 'chat')}</em></span>
+      <span class="assistant-chat-card-top"><strong>${escapeHtml(session.title || 'New assistant chat')}</strong><em>${escapeHtml(scopeBadge)}</em></span>
       <span>${count} messages · ${escapeHtml(session.project_id || 'general')}</span>
       <small>${escapeHtml(session.preview || 'No preview yet.')}</small>
     </button>`;
@@ -53438,7 +54345,10 @@ function assistantMemoryLensSideHtml() {
   const identity = lens.identity || {};
   const traces = (lens.recent_retrievals || []).slice(0, 6).map((trace) => `${trace.intent || 'Assistant'} · ${trace.surface || 'surface'} · ${trace.status || 'ok'} · ${trace.created_at || ''}`);
   const jobs = (lens.jobs || []).slice(0, 5).map((job) => `${job.job_type || 'memory job'} · ${job.status || 'unknown'} · ${(job.progress || {}).percent || 0}%`);
-  return `<section class="assistant-side-card"><span class="assistant-kicker">Memory visibility</span><h3>Why these memories are shown</h3>${NeoUI.metaList([`Scope: ${identity.scope_id || 'general'}`, `Surface: ${identity.surface_id || 'global'}`, `Delivery Project: ${identity.project_id || 'none'}`, 'Scope is priority, not a hard retrieval prison.'])}</section><section class="assistant-side-card"><span class="assistant-kicker">Recent retrievals</span><h3>What Neo looked up</h3>${traces.length ? NeoUI.metaList(traces) : NeoUI.emptyState('No recent Assistant retrievals.', 'Ask a memory-aware question to create retrieval proof.')}<button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Inspect context</button></section><section class="assistant-side-card"><span class="assistant-kicker">Memory jobs</span><h3>Recent background activity</h3>${jobs.length ? NeoUI.metaList(jobs) : NeoUI.emptyState('No recent memory jobs.', 'Project Brain rebuilds and other long memory work appear here.')}</section>`;
+  const scopeRecord = assistantActiveProject() || {};
+  const hardSandbox = Boolean(identity.scope_id && identity.scope_id !== 'general' && !scopeRecord?.metadata?.builtin_scope);
+  const scopePolicy = hardSandbox ? 'Hard Project Sandbox: unrelated General, Guide, code, native-history, and other-project retrieval is blocked.' : 'Federated/built-in Scope: bounded cross-surface retrieval may be used when the request calls for it.';
+  return `<section class="assistant-side-card"><span class="assistant-kicker">Memory visibility</span><h3>Why these memories are shown</h3>${NeoUI.metaList([`Scope: ${identity.scope_id || 'general'}`, `Surface: ${identity.surface_id || 'global'}`, `Delivery Project: ${identity.project_id || 'none'}`, scopePolicy])}</section><section class="assistant-side-card"><span class="assistant-kicker">Recent retrievals</span><h3>What Neo looked up</h3>${traces.length ? NeoUI.metaList(traces) : NeoUI.emptyState('No recent Assistant retrievals.', 'Ask a memory-aware question to create retrieval proof.')}<button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">Inspect context</button></section><section class="assistant-side-card"><span class="assistant-kicker">Memory jobs</span><h3>Recent background activity</h3>${jobs.length ? NeoUI.metaList(jobs) : NeoUI.emptyState('No recent memory jobs.', 'Project Brain rebuilds and other long memory work appear here.')}</section>`;
 }
 
 function renderAssistantPanels(surface, subtab) {
@@ -53487,7 +54397,10 @@ function renderAssistantPanels(surface, subtab) {
     const identity = activeProject.metadata?.canonical_identity || {};
     const surfaceId = activeProject.surface_id || identity.surface_id || assistantProjectBrainSurface() || 'assistant';
     const deliveryProject = activeProject.delivery_project_id || identity.project_id || '';
-    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Scopes</span><h2>${escapeHtml(activeProject.name || 'General Assistant')}</h2><p>A Scope tells Neo which context to prioritize. It is not a Delivery Project and it does not block relevant cross-surface memory.</p>${NeoUI.badgeRow([`Scope: ${activeProject.scope_id || activeProject.project_id || 'general'}`, `Surface: ${surfaceId}`, deliveryProject ? `Delivery Project: ${deliveryProject}` : 'No Delivery Project linked'])}<div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Name<input id="assistant-scope-name" value="${escapeAttr(activeProject.name || '')}"></label><label>Type<input id="assistant-scope-type" value="${escapeAttr(activeProject.type || 'general')}"></label><label class="wide">Description<textarea id="assistant-scope-description">${escapeHtml(activeProject.description || '')}</textarea></label><label class="wide">Notes<textarea id="assistant-scope-notes">${escapeHtml(activeProject.notes || '')}</textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeEditor()">Save scope</button></div></section><section class="assistant-modern-card assistant-project-brain-card"><span class="assistant-kicker">Project Brain</span><h2>Build memory for this Scope</h2><p>Successful surface work can enter searchable history automatically. Use Project Brain for deliberate captures, historical indexing, project files, and rebuild/repair.</p><div class="assistant-memory-workflow-grid"><div><strong>Capture & import</strong><div class="assistant-action-row compact"><button class="neo-btn primary" type="button" onclick="assistantCaptureCurrentProjectState()">Capture Current State</button><button class="neo-btn" type="button" onclick="assistantIndexProjectData()">Index Project Data</button><input id="assistant-project-file-input" type="file" multiple onchange="assistantUploadProjectFiles(this)" hidden><button class="neo-btn" type="button" onclick="document.getElementById('assistant-project-file-input')?.click()">Upload Project Files</button></div></div><div><strong>Maintain & inspect</strong><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRebuildProjectBrain()">Rebuild Project Brain</button><button class="neo-btn secondary" type="button" onclick="assistantRefreshProjectBrainStatus()">Refresh Brain Status</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">View Context Pack</button></div></div></div><div class="neo-badge-row"><span class="neo-badge">Guides: ${counts.built_in_guides_visible || 0}</span><span class="neo-badge">Snapshots: ${counts.snapshots || 0}</span><span class="neo-badge">Indexes: ${counts.indexes || 0}</span><span class="neo-badge">Uploads: ${counts.uploads || 0}</span><span class="neo-badge">Memory: ${counts.canonical_fragments || 0}</span><span class="neo-badge">Facts: ${counts.canonical_facts || 0}</span><span class="neo-badge">Jobs: ${counts.active_jobs || 0}</span></div>${assistantProjectBrainJobHtml(brain)}</section>`;
+    const fallbackScopeClass = activeProject.metadata?.builtin_scope ? (activeProject.project_id === 'general' ? 'general_federated' : 'built_in_surface') : 'project_sandbox';
+    const fallbackScopePolicy = fallbackScopeClass === 'project_sandbox' ? 'User-created project scope · hard sandbox.' : 'Neo built-in scope · bounded federated retrieval.';
+    const fallbackSources = Array.isArray(brain.latest_uploads) ? brain.latest_uploads.slice(0, 20).map((row) => `${row.current_revision ? 'Current' : 'Older'} · ${row.filename || 'Project file'} · ${row.fragment_count || 0} fragments${row.duplicate_content_of ? ` · duplicate of ${row.duplicate_content_of}` : ''}`) : [];
+    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Scopes</span><h2>${escapeHtml(activeProject.name || 'General Assistant')}</h2><p>${escapeHtml(fallbackScopePolicy)}</p>${NeoUI.badgeRow([`Scope: ${activeProject.scope_id || activeProject.project_id || 'general'}`, `Class: ${fallbackScopeClass}`, `Surface: ${surfaceId}`, deliveryProject ? `Delivery Project: ${deliveryProject}` : 'No Delivery Project linked'])}<div class="assistant-scope-editor assistant-project-editor assistant-form-grid"><label>Name<input id="assistant-scope-name" value="${escapeAttr(activeProject.name || '')}"></label><label>Type<input id="assistant-scope-type" value="${escapeAttr(activeProject.type || 'general')}"></label><label class="wide">Description<textarea id="assistant-scope-description">${escapeHtml(activeProject.description || '')}</textarea></label><label class="wide">Notes<textarea id="assistant-scope-notes">${escapeHtml(activeProject.notes || '')}</textarea></label><button class="neo-btn primary" type="button" onclick="assistantSaveScopeEditor()">Save scope</button></div></section><section class="assistant-modern-card assistant-project-brain-card"><span class="assistant-kicker">Project Brain</span><h2>Build memory for this Scope</h2><p>Successful surface work can enter searchable history automatically. Use Project Brain for deliberate captures, historical indexing, project files, and rebuild/repair.</p><div class="assistant-memory-workflow-grid"><div><strong>Capture & import</strong><div class="assistant-action-row compact"><button class="neo-btn primary" type="button" onclick="assistantCaptureCurrentProjectState()">Capture Current State</button><button class="neo-btn" type="button" onclick="assistantIndexProjectData()">Index Project Data</button><input id="assistant-project-file-input" type="file" multiple onchange="assistantUploadProjectFiles(this)" hidden><button class="neo-btn" type="button" onclick="document.getElementById('assistant-project-file-input')?.click()">Upload Project Files</button></div></div><div><strong>Maintain & inspect</strong><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRebuildProjectBrain()">Rebuild Project Brain</button><button class="neo-btn secondary" type="button" onclick="assistantRefreshProjectBrainStatus()">Refresh Brain Status</button><button class="neo-btn secondary" type="button" onclick="assistantPreviewContextPack()">View Context Pack</button></div></div></div><div class="neo-badge-row"><span class="neo-badge">Guides: ${counts.built_in_guides_visible || 0}</span><span class="neo-badge">Snapshots: ${counts.snapshots || 0}</span><span class="neo-badge">Indexes: ${counts.indexes || 0}</span><span class="neo-badge">Uploads: ${counts.uploads || 0}</span><span class="neo-badge">Memory: ${counts.canonical_fragments || 0}</span><span class="neo-badge">Facts: ${counts.canonical_facts || 0}</span><span class="neo-badge">Jobs: ${counts.active_jobs || 0}</span></div><h4>Project Sources</h4>${fallbackSources.length ? listItems(fallbackSources) : NeoUI.emptyState('No project files uploaded yet.', 'Upload Project Files to add source documents.')}${assistantProjectBrainJobHtml(brain)}</section>`;
     sideNode.innerHTML = `${assistantProjectManagerPanelHtml()}<section class="assistant-side-card"><span class="assistant-kicker">Linked chats</span>${listItems(linked.length ? linked : ['No linked chats yet.'])}</section>`;
     return;
   }
@@ -53499,7 +54412,7 @@ function renderAssistantPanels(surface, subtab) {
     const knowledgeRows = Array.isArray(lens.scope_knowledge) && lens.scope_knowledge.length ? lens.scope_knowledge : (a.contextItems || []).filter((item) => (item.project_id || 'general') === (a.selectedProjectId || 'general'));
     const pins = pinRows.map((capture) => ({ title: capture.title || capture.capture_id, summary: capture.text || '', memory_type: 'manual pin', surface: capture.surface || 'assistant', updated_at: capture.created_at || capture.updated_at || '' }));
     const knowledge = knowledgeRows.map((item) => ({ title: item.title || item.context_id, summary: item.text || '', memory_type: item.kind || 'scope knowledge', surface: item.surface || 'assistant', updated_at: item.updated_at || item.created_at || '' }));
-    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Memory Lens</span><div class="assistant-card-headline"><div><h2>What Neo can remember from ${escapeHtml(scope.name || 'this Scope')}</h2><p>User-facing memory view. Admin → Memory still owns approval, conflicts, retention, editing, and other governance.</p></div><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRefreshMemoryLens()">Refresh</button><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('admin','memory')">Open Admin Memory</button></div></div>${NeoUI.badgeRow([`Scope memory: ${summary.active_memory_count || 0}`, `Facts: ${summary.fact_count || 0}`, `Durable: ${summary.durable_count || 0}`, `Review: ${summary.pending_review_count || 0}`, `Pins: ${summary.manual_pin_count || 0}`, `Retrievals: ${summary.recent_retrieval_count || 0}`])}</section><section class="assistant-modern-card"><span class="assistant-kicker">Scope memory</span><h2>Recent remembered context</h2>${assistantMemoryLensItemsHtml(lens.scope_memory, 'No canonical memory in this Scope yet.', 'Use Neo normally, save Scope Knowledge, capture a meaningful state, or import project files.')}</section><section class="assistant-modern-card"><span class="assistant-kicker">Durable memory</span><h2>Learned patterns and approved facts</h2>${assistantMemoryWritebackItemsHtml(lens.durable_memory, 'No durable memories for this Scope yet.')}</section>${Array.isArray(lens.general_memory) && lens.general_memory.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">General memory</span><h2>Relevant global/user memory available to this Scope</h2>${assistantMemoryLensItemsHtml(lens.general_memory)}</section>` : ''}<section class="assistant-modern-card"><span class="assistant-kicker">Manual knowledge</span><h2>Pins + Scope Knowledge</h2><h4>Manual pins</h4>${assistantMemoryLensItemsHtml(pins, 'No manual pins yet.', 'Select useful chat text and choose Save selected as memory.')}<h4>Scope Knowledge</h4>${assistantMemoryLensItemsHtml(knowledge, 'No Scope Knowledge saved yet.', 'Use Context to save reusable project/client/workflow knowledge.')}</section>${Array.isArray(lens.pending_review) && lens.pending_review.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">Needs review</span><h2>${lens.pending_review.length} durable candidate${lens.pending_review.length === 1 ? '' : 's'} waiting</h2><p>Review and approval stay in Admin → Memory.</p>${assistantMemoryWritebackItemsHtml(lens.pending_review, '')}<button class="neo-btn primary" type="button" onclick="setActiveSubtab('admin','memory')">Open review queue</button></section>` : ''}`;
+    mainNode.innerHTML = `<section class="assistant-modern-card"><span class="assistant-kicker">Memory Lens</span><div class="assistant-card-headline"><div><h2>What Neo can remember from ${escapeHtml(scope.name || 'this Scope')}</h2><p>User-facing memory view. Admin → Memory still owns approval, conflicts, retention, editing, and other governance.</p></div><div class="assistant-action-row compact"><button class="neo-btn" type="button" onclick="assistantRefreshMemoryLens()">Refresh</button><button class="neo-btn secondary" type="button" onclick="setActiveSubtab('admin','memory')">Open Admin Memory</button></div></div>${NeoUI.badgeRow([`Scope memory: ${summary.active_memory_count || 0}`, `Facts: ${summary.fact_count || 0}`, `Durable: ${summary.durable_count || 0}`, `Review: ${summary.pending_review_count || 0}`, `Pins: ${summary.manual_pin_count || 0}`, `Retrievals: ${summary.recent_retrieval_count || 0}`])}</section><section class="assistant-modern-card"><span class="assistant-kicker">Scope memory</span><h2>Recent remembered context</h2>${assistantMemoryLensItemsHtml(lens.scope_memory, 'No canonical memory in this Scope yet.', 'Use Neo normally, save Scope Knowledge, capture a meaningful state, or import project files.')}</section><section class="assistant-modern-card"><span class="assistant-kicker">Durable memory</span><h2>Learned patterns and approved facts</h2>${assistantMemoryWritebackItemsHtml(lens.durable_memory, 'No durable memories for this Scope yet.')}</section>${Boolean(activeProject.metadata?.builtin_scope) && Array.isArray(lens.general_memory) && lens.general_memory.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">General memory</span><h2>Relevant global/user memory available to this Scope</h2>${assistantMemoryLensItemsHtml(lens.general_memory)}</section>` : ''}<section class="assistant-modern-card"><span class="assistant-kicker">Manual knowledge</span><h2>Pins + Scope Knowledge</h2><h4>Manual pins</h4>${assistantMemoryLensItemsHtml(pins, 'No manual pins yet.', 'Select useful chat text and choose Save selected as memory.')}<h4>Scope Knowledge</h4>${assistantMemoryLensItemsHtml(knowledge, 'No Scope Knowledge saved yet.', 'Use Context to save reusable project/client/workflow knowledge.')}</section>${Array.isArray(lens.pending_review) && lens.pending_review.length ? `<section class="assistant-modern-card"><span class="assistant-kicker">Needs review</span><h2>${lens.pending_review.length} durable candidate${lens.pending_review.length === 1 ? '' : 's'} waiting</h2><p>Review and approval stay in Admin → Memory.</p>${assistantMemoryWritebackItemsHtml(lens.pending_review, '')}<button class="neo-btn primary" type="button" onclick="setActiveSubtab('admin','memory')">Open review queue</button></section>` : ''}`;
     sideNode.innerHTML = assistantMemoryLensSideHtml();
     return;
   }
@@ -53829,8 +54742,15 @@ function assistantSetProjectFilter(value) {
   const migrated = neoInvokeSurfaceModule('assistant', 'assistantSetProjectFilter', { value });
   if (migrated !== undefined) return;
   const a = assistantState();
-  a.selectedProjectId = value || 'general';
+  const nextScopeId = value || 'general';
+  a.selectedProjectId = nextScopeId;
   a.memoryLens = null;
+  if (a.activeSession && String(a.activeSession.project_id || 'general') !== String(nextScopeId)) {
+    const scopedSessions = (a.sessions || []).filter((session) => String(session.project_id || 'general') === String(nextScopeId));
+    a.activeSession = scopedSessions[0] || null;
+    a.draft = a.activeSession?.draft || '';
+    a.pendingAttachments = [];
+  }
   render();
   assistantRefreshMemoryLens().catch(() => {});
 }
@@ -59167,6 +60087,16 @@ function bindPromptCaptioningControls() {
     const field = document.getElementById(id);
     if (field) field.addEventListener('input', (event) => { pb.params[key] = key === 'max_tokens' ? Number(event.target.value || 0) : Number(event.target.value || 0); });
   });
+  pb.qpe = pb.qpe || { params: {} };
+  pb.qpe.params = pb.qpe.params || {};
+  const qpeRuntime = document.getElementById('promptCaptioningQpeRuntime');
+  if (qpeRuntime) qpeRuntime.addEventListener('change', (event) => { pb.qpe.runtimeProfileId = event.target.value; pb.qpe.model = ''; pb.qpe.parseOk = null; pb.qpe.whRatio = ''; pb.qpe.ratioFollow = ''; pb.qpe.resultId = ''; pb.qpe.metadataId = ''; pb.qpe.ratioSelection = { kind: 'none', value: '' }; pb.qpe.lastResult = null; pb.qpe.replayPayload = null; pb.qpe.status = 'QPE Comfy runtime updated.'; render(); });
+  const qpeModel = document.getElementById('promptCaptioningQpeT2IModel');
+  if (qpeModel) qpeModel.addEventListener('change', (event) => { pb.qpe.model = event.target.value; pb.qpe.resultId = ''; pb.qpe.metadataId = ''; pb.qpe.ratioSelection = { kind: 'none', value: '' }; pb.qpe.lastResult = null; pb.qpe.replayPayload = null; pb.qpe.status = 'QPE T2I model updated.'; });
+  [['promptCaptioningQpeTemperature', 'temperature'], ['promptCaptioningQpeTopP', 'top_p'], ['promptCaptioningQpeTopK', 'top_k'], ['promptCaptioningQpePresencePenalty', 'presence_penalty'], ['promptCaptioningQpeMaxNewTokens', 'max_new_tokens'], ['promptCaptioningQpeSeed', 'seed']].forEach(([id, key]) => {
+    const field = document.getElementById(id);
+    if (field) field.addEventListener('input', (event) => { pb.qpe.params[key] = Number(event.target.value || 0); });
+  });
   [['promptCaptioningSaveName', 'saveName'], ['promptCaptioningSaveCategory', 'saveCategory'], ['promptCaptioningSaveCategoryNew', 'saveCategoryNew'], ['promptCaptioningSaveTags', 'saveTags'], ['promptCaptioningSaveNotes', 'saveNotes']].forEach(([id, key]) => {
     const field = document.getElementById(id);
     if (field) field.addEventListener('input', (event) => { pb[key] = event.target.value; });
@@ -59186,6 +60116,7 @@ function bindPromptCaptioningControls() {
   bindOnce('promptCaptioningRewritePrompt', () => runPromptCaptioningPrompt('prompt_rewrite'));
   bindOnce('promptCaptioningCleanupPrompt', () => runPromptCaptioningPrompt('prompt_cleanup'));
   bindOnce('promptCaptioningNegativePrompt', () => runPromptCaptioningPrompt('negative_prompt'));
+  bindOnce('promptCaptioningQpeEnhanceT2I', () => runPromptCaptioningQpeT2I());
   bindOnce('promptCaptioningCopyPrompt', () => copyPromptStudioOutput());
   const sendPromptAppend = document.getElementById('promptCaptioningSendPromptImageAppend');
   if (sendPromptAppend && sendPromptAppend.dataset.pcBound !== 'true') { sendPromptAppend.dataset.pcBound = 'true'; sendPromptAppend.addEventListener('click', (event) => { event.preventDefault(); promptCaptioningSyncPromptOutputsFromDom(); promptCaptioningSendToWorkspace({ modeId: 'prompt_builder', targetWorkspace: 'image', targetField: 'positive_prompt', handoffMode: 'append', text: promptCaptioningLivePromptOutput({ promptOnly: true }) || pb.sourceText || '' }); }); }
@@ -59290,6 +60221,30 @@ function bindPromptCaptioningControls() {
     } catch (error) { pb.status = `Favorite error: ${error.message}`; }
     render();
   }));
+  const qpeEdit = cap.qpeEdit || (cap.qpeEdit = { references: [], params: {} });
+  qpeEdit.params = qpeEdit.params || {};
+  qpeEdit.references = Array.isArray(qpeEdit.references) ? qpeEdit.references : [];
+  const qpeEditRuntime = document.getElementById('promptCaptioningQpeEditRuntime');
+  if (qpeEditRuntime) qpeEditRuntime.addEventListener('change', (event) => { qpeEdit.runtimeProfileId = event.target.value; qpeEdit.model = ''; qpeEdit.parseOk = null; qpeEdit.whRatio = ''; qpeEdit.ratioFollow = ''; qpeEdit.resultId = ''; qpeEdit.metadataId = ''; qpeEdit.ratioSelection = { kind: 'none', value: '' }; qpeEdit.lastResult = null; qpeEdit.replayPayload = null; qpeEdit.status = 'QPE Edit Comfy runtime updated.'; render(); });
+  const qpeEditModel = document.getElementById('promptCaptioningQpeEditModel');
+  if (qpeEditModel) qpeEditModel.addEventListener('change', (event) => { qpeEdit.model = event.target.value; qpeEdit.resultId = ''; qpeEdit.metadataId = ''; qpeEdit.ratioSelection = { kind: 'none', value: '' }; qpeEdit.lastResult = null; qpeEdit.replayPayload = null; qpeEdit.status = 'QPE Edit model updated.'; });
+  [['promptCaptioningQpeEditTemperature','temperature'],['promptCaptioningQpeEditTopP','top_p'],['promptCaptioningQpeEditPresencePenalty','presence_penalty'],['promptCaptioningQpeEditMaxLength','max_length'],['promptCaptioningQpeEditSeed','seed']].forEach(([id,key]) => { const field = document.getElementById(id); if (field) field.addEventListener('input', (event) => { qpeEdit.params[key] = Number(event.target.value || 0); }); });
+  const qpeEditAdd = document.getElementById('promptCaptioningQpeEditAddReferences');
+  const qpeEditFiles = document.getElementById('promptCaptioningQpeEditReferenceFiles');
+  if (qpeEditAdd && qpeEditFiles) qpeEditAdd.addEventListener('click', () => qpeEditFiles.click());
+  if (qpeEditFiles) qpeEditFiles.addEventListener('change', (event) => uploadPromptCaptioningQpeEditReferences(event.target.files));
+  const qpeEditClear = document.getElementById('promptCaptioningQpeEditClearReferences');
+  if (qpeEditClear) qpeEditClear.addEventListener('click', () => { qpeEdit.references = []; qpeEdit.status = 'Cleared extra QPE Edit references. Caption Studio source remains Image 1.'; render(); });
+  document.querySelectorAll('[data-qpe-edit-ref-remove]').forEach((button) => button.addEventListener('click', () => { const index = Number(button.getAttribute('data-qpe-edit-ref-remove')); if (Number.isInteger(index) && index >= 0) qpeEdit.references.splice(index, 1); qpeEdit.status = 'Removed QPE Edit reference; remaining image numbers were compacted in order.'; render(); }));
+  document.querySelectorAll('[data-qpe-edit-ref-up]').forEach((button) => button.addEventListener('click', () => { const index = Number(button.getAttribute('data-qpe-edit-ref-up')); if (index > 0 && index < qpeEdit.references.length) [qpeEdit.references[index - 1], qpeEdit.references[index]] = [qpeEdit.references[index], qpeEdit.references[index - 1]]; qpeEdit.status = 'Reordered QPE Edit references.'; render(); }));
+  document.querySelectorAll('[data-qpe-edit-ref-down]').forEach((button) => button.addEventListener('click', () => { const index = Number(button.getAttribute('data-qpe-edit-ref-down')); if (index >= 0 && index < qpeEdit.references.length - 1) [qpeEdit.references[index + 1], qpeEdit.references[index]] = [qpeEdit.references[index], qpeEdit.references[index + 1]]; qpeEdit.status = 'Reordered QPE Edit references.'; render(); }));
+  const qpeEditRun = document.getElementById('promptCaptioningQpeEnhanceEdit');
+  if (qpeEditRun) qpeEditRun.addEventListener('click', () => runPromptCaptioningQpeEdit());
+  document.querySelectorAll('[data-qpe-ratio-kind]').forEach((button) => button.addEventListener('click', () => setPromptCaptioningQpeRatioSelection(button.getAttribute('data-qpe-task') || 't2i', button.getAttribute('data-qpe-ratio-kind') || 'none')));
+  document.querySelectorAll('[data-qpe-replay-result]').forEach((button) => button.addEventListener('click', () => replayPromptCaptioningQpeResult(button.getAttribute('data-qpe-replay-result') || '')));
+  document.querySelectorAll('[data-qpe-history-refresh]').forEach((button) => button.addEventListener('click', () => refreshPromptCaptioningQpeHistory(button.getAttribute('data-qpe-history-refresh') || '', true)));
+  document.querySelectorAll('[data-qpe-copy-result]').forEach((button) => button.addEventListener('click', () => copyPromptCaptioningQpeResult(button.getAttribute('data-qpe-copy-result') || 't2i')));
+
   const captionInstruction = document.getElementById('promptCaptioningCaptionInstruction');
   if (captionInstruction) captionInstruction.addEventListener('input', (event) => { cap.captionInstruction = event.target.value; });
   const captionImage = document.getElementById('promptCaptioningCaptionImage');
@@ -65597,6 +66552,7 @@ function render() {
   if (surface.surface_id === 'image') {
     bindImagePromptLibraryBar();
     bindImageDraftInputs();
+    bindImageQpeHandoffControls();
     bindCfgFixControls();
     bindHighResLabControls();
     bindImageUpscaleControls();

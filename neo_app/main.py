@@ -300,6 +300,15 @@ from neo_app.prompt_captioning.support_matrix import get_support_matrix as get_p
 from neo_app.prompt_captioning.validation import validate_route_payload as validate_prompt_captioning_route_payload, validation_status as prompt_captioning_validation_status
 from neo_app.prompt_captioning.payload_contract import normalize_prompt_captioning_payload
 from neo_app.prompt_captioning.profile_contract import get_profile_manifest_payload as get_prompt_captioning_profile_manifest_payload
+from neo_app.prompt_captioning.qwen_image_21_pe import (
+    edit_status as qwen_image_21_pe_edit_status,
+    run_edit as run_qwen_image_21_pe_edit,
+    run_t2i as run_qwen_image_21_pe_t2i,
+    t2i_status as qwen_image_21_pe_t2i_status,
+    qpe_history as qwen_image_21_pe_history,
+    replay_qpe_result as qwen_image_21_pe_replay_result,
+    set_qpe_ratio_selection as qwen_image_21_pe_set_ratio_selection,
+)
 from neo_app.prompt_captioning.service import (
     character_records as prompt_captioning_character_records,
     delete_preset as prompt_captioning_delete_preset,
@@ -398,6 +407,9 @@ from neo_app.image.prompt_library import (
 from neo_app.roleplay.base_contract import get_roleplay_surface_base_contract
 
 from neo_app.assistant.chat import run_assistant_chat_turn, stream_assistant_chat_turn_event_dicts
+from neo_app.assistant.context_packet import context_packet_status_payload
+from neo_app.assistant.grounding_modes import grounding_modes_status_payload, resolve_grounding_policy
+from neo_app.assistant.knowledge_inspector import knowledge_inspector_status_payload, knowledge_inspector_trace_payload
 from neo_app.assistant.surface_project_context import surface_project_context_payload
 from neo_app.assistant.source_grounded import build_source_grounded_context as assistant_source_grounded_answer_payload
 from neo_app.assistant.action_review import action_review_status_payload, plan_assistant_action_review, run_assistant_action_review
@@ -3849,6 +3861,37 @@ def assistant_context_pack_preview(session_id: str = "", project_id: str = "", m
     return assistant_context_pack_preview_payload(session_id=session_id, project_id=project_id, message=message, retrieval_profile=retrieval_profile, surface=surface)
 
 
+@app.get("/api/assistant/context-packet/status")
+def assistant_context_packet_status() -> dict:
+    return context_packet_status_payload()
+
+
+@app.get("/api/assistant/grounding-modes/status")
+def assistant_grounding_modes_status() -> dict:
+    return grounding_modes_status_payload()
+
+
+@app.post("/api/assistant/grounding-modes/resolve")
+def assistant_grounding_modes_resolve(payload: dict | None = None) -> dict:
+    data = payload if isinstance(payload, dict) else {}
+    return resolve_grounding_policy(
+        user_text=str(data.get("message") or data.get("text") or ""),
+        behavior_mode=str(data.get("behavior_mode") or "COMPLETE"),
+        context_packet=(data.get("context_packet") if isinstance(data.get("context_packet"), dict) else {}),
+        explicit_mode=str(data.get("grounding_mode") or ""),
+    )
+
+
+@app.get("/api/assistant/knowledge-inspector/status")
+def assistant_knowledge_inspector_status() -> dict:
+    return knowledge_inspector_status_payload()
+
+
+@app.get("/api/assistant/knowledge-inspector/trace")
+def assistant_knowledge_inspector_trace(session_id: str = "") -> dict:
+    return knowledge_inspector_trace_payload(session_id)
+
+
 @app.post("/api/assistant/source-grounded-answer")
 def assistant_source_grounded_answer(payload: dict | None = None) -> dict:
     return assistant_source_grounded_answer_payload(payload or {})
@@ -4377,6 +4420,42 @@ def prompt_captioning_prompt_run(payload: dict) -> dict:
     metadata = (payload or {}).get("metadata") if isinstance((payload or {}).get("metadata"), dict) else {}
     live_profile = _require_backend_connected_for_task(str(metadata.get("backend_profile_id") or (payload or {}).get("profile_id") or (payload or {}).get("backend_profile_id") or ""), surface="prompt_captioning", operation="Prompt & Captioning prompt generation")
     return run_prompt_captioning_prompt_tool(payload, task_profile=live_profile)
+
+
+@app.get("/api/prompt-captioning/qwen-image-21-pe/t2i/status")
+def prompt_captioning_qwen_image_21_pe_t2i_status() -> dict:
+    return qwen_image_21_pe_t2i_status()
+
+
+@app.post("/api/prompt-captioning/qwen-image-21-pe/t2i/run")
+def prompt_captioning_qwen_image_21_pe_t2i_run(payload: dict) -> dict:
+    return run_qwen_image_21_pe_t2i(payload or {})
+
+
+@app.get("/api/prompt-captioning/qwen-image-21-pe/edit/status")
+def prompt_captioning_qwen_image_21_pe_edit_status() -> dict:
+    return qwen_image_21_pe_edit_status()
+
+
+@app.post("/api/prompt-captioning/qwen-image-21-pe/edit/run")
+def prompt_captioning_qwen_image_21_pe_edit_run(payload: dict) -> dict:
+    return run_qwen_image_21_pe_edit(payload or {})
+
+
+@app.get("/api/prompt-captioning/qwen-image-21-pe/history")
+def prompt_captioning_qwen_image_21_pe_history(limit: int = 50, task: str = "") -> dict:
+    return qwen_image_21_pe_history(limit=limit, task=task)
+
+
+@app.post("/api/prompt-captioning/qwen-image-21-pe/replay")
+def prompt_captioning_qwen_image_21_pe_replay(payload: dict) -> dict:
+    return qwen_image_21_pe_replay_result(str((payload or {}).get("result_id") or ""))
+
+
+@app.post("/api/prompt-captioning/qwen-image-21-pe/ratio-selection")
+def prompt_captioning_qwen_image_21_pe_ratio_selection(payload: dict) -> dict:
+    data = payload or {}
+    return qwen_image_21_pe_set_ratio_selection(str(data.get("result_id") or ""), str(data.get("kind") or "none"))
 
 
 @app.get("/api/prompt-captioning/prompt-records")
@@ -10059,9 +10138,89 @@ def memory_retrieval_gateway(payload: dict | None = None) -> dict:
     return get_memory_service().retrieve_gateway(payload or {})
 
 
+@app.get("/api/memory/retrieval-planner/status")
+def memory_retrieval_planner_status() -> dict:
+    return get_memory_service().retrieval_planner_status()
+
+
+@app.post("/api/memory/retrieval-planner/plan")
+def memory_retrieval_planner_plan(payload: dict | None = None) -> dict:
+    return get_memory_service().retrieval_planner_plan(payload or {})
+
+
 @app.get("/api/memory/retrieval-profiles")
 def memory_retrieval_profiles() -> dict:
     return get_memory_service().retrieval_profiles()
+
+
+@app.get("/api/memory/native-knowledge/status")
+def memory_native_knowledge_status(deep: bool = False) -> dict:
+    return get_memory_service().native_knowledge_status(deep=deep)
+
+
+@app.get("/api/memory/native-knowledge/adapters")
+def memory_native_knowledge_adapters() -> dict:
+    return get_memory_service().native_knowledge_adapters()
+
+
+@app.post("/api/memory/native-knowledge/enumerate")
+def memory_native_knowledge_enumerate(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_enumerate(payload or {})
+
+
+@app.post("/api/memory/native-knowledge/changes")
+def memory_native_knowledge_changes(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_enumerate_changes(payload or {})
+
+
+@app.post("/api/memory/native-knowledge/project")
+def memory_native_knowledge_project(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_project(payload or {})
+
+
+@app.post("/api/memory/native-knowledge/resolve")
+def memory_native_knowledge_resolve(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_resolve(payload or {})
+
+
+@app.post("/api/memory/native-knowledge/validate")
+def memory_native_knowledge_validate(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_validate(payload or {})
+
+
+@app.post("/api/memory/native-knowledge/citation")
+def memory_native_knowledge_citation(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_citation(payload or {})
+
+
+@app.post("/api/memory/native-knowledge/lookup")
+def memory_native_knowledge_lookup(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_lookup(payload or {})
+
+
+@app.post("/api/memory/native-knowledge/relationships")
+def memory_native_knowledge_relationships(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_relationships(payload or {})
+
+
+@app.post("/api/memory/native-knowledge/legacy-mapping")
+def memory_native_knowledge_legacy_mapping(payload: dict | None = None) -> dict:
+    return get_memory_service().native_knowledge_legacy_mapping(payload or {})
+
+
+@app.get("/api/memory/migration/nkb12/status")
+def memory_nkb12_migration_status() -> dict:
+    return get_memory_service().nkb12_migration_status()
+
+
+@app.post("/api/memory/migration/nkb12/plan")
+def memory_nkb12_migration_plan(payload: dict | None = None) -> dict:
+    return get_memory_service().nkb12_migration_plan(payload or {})
+
+
+@app.post("/api/memory/migration/nkb12/run")
+def memory_nkb12_migration_run(payload: dict | None = None) -> dict:
+    return get_memory_service().nkb12_migration_run(payload or {})
 
 
 @app.get("/api/memory/policies")

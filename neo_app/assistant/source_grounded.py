@@ -33,6 +33,8 @@ def build_source_grounded_context(payload: dict[str, Any] | None = None) -> dict
         "limit": limit,
         "include_unified": False,
         "include_guides": False,
+        "include_project_structured": False,
+        "include_native": False,
         "knowledge_sources": sources or [],
     })
     grounded = gateway_grounding_payload(gateway, question=question)

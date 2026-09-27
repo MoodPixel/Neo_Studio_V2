@@ -32,6 +32,8 @@ from .safety_guard import MemorySafetyGuard
 from neo_app.control_center import NeoControlCenter
 from neo_app.control_center.prompt_contracts import prompt_contract_status_payload
 from neo_app.control_center.trace_review import ControlCenterTraceReviewEngine
+from neo_app.knowledge.service import NativeKnowledgeService
+from .migration_nkb12 import NKB12MigrationService
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = ROOT_DIR / "neo_data" / "memory" / "global" / "neo_memory.sqlite3"
@@ -75,6 +77,28 @@ def _safe_rel(path: Path) -> str:
     except Exception:
         return str(path).replace("\\", "/")
 
+
+
+def _source_timestamp(path: Path, text: str = "") -> str:
+    """Return semantic/source freshness, never the indexing timestamp."""
+    header = "\n".join(str(text or "").splitlines()[:60])
+    match = re.search(r'(?im)^\s*(?:updated|date|effective_date)\s*:\s*["\']?(\d{4}-\d{2}-\d{2})(?:[ T]([0-9:]+))?', header)
+    if match:
+        raw = match.group(1) + (f"T{match.group(2)}" if match.group(2) else "T00:00:00") + "+00:00"
+        try:
+            return datetime.fromisoformat(raw).isoformat()
+        except Exception:
+            pass
+    name_match = re.search(r"(20\d{2})(\d{2})(\d{2})", path.name)
+    if name_match:
+        try:
+            return datetime(int(name_match.group(1)), int(name_match.group(2)), int(name_match.group(3)), tzinfo=timezone.utc).isoformat()
+        except Exception:
+            pass
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+    except Exception:
+        return _now()
 
 def _markdown_title(text: str, fallback: str) -> str:
     for line in text.splitlines()[:40]:
@@ -361,6 +385,32 @@ class MemoryService:
         self.safety_guard = MemorySafetyGuard(db_path)
         self.control_center_trace_review = ControlCenterTraceReviewEngine(db_path)
         self.job_service = MemoryJobService(db_path)
+        self.native_knowledge = NativeKnowledgeService(ROOT_DIR)
+        self.nkb12_migration = NKB12MigrationService(db_path, ROOT_DIR)
+
+
+    def nkb12_migration_status(self) -> dict:
+        return self.nkb12_migration.status()
+
+    def nkb12_migration_plan(self, payload: dict | None = None) -> dict:
+        return self.nkb12_migration.plan(payload or {})
+
+    def nkb12_migration_run(self, payload: dict | None = None) -> dict:
+        data = dict(payload or {})
+        if bool(data.get("background", True)):
+            dedupe_scope = str(data.get("project_id") or "all")
+            job = self.job_service.create(
+                job_type="nkb12_migration",
+                payload=data,
+                title=f"NKB-12 migration · {dedupe_scope}",
+                surface=str(data.get("surface") or "global"),
+                project_id=str(data.get("delivery_project_id") or "") or None,
+                scope_id=str(data.get("project_id") or "") or None,
+                dedupe_key=f"nkb12_migration:{dedupe_scope}",
+                start=True,
+            )
+            return {"ok": True, "schema_id": "neo.memory.migration.nkb12.run.v1", "status": job.get("status"), "job": job.get("job"), "deduplicated": bool(job.get("deduplicated"))}
+        return self.nkb12_migration.run(data)
 
     def capabilities(self) -> MemoryCapabilityStatus:
         return MemoryCapabilityStatus(**optional_status())
@@ -402,6 +452,9 @@ class MemoryService:
             },
             "retrieval_profiles": retrieval_profiles_payload(),
             "retrieval_gateway": self.retrieval_gateway.status(),
+            "retrieval_planner": self.retrieval_gateway.planner.status(),
+            "native_knowledge": self.native_knowledge.status(),
+            "nkb12_migration": self.nkb12_migration.status(),
             "retrieval_rerank": self.retrieval_rerank_status(),
             "memory_writeback": self.writeback_status(),
             "memory_safety": self.safety_status(),
@@ -409,6 +462,10 @@ class MemoryService:
             "recent_traces": self.store.list_retrieval_traces(limit=5),
             "inspector": {
                 "status": "ready",
+                "native_knowledge_status_endpoint": "/api/memory/native-knowledge/status",
+                "native_knowledge_adapters_endpoint": "/api/memory/native-knowledge/adapters",
+                "retrieval_planner_status_endpoint": "/api/memory/retrieval-planner/status",
+                "retrieval_planner_plan_endpoint": "/api/memory/retrieval-planner/plan",
                 "chunks_endpoint": "/api/memory/inspect/chunks",
                 "review_endpoint": "/api/memory/inspect/review",
                 "trace_detail_endpoint": "/api/memory/inspect/retrieval-traces/{trace_id}",
@@ -476,6 +533,40 @@ class MemoryService:
             },
             "policy": "SQLite document/chunk storage is authoritative. Chroma is a semantic mirror when configured in Admin Memory Engine.",
         }
+
+
+    def native_knowledge_status(self, *, deep: bool = False) -> dict:
+        return self.native_knowledge.status(deep=deep)
+
+    def native_knowledge_adapters(self) -> dict:
+        return self.native_knowledge.adapters()
+
+    def native_knowledge_enumerate(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.enumerate(payload or {})
+
+    def native_knowledge_enumerate_changes(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.enumerate_changes(payload or {})
+
+    def native_knowledge_project(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.project(payload or {})
+
+    def native_knowledge_resolve(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.resolve(payload or {})
+
+    def native_knowledge_validate(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.validate(payload or {})
+
+    def native_knowledge_citation(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.citation(payload or {})
+
+    def native_knowledge_lookup(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.lookup(payload or {})
+
+    def native_knowledge_relationships(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.relationships(payload or {})
+
+    def native_knowledge_legacy_mapping(self, payload: dict | None = None) -> dict:
+        return self.native_knowledge.legacy_mapping(payload or {})
 
 
     def health_dashboard(self) -> dict:
@@ -1097,6 +1188,7 @@ class MemoryService:
                 continue
             rel = _safe_rel(path)
             digest = _hash_text(text)
+            source_updated_at = _source_timestamp(path, text)
             doc_id = f"neo_codebase:{_hash_text(rel)[:20]}"
             kind = _code_source_kind(path)
             title = f"{kind}: {rel}"
@@ -1111,7 +1203,7 @@ class MemoryService:
                 "visibility": source.get("visibility") or "expert",
                 "trust_level": source.get("trust_level") or "confirmed",
                 "metadata": {"file_name": path.name, "suffix": path.suffix.lower(), "code_kind": kind},
-                "updated_at": stamp,
+                "updated_at": source_updated_at,
                 "indexed_at": stamp,
             }
             document = _apply_memory_policy(document.get("source_id"), document)
@@ -1140,8 +1232,8 @@ class MemoryService:
                     "visibility": document["visibility"],
                     "trust_level": document["trust_level"],
                     "searchable_text": " ".join([title, str(raw_chunk.get("title") or ""), str(symbol_name), str(symbol_type), rel, content]),
-                    "metadata": {"document_title": title, "code_kind": kind, "symbol_type": symbol_type, "symbol_name": symbol_name, "suffix": path.suffix.lower()},
-                    "updated_at": stamp,
+                    "metadata": {"document_title": title, "code_kind": kind, "symbol_type": symbol_type, "symbol_name": symbol_name, "suffix": path.suffix.lower(), "source_updated_at": source_updated_at, "indexed_at": stamp},
+                    "updated_at": source_updated_at,
                 }
                 chunk = _apply_memory_policy(chunk.get("source_id"), chunk)
                 chunks.append(chunk)
@@ -1210,6 +1302,7 @@ class MemoryService:
                 text = path.read_text(encoding="utf-8", errors="replace")
             rel = _safe_rel(path)
             digest = _hash_text(text)
+            source_updated_at = _source_timestamp(path, text)
             doc_id = f"system_records:{_hash_text(rel)[:20]}"
             title = _markdown_title(text, path.stem.replace("_", " ").title())
             document = {
@@ -1222,8 +1315,8 @@ class MemoryService:
                 "status": "indexed",
                 "visibility": source.get("visibility") or "expert",
                 "trust_level": source.get("trust_level") or "confirmed",
-                "metadata": {"folder": _safe_rel(path.parent), "file_name": path.name},
-                "updated_at": stamp,
+                "metadata": {"folder": _safe_rel(path.parent), "file_name": path.name, "source_updated_at": source_updated_at, "indexed_at": stamp},
+                "updated_at": source_updated_at,
                 "indexed_at": stamp,
             }
             document = _apply_memory_policy(document.get("source_id"), document)
@@ -1248,8 +1341,8 @@ class MemoryService:
                     "visibility": document["visibility"],
                     "trust_level": document["trust_level"],
                     "searchable_text": " ".join([title, raw_chunk.get("title") or "", content, rel]),
-                    "metadata": {"document_title": title, "folder": path.parent.name},
-                    "updated_at": stamp,
+                    "metadata": {"document_title": title, "folder": path.parent.name, "source_updated_at": source_updated_at, "indexed_at": stamp},
+                    "updated_at": source_updated_at,
                 }
                 chunk = _apply_memory_policy(chunk.get("source_id"), chunk)
                 chunks.append(chunk)
@@ -1873,6 +1966,12 @@ class MemoryService:
 
     def retrieve_gateway(self, payload: dict[str, Any] | None = None) -> dict:
         return self.retrieval_gateway.retrieve(payload or {})
+
+    def retrieval_planner_status(self) -> dict:
+        return self.retrieval_gateway.planner.status()
+
+    def retrieval_planner_plan(self, payload: dict[str, Any] | None = None) -> dict:
+        return self.retrieval_gateway.planner.analyze(payload or {})
 
     def retrieval_rerank_status(self) -> dict:
         return self.retrieval_engine.status()

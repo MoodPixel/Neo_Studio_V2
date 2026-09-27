@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from neo_app.providers.registry import get_provider, get_provider_feature_capabilities
 from neo_app.providers.comfy_llamacpp_discovery import discover_comfy_llamacpp, evaluate_comfy_llamacpp_readiness, comfy_llamacpp_models_payload
+from neo_app.providers.qwen_image_21_pe_discovery import classify_qwen_image_21_pe_model, discover_qwen_image_21_pe
 from neo_app.providers.forge_neo_client import ForgeNeoClient
 from neo_app.providers.forge_admin import (
     forge_models_for_backend_profile,
@@ -1383,6 +1384,8 @@ def _empty_models() -> dict[str, list[dict[str, Any]]]:
         "diffusion_models": [],
         "text_encoders": [],
         "qwen_text_encoders": [],
+        "qwen_image_21_pe_t2i": [],
+        "qwen_image_21_pe_edit": [],
         "vaes": [],
         "samplers": [],
         "schedulers": [],
@@ -1433,6 +1436,14 @@ def _split_model_records(records: Any) -> dict[str, list[dict[str, Any]]]:
             if _is_qwen_text_encoder_asset(str(record.get("name") or "")):
                 buckets["qwen_text_encoders"].append(record)
         elif kind == "qwen_text_encoder":
+            buckets["qwen_text_encoders"].append(record)
+            buckets["text_encoders"].append(record)
+        elif kind == "qwen_image_21_pe_t2i":
+            buckets["qwen_image_21_pe_t2i"].append(record)
+            buckets["qwen_text_encoders"].append(record)
+            buckets["text_encoders"].append(record)
+        elif kind == "qwen_image_21_pe_edit":
+            buckets["qwen_image_21_pe_edit"].append(record)
             buckets["qwen_text_encoders"].append(record)
             buckets["text_encoders"].append(record)
         elif kind == "sampler":
@@ -1698,6 +1709,8 @@ def _discover_comfy_models(
         text_encoder_names = _discover_comfy_model_folder_names(base_url, ["text_encoders", "clip", "clips"], timeout=timeout)
     _append_unique(buckets["text_encoders"], "text_encoder", text_encoder_names)
     _append_unique(buckets["qwen_text_encoders"], "qwen_text_encoder", [item for item in text_encoder_names if _is_qwen_text_encoder_asset(item)])
+    _append_unique(buckets["qwen_image_21_pe_t2i"], "qwen_image_21_pe_t2i", [item for item in text_encoder_names if classify_qwen_image_21_pe_model(item) == "t2i"])
+    _append_unique(buckets["qwen_image_21_pe_edit"], "qwen_image_21_pe_edit", [item for item in text_encoder_names if classify_qwen_image_21_pe_model(item) == "edit"])
 
     vae_names = _merged_node_choices(info, ["VAELoader", "LoadVAE"], "vae_name", "model_name")
     if not vae_names:
@@ -2120,6 +2133,9 @@ def _probe_comfy_llamacpp_profile(profile: dict[str, Any], *, timeout_override: 
     checked_at = _now_iso()
     if not base_url:
         discovery = discover_comfy_llamacpp({})
+        discovery["qwen_image_21_prompt_enhancer"] = discover_qwen_image_21_pe(
+            {}, reachable=False, error="ComfyUI LLM/VLM base URL is empty."
+        )
         settings = ((profile.get("provider_settings") or {}).get("comfy_llamacpp") or {})
         readiness = evaluate_comfy_llamacpp_readiness(discovery, settings=settings, reachable=False)
         return {
@@ -2157,6 +2173,14 @@ def _probe_comfy_llamacpp_profile(profile: dict[str, Any], *, timeout_override: 
             object_info_error = str(exc)
 
         discovery = discover_comfy_llamacpp(object_info, discovery_error=object_info_error)
+        # QPE-5.1: Prompt/Captioning Comfy profiles are valid shared QPE runtimes.
+        # Publish the same PE node/model/bridge truth that Image Comfy profiles expose
+        # so users do not need to configure the same Comfy server twice.
+        discovery["qwen_image_21_prompt_enhancer"] = discover_qwen_image_21_pe(
+            object_info,
+            reachable=True,
+            error=object_info_error,
+        )
         settings = ((profile.get("provider_settings") or {}).get("comfy_llamacpp") or {})
         readiness = evaluate_comfy_llamacpp_readiness(discovery, settings=settings, reachable=True)
         models = comfy_llamacpp_models_payload(discovery)
@@ -2211,6 +2235,9 @@ def _probe_comfy_llamacpp_profile(profile: dict[str, Any], *, timeout_override: 
         }
     except Exception as exc:  # noqa: BLE001
         discovery = discover_comfy_llamacpp({})
+        discovery["qwen_image_21_prompt_enhancer"] = discover_qwen_image_21_pe(
+            {}, reachable=False, error=str(exc)
+        )
         settings = ((profile.get("provider_settings") or {}).get("comfy_llamacpp") or {})
         readiness = evaluate_comfy_llamacpp_readiness(discovery, settings=settings, reachable=False)
         return {
@@ -2421,6 +2448,11 @@ def _probe_profile(profile: dict[str, Any]) -> dict[str, Any]:
                     backend_capabilities = profile_provider.discover_backend_capabilities(
                         object_info=object_info,
                         discovery_error=object_info_error,
+                        text_encoder_names=[
+                            str(item.get("name") or "")
+                            for item in models.get("text_encoders", [])
+                            if isinstance(item, dict) and str(item.get("name") or "").strip()
+                        ],
                     )
                 except TypeError as exc:
                     # Compatibility for provider subclasses/tests that still expose

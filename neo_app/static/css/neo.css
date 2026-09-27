@@ -15030,3 +15030,134 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* QPE-3 — Caption Studio ordered Qwen Image 2.1 PE edit references */
+.prompt-captioning-column .neo-pc-qpe-ref-list {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+.prompt-captioning-column .neo-pc-qpe-ref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+}
+.prompt-captioning-column .neo-pc-qpe-ref-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.prompt-captioning-column .neo-pc-qpe-ref-meta div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.prompt-captioning-column .neo-pc-qpe-ref-meta small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 26rem;
+}
+.prompt-captioning-column .neo-pc-qpe-ref-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--neo-border-subtle, rgba(148, 163, 184, .24));
+}
+@media (max-width: 760px) {
+  .prompt-captioning-column .neo-pc-qpe-ref-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+/* QPE-4 — durable result, ratio decision, history, and replay UI */
+.prompt-captioning-column .neo-pc-qpe-result-card {
+  margin-top: 12px;
+}
+.prompt-captioning-column .neo-pc-qpe-result-text {
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 10px 12px;
+  border: 1px solid var(--neo-border-subtle, rgba(148, 163, 184, .24));
+  border-radius: 8px;
+  background: var(--neo-surface-soft, rgba(15, 23, 42, .18));
+}
+.prompt-captioning-column .neo-pc-qpe-history {
+  margin-top: 10px;
+}
+.prompt-captioning-column .neo-pc-qpe-history > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.prompt-captioning-column .neo-pc-qpe-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--neo-border-subtle, rgba(148, 163, 184, .18));
+}
+.prompt-captioning-column .neo-pc-qpe-history-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.prompt-captioning-column .neo-pc-qpe-history-row strong,
+.prompt-captioning-column .neo-pc-qpe-history-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .prompt-captioning-column .neo-pc-qpe-history-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+/* NKB-11 — Assistant Knowledge Inspector */
+.assistant-knowledge-inspector-card {
+  display: grid;
+  gap: 14px;
+}
+
+.assistant-knowledge-inspector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.assistant-knowledge-evidence-list {
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-knowledge-evidence-item {
+  border: 1px solid var(--neo-border, rgba(255,255,255,.10));
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.025);
+}
+
+.assistant-knowledge-evidence-item p {
+  margin: 7px 0 0;
+}
+
+.assistant-knowledge-evidence-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assistant-knowledge-evidence-head span,
+.assistant-knowledge-evidence-item small {
+  opacity: .72;
+}

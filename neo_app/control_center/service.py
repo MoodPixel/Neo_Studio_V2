@@ -419,16 +419,17 @@ class NeoControlCenter:
             "filter_scope_id": memory_filter.get("scope_id") or "",
             "retrieval_profile": retrieval_profile,
             "lanes": required_lanes,
-            "retrieval_order": ["retrieval_gateway", "adapter_rank_merge", "dedupe", "sandbox_guard", "control_center_selection"],
+            "retrieval_order": ["nkb8_query_analysis", "lane_plan", "candidate_retrieval", "weighted_rrf", "rerank", "authority_adjudication", "source_hydration", "sandbox_guard", "control_center_selection"],
             "embedding_required_now": True,
             "rerank_required_now": True,
-            "policy": "Phase 6 Assistant retrieval uses one Retrieval Gateway with bounded query-driven scope priority. Non-Assistant controllers retain their existing M9 path until their owning migration phase.",
+            "policy": "NKB-8 Assistant retrieval uses one Retrieval Gateway backed by the Unified Retrieval Planner. The planner selects evidence lanes, fuses ranks, reranks, adjudicates authority, and hydrates strong evidence before Control Center safety/selection. Non-Assistant controllers retain their existing M9 path until their owning migration phase.",
         }
 
     def _select_context(self, memory_plan: dict[str, Any], *, limit: int) -> dict[str, Any]:
-        # Phase 6 keeps the Single Retrieval Gateway on the Assistant path and
-        # adds bounded scope-priority expansion inside that gateway. Roleplay and
-        # other non-Assistant controllers retain their prior M9 behavior.
+        # NKB-8 keeps one Retrieval Gateway on the Assistant path and adds the
+        # Unified Retrieval Planner inside that boundary. Roleplay and other
+        # non-Assistant controllers retain their prior M9 behavior until their
+        # owning migration phase.
         if str(memory_plan.get("controller") or "assistant") != "assistant":
             return self._select_context_m9_compat(memory_plan, limit=limit)
         try:
@@ -533,12 +534,18 @@ class NeoControlCenter:
                     "adapter_errors": gateway.get("adapter_errors") or [],
                     "scope_policy": gateway.get("scope_policy") or {},
                     "retrieval_targets": gateway.get("retrieval_targets") or [],
+                    "planner": gateway.get("planner") or {},
+                    "planner_trace_id": gateway.get("planner_trace_id") or "",
+                    "known_state": gateway.get("known_state") or "not_established",
+                    "fail_closed_recommended": bool(gateway.get("fail_closed_recommended")),
+                    "fusion": gateway.get("fusion") or {},
+                    "authority_rejections": gateway.get("authority_rejections") or [],
                 },
                 "safety_guard": {k: safety.get(k) for k in ("status", "violation_count", "rejected_count", "accepted_count")},
                 "budget_policy": {
-                    "phase": "Phase6+M12",
+                    "phase": "NKB8+M12",
                     "send_all_memory": False,
-                    "description": "Assistant Control Center receives one ranked/deduplicated Retrieval Gateway result; Phase 6 scope-priority targets are query-driven and M12 validates the approved expansion before prompt compilation.",
+                    "description": "Assistant Control Center receives the NKB-8 planner shortlist from the single Retrieval Gateway; M12 continues to validate experiential Unified Memory scope before prompt compilation. NKB-9 owns final packet shaping.",
                 },
             }
         except Exception as exc:
