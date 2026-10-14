@@ -38,6 +38,20 @@ tags:
 priority: 112
 version: 10
 updated: 2026-07-19
+guide_kind: user_procedure
+lifecycle_state: current
+tasks:
+  - image.background_removal.remove
+  - image.navigation.background_removal
+  - image.readiness.background_removal
+ui_path:
+  - Image
+  - Finish
+  - Remove Background
+procedure_section: Canonical user procedure
+prerequisites_section: Requirements
+warnings_section: Fallback policy
+troubleshooting_section: Troubleshooting: render warning
 ---
 
 # AI Background Removal
@@ -45,6 +59,16 @@ updated: 2026-07-19
 **Remove Background** is a built-in utility inside **Image → Finish**. It uses one explicit engine-resolution contract across the established Comfy BiRefNet path, optional Neo-native rembg/ONNX fallback, Interactive SAM routes, reviewed-mask refinement, and optional commercial providers. It saves a transparent PNG and optional alpha-mask PNG, and can refine a reviewed mask without rerunning segmentation.
 
 It reuses the current Image workspace, selected result, uploaded-source handling, Comfy backend profile, polling, Neo-owned output storage, Results gallery, replay metadata, and Output Inspector. No separate tab or background-removal workspace is created.
+
+## Canonical user procedure
+
+1. Open **Image → Finish → Remove Background**.
+2. Select or stage the source image/result you want to process.
+3. Choose the removal route. **Smart — recommended** resolves an available engine from the selected preset; explicit engine choices remain strict and do not silently switch routes.
+4. Choose the relevant preset/model controls and confirm that the selected engine reports ready. If you selected a commercial provider, confirm the external upload for this run.
+5. Run background removal. Neo keeps the original source unchanged and writes a Neo-owned transparent PNG; an alpha-mask PNG may also be saved when requested.
+6. Review the result and, when needed, use Mask Review/refinement to correct the mask without rerunning segmentation.
+7. Use **Image → Results / Output Inspector** to inspect the saved output, lineage, resolved engine/model, replay metadata, and any fallback reason.
 
 ## Independent Comfy node routes
 

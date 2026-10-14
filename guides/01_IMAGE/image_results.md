@@ -26,6 +26,17 @@ tags:
 priority: 112
 version: 3
 updated: 2026-08-02
+guide_kind: user_procedure
+lifecycle_state: current
+tasks:
+  - image.results.reuse
+  - image.results.inspect
+  - image.navigation.results
+ui_path:
+  - Image
+  - Results
+procedure_section: Canonical procedure — Reuse a previous result
+warnings_section: Replay / regenerate behavior
 ---
 
 # Image Results Workspace
@@ -107,6 +118,15 @@ It can display:
 Raw metadata is for debugging. Assistant answers should summarize it, not dump it, unless the user asks for raw JSON.
 
 ## Output reuse actions
+
+## Canonical procedure — Reuse a previous result
+
+1. Open **Image → Results** and select the saved output you want to reuse.
+2. Review **Output Inspector** if you need to confirm its recipe, source lineage, provider binding, or replay metadata before reusing it.
+3. Choose the required source action: **Img2Img**, **Inpaint**, **Outpaint**, or **ImgUpscale**.
+4. Neo stages the selected output into the matching Image workflow while keeping the active backend/profile boundary. Inpaint opens a fresh mask workflow; Outpaint clears stale canvas/padding state and opens the outpaint editor.
+5. Review the restored/staged settings and source. Revalidation may be required when models, nodes, files, or extension availability changed since the original result.
+6. Click **Generate** explicitly when you are ready; reuse actions do not auto-generate.
 
 The selected result can be reused as:
 

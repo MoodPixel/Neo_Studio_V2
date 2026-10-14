@@ -31,6 +31,14 @@ tags:
 priority: 111
 version: 1
 updated: 2026-07-09
+guide_kind: feature_reference
+lifecycle_state: current
+tasks:
+  - image.feature.layerdiffuse
+ui_path:
+  - Image
+  - Generation / Reference
+  - LayerDiffuse
 ---
 
 # ComfyUI LayerDiffuse

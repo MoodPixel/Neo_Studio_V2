@@ -19,7 +19,7 @@ tags:
   - provenance
   - control_center
 priority: 100
-version: 9
+version: 10
 updated: 2026-09-27
 ---
 
@@ -131,9 +131,11 @@ The same gateway now carries a `scope_policy` and bounded `retrieval_targets` pl
 
 See `guides/06_ASSISTANT/scope_priority_retrieval.md`.
 
-## Current phase boundary
+## Current compatibility boundary
 
-Phase 6 still does **not** migrate Project Brain/Scope Knowledge into Unified Memory, rewrite existing SQLite IDs, consolidate background memory jobs, or migrate Roleplay's own non-Assistant runtime controller onto the Assistant gateway.
+The Retrieval Gateway remains an orchestration boundary rather than a migration of every store into one database. Native authorities remain in their owning subsystems, Project source files remain Project authority, and Roleplay keeps its own scene/runtime controller even when Assistant can query Roleplay authority through the Unified Brain.
+
+Compatibility Project Brain/Scope/Guide/static-index APIs remain available for Inspector, migration, and older callers, but normal provider context is bounded by NKB-9 instead of concatenating those compatibility lanes beside the planner result.
 
 ## Project-document grounding note
 
@@ -143,34 +145,38 @@ For canon-heavy project questions, treat retrieved source text as evidence to be
 
 ## NKB-2 codebase retrieval note (2026-09-26)
 
-The `knowledge_index` lane may select `code_audit` for Neo-development queries and can return `neo_codebase` chunks with source citations. Do not interpret that source as a complete repository model: the current code registry has root/extension/file-size limits, Python declarative regions can be under-indexed, current JavaScript uses fallback line chunks, and tests can rank alongside runtime implementation.
+The compatibility `knowledge_index` lane may still return `neo_codebase` chunks for Neo-development queries. That legacy index remains intentionally narrower than the current repository authority layer.
 
-For risky implementation questions, retrieved code is a shortlist/evidence locator; the authoritative repository source should be resolved before changing behavior. See `guides/06_ASSISTANT/codebase_knowledge_audit.md`.
+NKB-6 adds the native `neo.code` adapter with broader first-party roots/extensions, structured Python/JavaScript symbol lookup, evidence-role separation, source hydration/citations, and Python import relationships. NKB-8 normally uses indexed discovery for broad queries, then can attach/hydrate native repository authority for strong implementation claims.
+
+Repository source remains authoritative; tests remain validation evidence rather than implementation authority. See System Record `neo_system_records/01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB2_CODEBASE_KNOWLEDGE_AUDIT_20260926.md`.
 
 
 
 ## NKB-3 documentation knowledge note (2026-09-26)
 
-Neo currently has two different documentation retrieval paths: built-in Guides are selected as whole documents and expose a short opening excerpt, while `neo_system_records` are indexed as heading-based Knowledge chunks. These paths are source-backed, but they do **not** yet implement a universal current/historical/superseded authority model.
+Neo still has compatibility Guide/static documentation discovery paths, but NKB-6 now also provides the native `neo.docs` authority adapter with section-level lookup, line-range hydration/citations, and conservative document-role/lifecycle classification.
 
-For normal usage help, current built-in Guides remain the preferred explanation surface. For implementation/debug questions, a retrieved Guide or System Record should be treated as supporting evidence and checked against current runtime/source evidence when the claim depends on implementation truth. Historical/superseded records must not be blended into a current answer merely because they retrieve well.
+For normal usage help, current built-in Guides remain the preferred explanation surface. For implementation/debug questions, Guide/System Record evidence can support the answer, while current repository/runtime source remains the stronger role when behavior depends on implementation truth. Historical/superseded records must not be blended into a current answer merely because they retrieve well.
 
-Large Guides can contain useful sections beyond the excerpt currently returned by Guide search, so absence from the opening excerpt is not proof that the Guide lacks the detail. The future Documentation Knowledge Adapter is expected to retrieve section-level evidence with explicit lifecycle/provenance. See `neo_system_records/01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB3_DOCUMENTATION_KNOWLEDGE_AUDIT_20260926.md`.
+NKB-8 avoids broad-scanning every Guide/System Record on ordinary turns: compatibility indexes can discover candidates, then selected strong documentation evidence can hydrate through `neo.docs`. NKB-12 also separates source/effective time from index time during static rebuilds. See `neo_system_records/01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB3_DOCUMENTATION_KNOWLEDGE_AUDIT_20260926.md`.
 
 ## NKB-4 authority resolution boundary
 
 The Retrieval Gateway's relevance score is not semantic authority.
 
-Future retrieval should conceptually separate:
+Current NKB-8 → NKB-10 retrieval/grounding separates:
 
 ```text
 scope / identity
 → intent + claim type
 → allowed evidence roles
-→ lexical / dense / structured retrieval
-→ rank fusion / rerank
+→ lexical / dense / structured / native retrieval
+→ weighted rank fusion / rerank
 → lifecycle / conflict / supersession / authority adjudication
+→ source hydration
 → bounded evidence packet
+→ grounding policy
 ```
 
 A highly relevant test, historical System Record, generated output, or inferred memory must not outrank the evidence role appropriate to the question merely because the reranker prefers its text.
@@ -181,7 +187,7 @@ Authority is task-sensitive: runtime code for current implementation, current Gu
 
 NKB-5 defines the shared interoperability contract between retrieval and native/source authority.
 
-Future Gateway candidates should resolve through four different identities rather than treating the current chunk ID as the knowledge itself:
+Gateway candidates can resolve through four different identities rather than treating a search chunk ID as the knowledge itself:
 
 ```text
 native authority ID
@@ -198,7 +204,7 @@ The universal primitive set is:
 Project | Source | Object | Fact | Edge | Fragment | Asset | Event | Alias | Revision | Evidence
 ```
 
-The Gateway should eventually select adapters/sources by intent, retrieve relevant projections/structured records, then pass hydrated Evidence to NKB-4 authority adjudication. It should not require every adapter to use vector search when a deterministic native lookup can answer the query.
+The Gateway now selects adapters/sources by intent through NKB-8, retrieves relevant projections/structured records, and can hydrate strong Evidence before task-sensitive authority adjudication. It does not require every adapter to use vector search when a deterministic native lookup can answer the query.
 
 See `guides/06_ASSISTANT/universal_knowledge_contract.md` and `neo_system_records/01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB5_UNIVERSAL_KNOWLEDGE_CONTRACT_20260926.md`.
 
@@ -222,7 +228,7 @@ The Gateway can now include `project_structured` and `native_authority` lanes in
 
 Raw scores from different adapters are not added together; weighted reciprocal-rank fusion combines lane ranks before the configured reranker. Authority is evaluated after relevance. Strong Project facts can hydrate the NKB-7 original file/revision before acceptance.
 
-Gateway diagnostics now expose `planner`, `planner_trace_id`, `fusion`, `known_state`, `fail_closed_recommended`, and `authority_rejections`. NKB-9 still owns final bounded packet assembly, so compatibility Context Pack sections have not yet been removed.
+Gateway diagnostics expose `planner`, `planner_trace_id`, `fusion`, `known_state`, `fail_closed_recommended`, and `authority_rejections`. NKB-9 owns final bounded packet assembly; compatibility Context Pack sections remain inspectable but are not normally forwarded beside the packet.
 
 See `guides/06_ASSISTANT/unified_retrieval_planner.md` and `neo_system_records/01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB8_UNIFIED_RETRIEVAL_PLANNER_20260926.md`.
 

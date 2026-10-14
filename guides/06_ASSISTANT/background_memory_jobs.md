@@ -18,8 +18,8 @@ tags:
   - project_brain
   - indexing
 priority: 94
-version: 1
-updated: 2026-08-09
+version: 2
+updated: 2026-09-29
 ---
 
 # Background Memory Jobs and Progress
@@ -56,9 +56,19 @@ Phase 10 supports the following canonical job types:
 - `memory_consolidation`;
 - `embedding_reindex`;
 - `memory_writeback` for deliberate/bulk runs;
-- `roleplay_memory_vectors` through the historical Admin compatibility route.
+- `roleplay_memory_vectors` through the historical Admin compatibility route;
+- `assistant_chat_semantic_index` for delayed/deduplicated same-chat ACI-7.2 semantic continuity projection.
 
 Small/instant operations should remain synchronous. Normal Phase 9 per-turn durable-candidate evaluation is intentionally not forced into a background job.
+
+
+## Assistant chat continuity indexing (ACI-7.2)
+
+Long Assistant chats update their SQLite FTS continuity projection synchronously because that work is small. Semantic projection is deliberately backgrounded through `assistant_chat_semantic_index`.
+
+The job is created only when the chat has changed and semantic writes are qualified/enabled. Active jobs deduplicate by session so several nearby messages can coalesce before the delayed worker starts. This prevents the embedding model from competing with the foreground Assistant provider.
+
+If checkpoint identities were removed/rebuilt, the job resets only that disposable chat Chroma collection before rebuilding its current rows. Canonical Assistant session messages are never changed by the job.
 
 ## Project Brain progress
 

@@ -25,6 +25,13 @@ tags:
 priority: 112
 version: 7
 updated: 2026-08-02
+guide_kind: feature_reference
+lifecycle_state: current
+tasks:
+  - image.navigation.finish
+ui_path:
+  - Image
+  - Finish
 ---
 
 # Image Finish Workspace

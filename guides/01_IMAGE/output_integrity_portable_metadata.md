@@ -53,3 +53,18 @@ This means renaming or moving an image does not break metadata recovery as long 
 
 ## Legacy files
 Older Neo images that predate portable metadata remain readable through normal Results sidecars. They cannot gain portable recovery automatically unless explicitly migrated later. Filename collisions between legacy records are reported but are not auto-repaired unless a newer embedded ID provides an unambiguous authority signal.
+
+## Assistant attachment recovery
+
+When an image is attached directly to Neo Assistant, the Assistant now uses the same Image identity/recovery authority before answering questions about how that image was generated.
+
+Resolution is conservative:
+
+1. If the file contains a Neo portable `neo_output_id`, Neo resolves it through the Image identity index and active/quarantined sidecars.
+2. If portable identity is absent, Neo may use an **exact recorded SHA-256 match** to recover one unique native sidecar.
+3. If the file is not a proven Neo output, Neo can inspect supported external embedded metadata such as ComfyUI workflow/prompt data, A1111/Forge-style parameters, Fooocus-like fields, and generic PNG/JPEG EXIF metadata.
+4. If no recoverable generation metadata exists, the Assistant may still inspect visible pixels when vision is available, but hidden generation settings such as seed, checkpoint, sampler, workflow, LoRAs, or prompt are **not established** from pixels alone.
+
+External metadata is always identified as external; it is never promoted to a Neo generation record. If multiple native records claim the same exact file hash, Neo reports an unresolved conflict instead of silently choosing one.
+
+Secret-bearing embedded fields such as API keys, authorization values, tokens, passwords, and cookies are redacted before metadata is placed in Assistant context. Precise EXIF GPS/location data is not forwarded into Assistant metadata context.

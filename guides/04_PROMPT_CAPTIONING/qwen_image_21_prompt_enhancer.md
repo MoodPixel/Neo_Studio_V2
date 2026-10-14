@@ -18,8 +18,8 @@ tags:
   - prompt studio
   - caption studio
 priority: 80
-version: 1
-updated: 2026-09-26
+version: 2
+updated: 2026-10-04
 ---
 
 # Qwen Image 2.1 Prompt Enhancer
@@ -32,15 +32,17 @@ Current placement:
 
 ```text
 Prompt Studio / Text -> Image
-  -> Qwen Image 2.1 PE T2I        ✅ implemented; physical runtime test pending
+  -> Qwen Image 2.1 PE T2I        ✅ implemented; physical runtime evidence available
 
 Caption Studio / Image Edit
-  -> Qwen Image 2.1 PE Edit       ✅ implemented; physical runtime test pending
+  -> Qwen Image 2.1 PE Edit       ✅ implemented; real PE-I2I inference reached; final successful-output qualification still pending
 ```
 
 The Prompt Studio card appears only for **Text -> Image**. It lets you choose the Comfy runtime, the discovered PE T2I checkpoint, and optional enhancer sampling controls. The enhancer uses the current **Prompt output** when one exists; otherwise it uses **Source text / idea**. The rewritten prompt returns to Prompt output.
 
-The Caption Studio PE card appears only for the **Image Edit** task. Caption Studio's normal source image is fixed as **Image 1**. You can then add, reorder, or remove up to nine more references, giving an explicit ordered contract from **Image 2** through **Image 10**. The visible order is the execution order and is preserved as `image_N` / `<imageN>` semantics in the external Edit node.
+Caption Studio now keeps the **Qwen Image 2.1 I2I / Edit Prompt Enhancer** visible as a discovery card even when another Caption task is selected. Select **Task -> Build Edit Prompt** to open the full runtime/model controls, Image 1-10 reference lanes, sampling controls, and rewrite action. This avoids hiding the feature behind the task selector while still keeping actual PE-I2I execution gated to Image Edit.
+
+In Image Edit, Caption Studio's normal source image is fixed as **Image 1**. You can then add, reorder, or remove up to nine more references, giving an explicit ordered contract from **Image 2** through **Image 10**. The visible order is the execution order and is preserved as `image_N` / `<imageN>` semantics in the external Edit node. The run area also states the missing requirement when the rewrite button is disabled, such as a missing Image 1 or empty Edit instruction.
 
 PE results can carry `wh_ratio` and, for Edit, `ratio_follow`. These begin as **advisory suggestions only**. QPE-4 lets you explicitly accept one suggestion into the durable QPE record for replay and future Image handoff, but acceptance still does **not** resize the Image workspace or apply a source-image ratio. If the external node reports `parse_ok=false`, Neo keeps the fallback rewritten text for manual review, discards both ratio fields, and does not allow a ratio choice to be accepted.
 
@@ -163,6 +165,22 @@ max_length       = 24000
 seed             = 42
 ```
 
+`max_length=24000` is the upstream PE-I2I generation ceiling, not the expected size of the final rewritten prompt. The upstream node runs its Qwen text encoder with `thinking=True`, so a large portion of the generation can be internal reasoning before the final structured JSON appears. Reducing the value can bound a runaway test, but can also stop the model before it emits the final prompt. Neo therefore keeps the upstream default until a smaller production-safe budget is physically qualified.
+
+### Long-running PE-I2I behavior
+
+Physical testing on 2026-10-04 reached the real `qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors` path with one image. The observed Comfy log reached about **1,953 / 24,000 tokens after 9m29s at ~4 tokens/s** on the test host. This proves the route/model/reference wiring reaches real inference, but it also shows PE-I2I is not an instant interactive operation on that hardware. Final successful structured output from that run was not used as qualification evidence.
+
+Neo now treats Edit PE as a long-running specialist request:
+
+- normal Image/Caption Comfy profiles get an Edit PE wait floor of **3,600 seconds (60 minutes)** instead of falling back to the previous 900-second QPE default;
+- a larger profile `generation_timeout_seconds` is preserved;
+- an explicit `qpe_edit_timeout_seconds` connection value, if configured, remains authoritative;
+- Caption Studio, Prompt Studio, and the Image shortcut poll Neo's shared Comfy GPU lifecycle while a QPE request is active and show whether the request is preparing, waiting for the shared GPU, queued, or in inference, plus elapsed time;
+- timeout uncertainty still hands the Comfy prompt to the existing lifecycle watcher instead of freeing a possibly active model.
+
+The 60-minute wait is a reliability guard, not a claim that PE-I2I should normally take an hour. On 12 GB-class GPUs, a one-image rewrite can still take 10+ minutes because the 9B thinking-enabled PE text encoder is the expensive part.
+
 Reference rules:
 
 - at least one image is required;
@@ -284,4 +302,5 @@ This structured terminal returns `positive_prompt`, `negative_prompt`, `wh_ratio
 
 ## Still to come
 
-- physical VRAM/speed/output qualification across Prompt Studio, Caption Studio, and Image-shortcut T2I/Edit PE runtime choices in QPE-6.
+- complete the post-guard physical PE-I2I qualification by confirming a successful structured Edit result, recorded duration, peak VRAM/offload behavior, and replay/handoff from both Caption Studio and the Image shortcut;
+- use that evidence before changing the upstream 24,000-token Edit ceiling or introducing a faster production preset.

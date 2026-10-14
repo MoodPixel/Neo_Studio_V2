@@ -43,6 +43,14 @@ tags:
 priority: 118
 version: 13
 updated: 2026-08-20
+guide_kind: feature_reference
+lifecycle_state: current
+tasks:
+  - image.feature.controlnet
+ui_path:
+  - Image
+  - Reference
+  - ControlNet
 ---
 
 # ControlNet & Pose

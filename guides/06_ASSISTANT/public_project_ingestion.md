@@ -7,8 +7,8 @@ summary: Explains how persistent Assistant Project files are converted into stru
 tags: [assistant, project_brain, project, memory, ingestion, pdf, docx, markdown, canon, retrieval]
 applies_to: [assistant, general]
 priority: 100
-version: 2
-updated: 2026-09-26
+version: 3
+updated: 2026-09-27
 status: current
 ---
 
@@ -91,19 +91,18 @@ When a file changes, old active source projections are superseded as the new rev
 
 The Project evidence resolver can reopen the original file and report whether a stored reference is still `verified` or has become `stale`.
 
-## What NKB-7 does not do yet
+## Downstream grounding is now implemented
 
-NKB-7 improves ingestion and evidence quality. It does not yet implement the final cross-source Assistant planner or strict fail-closed generation policy.
-
-Those are later Unified Brain phases:
+NKB-7 owns source ingestion and evidence quality. The downstream Unified Brain phases are also implemented:
 
 ```text
 NKB-8 → choose/fuse/authorize evidence
-NKB-9 → build bounded Context Packets
-NKB-10 → CANON / FACTUAL / ANALYSIS / CREATIVE grounding rules
+NKB-9 → build the bounded Context Packet
+NKB-10 → CANON / FACTUAL / ANALYSIS / CREATIVE / DEVELOPMENT / ROLEPLAY grounding
+NKB-11 → show the exact evidence path in Knowledge Inspector
 ```
 
-If evidence is absent, future canon grounding should return `not_established` rather than inventing a project fact.
+For source-dependent canon recall, missing evidence can resolve to `not_established` instead of being treated as permission to invent a project fact. Conflicting or explicitly unresolved source passages remain visible as uncertainty rather than being converted into affirmative canon.
 
 
 ## NKB-8 retrieval handoff

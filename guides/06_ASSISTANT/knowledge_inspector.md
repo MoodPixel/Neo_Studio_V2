@@ -5,8 +5,8 @@ scope: built_in
 applies_to: [assistant, memory, inspector]
 tags: [assistant, knowledge, inspector, retrieval, grounding, context]
 priority: 92
-version: 1
-updated: 2026-09-27
+version: 2
+updated: 2026-09-29
 status: current
 ---
 
@@ -21,7 +21,9 @@ The Inspector shows, in order:
 3. **Fusion + rerank** — weighted RRF status, lane counts, duplicate removal, reranker status, detected entities and query variants.
 4. **Context packet** — evidence candidates, evidence selected, current-turn direct inputs, live surface state, packet budget and dropped evidence.
 5. **Evidence accepted/rejected** — source lane, evidence role, source integrity, scores, citations and authority rejection reasons.
-6. **Final grounding** — whether deterministic grounding replaced the provider answer, whether provider text was discarded, and whether the normal output-repair guard ran.
+6. **Conversation continuity** — whether same-chat retrieval ran, which older messages/checkpoints were selected, lexical/semantic lane status, and current/superseded decision state.
+7. **Final grounding** — whether deterministic grounding replaced the provider answer, whether provider text was discarded, and whether the normal output-repair guard ran.
+8. **Performance** — per-stage foreground timings including same-chat retrieval and provider generation.
 
 The trace schema is:
 
@@ -49,3 +51,9 @@ Inspector now shows the effective retrieval query and Project-local typo/phrase 
 ## Epistemic / answerability fields — 2026-09-27
 
 Accepted evidence rows now expose passage epistemic role/state, whether the passage supports affirmative claims, answerability score/multiplier, direct-definition/entity-heading matches and the effective canonical query target. Final grounding also reports detection of source-by-source pseudo-answer dumps.
+
+## ACI-7.2 same-chat continuity proof — 2026-09-29
+
+When the latest turn explicitly recalls an older topic from the current chat, Inspector renders the continuity trace stored with that exact turn. It shows same-chat isolation, selected item/message IDs, FTS candidate count, semantic used/skipped reason, decision state and continuity timing.
+
+Inspector does not run chat retrieval again. If a turn did not need old-chat context, the continuity section should report `not_needed` rather than inventing continuity evidence.

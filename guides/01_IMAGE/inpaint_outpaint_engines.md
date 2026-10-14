@@ -1,3 +1,39 @@
+---
+guide_id: image.inpaint_outpaint_engines
+title: Inpaint and Outpaint Engines
+surface: image
+scope: built_in
+applies_to:
+  - image_workspace
+  - generation
+  - inpaint
+  - outpaint
+tags:
+  - image
+  - inpaint
+  - outpaint
+  - masked edit
+  - lanpaint
+  - crop and stitch
+priority: 114
+version: 2
+updated: 2026-09-27
+guide_kind: user_procedure
+lifecycle_state: current
+tasks:
+  - image.outpaint.run
+  - image.inpaint.run
+  - image.navigation.outpaint
+ui_path:
+  - Image
+  - Generation
+  - Outpaint
+procedure_section: Canonical user procedure — Outpaint
+prerequisites_section: Required custom nodes
+warnings_section: Fail-closed rules
+troubleshooting_section: Fail-closed rules
+---
+
 # Inpaint and Outpaint Engines
 
 Status: current masked-edit authority
@@ -50,6 +86,15 @@ GGUF LanPaint families additionally require the relevant **ComfyUI-GGUF** loader
 Neo bypasses the crop, processing resize, restore resize, stitch-mask, and composite stages. LanPaint receives the full source/padded canvas plus the full mask, and the decoded full-frame result becomes the output.
 
 ## Outpaint
+
+## Canonical user procedure — Outpaint
+
+1. In **Image → Results**, Preview, or another source action, choose **Outpaint** for the image you want to extend; Neo stages that image as the current source and opens the outpaint workflow/editor.
+2. In **Image → Generation → Outpaint**, set the left, top, right, and bottom padding plus feathering for the expanded canvas.
+3. Choose the available masked-edit engine/route for the selected family and backend. Keep the active route ready; Neo does not silently substitute an unrelated family or backend when a required route is unavailable.
+4. Set or review the prompt and sampling controls. Explicit user values such as Steps, CFG, Sampler, Scheduler, Denoise, Batch Count, Seed, and family guidance remain authoritative.
+5. Click **Generate** explicitly. Outpaint uses the padded image and generated mask as masked-edit inputs; staging a source never auto-generates.
+6. Review the new output in Preview/Results and use Output Inspector when you need the recorded route, source lineage, parameters, or replay information.
 
 Outpaint is a real masked-edit route, not an Img2Img alias.
 

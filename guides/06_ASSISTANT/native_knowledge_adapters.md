@@ -7,8 +7,8 @@ summary: Explains how Neo exposes authoritative Image, Video, Voice, Prompt/Capt
 tags: [assistant, memory, knowledge, adapters, image, video, voice, prompt, captioning, roleplay, code, documentation]
 applies_to: [assistant, admin, image_workspace, video_workspace, voice_workspace, prompt_captioning_workspace, roleplay_workspace, general]
 priority: 100
-version: 3
-updated: 2026-09-26
+version: 4
+updated: 2026-09-27
 status: current
 ---
 
@@ -22,7 +22,9 @@ Neo now has a common read/reference layer for built-in native knowledge.
 Native authority
 → Native Knowledge Adapter
 → Universal Knowledge Contract
-→ future retrieval/context packet
+→ NKB-8 Unified Retrieval Planner
+→ NKB-9 Context Packet
+→ NKB-10 grounding policy
 → Assistant
 ```
 
@@ -91,17 +93,17 @@ GET /api/memory/native-knowledge/status?deep=true
 
 Other diagnostic/reference operations are available under `/api/memory/native-knowledge/*` for enumeration, projection, hydration, validation, citation lookup, structured lookup, relationships, and conservative legacy mapping.
 
-## Current phase boundary
+## Current runtime boundary
 
-NKB-6 does **not** make Assistant automatically search these adapters yet.
+Assistant can now search these adapters through the **NKB-8 Unified Retrieval Planner** when the task calls for their authority. Adapter results participate in weighted rank fusion/reranking, and selected strong evidence can be hydrated from the owning native source before packet assembly.
 
-Automatic lane selection, hybrid fusion/reranking, and cross-source authority adjudication are owned by **NKB-8 Unified Retrieval Planner**.
+NKB-9 places the verified shortlist into one bounded provider-visible Context Packet, while NKB-10 applies the task-sensitive grounding policy.
 
-NKB-7 now implements arbitrary public Project ingestion separately from the native adapter registry. Public Project files emit NKB-5 source/evidence references while the uploaded file remains authority.
+NKB-7 implements arbitrary public Project ingestion separately from the native adapter registry. Public Project files emit NKB-5 source/evidence references while the uploaded file remains authority.
 
 ## Public project rule
 
-Users do not need to follow a custom Neo schema for their own projects. NKB-7 derives contextual fragments and conservative source-backed helpers from ordinary files. Public Project evidence is intentionally not presented as another native Neo store; NKB-8 will orchestrate it alongside these native adapters.
+Users do not need to follow a custom Neo schema for their own projects. NKB-7 derives contextual fragments and conservative source-backed helpers from ordinary files. Public Project evidence is intentionally not presented as another native Neo store; NKB-8 orchestrates it alongside these native adapters.
 
 
 ## NKB-8 retrieval handoff

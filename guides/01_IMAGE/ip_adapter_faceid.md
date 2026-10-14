@@ -31,6 +31,14 @@ tags:
 priority: 118
 version: 8
 updated: 2026-08-02
+guide_kind: feature_reference
+lifecycle_state: current
+tasks:
+  - image.feature.ip_adapter
+ui_path:
+  - Image
+  - Reference
+  - IP Adapter / FaceID
 ---
 
 # IP Adapter / FaceID

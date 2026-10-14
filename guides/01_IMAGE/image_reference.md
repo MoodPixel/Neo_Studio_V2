@@ -30,6 +30,16 @@ tags:
 priority: 119
 version: 4
 updated: 2026-09-23
+guide_kind: user_procedure
+lifecycle_state: current
+tasks:
+  - image.reference.add
+  - image.navigation.reference
+ui_path:
+  - Image
+  - Reference
+procedure_section: General workflow
+troubleshooting_section: “Why is Reference disabled?”
 ---
 
 # Image Reference Workspace

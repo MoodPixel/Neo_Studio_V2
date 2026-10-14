@@ -21,6 +21,14 @@ tags:
 priority: 111
 version: 5
 updated: 2026-09-23
+guide_kind: feature_reference
+lifecycle_state: current
+tasks:
+  - image.feature.high_res_lab
+ui_path:
+  - Image
+  - Finish
+  - High-Res Lab
 ---
 
 # Image High-Res Lab

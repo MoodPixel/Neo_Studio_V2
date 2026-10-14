@@ -12,14 +12,15 @@ applies_to:
   - roleplay
   - assistant
   - admin
+  - comfy_spaces
 tags:
   - guides
   - help
   - setup
   - troubleshooting
 priority: 100
-version: 2
-updated: 2026-08-21
+version: 4
+updated: 2026-10-06
 ---
 
 # Neo Studio User Guides
@@ -58,4 +59,5 @@ If a feature is unavailable, the Guide should tell the user what they can check 
 05_VOICE              Voice workspace and local voice backends
 06_ASSISTANT          Assistant, Scopes, memory, and Project Brain
 07_ADMIN              Admin setup and backend/model management
+08_COMFY_SPACES        Comfy workflow Spaces and user-facing setup/status
 ```

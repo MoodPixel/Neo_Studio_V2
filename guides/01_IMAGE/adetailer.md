@@ -24,6 +24,14 @@ tags:
 priority: 111
 version: 6
 updated: 2026-08-06
+guide_kind: feature_reference
+lifecycle_state: current
+tasks:
+  - image.feature.adetailer
+ui_path:
+  - Image
+  - Finish
+  - ADetailer
 ---
 
 # Image ADetailer

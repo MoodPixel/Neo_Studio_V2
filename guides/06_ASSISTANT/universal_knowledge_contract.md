@@ -7,8 +7,8 @@ summary: Defines how Neo references native authorities through stable knowledge 
 tags: [assistant, memory, knowledge, evidence, provenance, adapters, retrieval, project, canon]
 applies_to: [assistant, image_workspace, video_workspace, voice_workspace, prompt_captioning_workspace, roleplay_workspace, general]
 priority: 100
-version: 1
-updated: 2026-09-26
+version: 2
+updated: 2026-09-27
 ---
 
 # Universal Knowledge Contract
@@ -232,13 +232,13 @@ confidence
 status
 ```
 
-Future adapters map these conservatively into the universal contract and preserve ambiguous values under compatibility metadata.
+Current adapters map these fields conservatively into the universal contract where applicable and preserve ambiguous values under compatibility metadata rather than promoting them into stronger authority.
 
 In particular, legacy `trust_level="confirmed"` must not automatically become "authoritative truth".
 
 ## Retrieval rule
 
-Future retrieval should conceptually become:
+Current Unified Brain retrieval conceptually follows:
 
 ```text
 scope gate
@@ -255,9 +255,21 @@ Embeddings/rerankers rank relevance. They do not decide authority.
 
 ## NKB-5 implementation boundary
 
-NKB-5 is records-only. No schema, adapters, migration, index changes or runtime behavior are implemented yet.
+NKB-5 itself was a records-only contract phase. The contract is now implemented by the later Unified Brain runtime layers without turning it into a master authority database.
 
-NKB-6 implements Native Knowledge Adapters against this contract. Arbitrary public Project ingestion remains NKB-7.
+Current chain:
+
+```text
+NKB-6 native adapters
++ NKB-7 public Project evidence
+→ NKB-8 Unified Retrieval Planner
+→ NKB-9 Context Packet
+→ NKB-10 grounding modes
+→ NKB-11 Inspector
+→ NKB-12 migration/reindex
+```
+
+The original NKB-5 identity/provenance rules remain the interoperability contract.
 
 ## NKB-6 implementation status — 2026-09-26
 
@@ -271,6 +283,6 @@ native authority
 → disposable projection
 ```
 
-It does not migrate native stores and does not yet connect adapter results to automatic Assistant retrieval. Public arbitrary project-file ingestion remains NKB-7; Assistant query planning/fusion remains NKB-8.
+It does not migrate native stores. NKB-7 now handles arbitrary public Project files, and NKB-8 automatically selects/fuses relevant native and Project evidence behind the existing Retrieval Gateway. NKB-9/NKB-10 then bound and ground the model-facing context.
 
 See `guides/06_ASSISTANT/native_knowledge_adapters.md` and System Record `01_ARCHITECTURE/NEO_UNIFIED_BRAIN_NKB6_NATIVE_KNOWLEDGE_ADAPTERS_20260926.md`.

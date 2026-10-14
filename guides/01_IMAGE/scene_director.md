@@ -40,6 +40,14 @@ tags:
 priority: 126
 version: 5
 updated: 2026-08-16
+guide_kind: feature_reference
+lifecycle_state: current
+tasks:
+  - image.feature.scene_director
+ui_path:
+  - Image
+  - Generation
+  - Scene Director
 ---
 
 # Scene Director
