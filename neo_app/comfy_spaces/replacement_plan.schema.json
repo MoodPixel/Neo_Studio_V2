@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.replacement_plan.v1",
+  "title": "Neo Comfy Spaces replacement plan",
+  "$defs": {
+    "SpaceReplacementCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Score",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "node_id": {
+          "default": "",
+          "title": "Node Id",
+          "type": "string"
+        },
+        "source_node_id": {
+          "default": "",
+          "title": "Source Node Id",
+          "type": "string"
+        },
+        "class_type": {
+          "default": "",
+          "title": "Class Type",
+          "type": "string"
+        },
+        "field": {
+          "default": "",
+          "title": "Field",
+          "type": "string"
+        },
+        "kind": {
+          "default": "",
+          "title": "Kind",
+          "type": "string"
+        },
+        "subgraph_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Subgraph Path",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "score",
+        "reason"
+      ],
+      "title": "SpaceReplacementCandidate",
+      "type": "object"
+    },
+    "SpaceReplacementMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "mapping_type": {
+          "enum": [
+            "input",
+            "output",
+            "anchor",
+            "stage",
+            "dynamic",
+            "variant",
+            "graph"
+          ],
+          "title": "Mapping Type",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "mapped",
+            "ambiguous",
+            "unmapped",
+            "review",
+            "compatible",
+            "incompatible",
+            "dropped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "auto_applied": {
+          "default": false,
+          "title": "Auto Applied",
+          "type": "boolean"
+        },
+        "selected_candidate_id": {
+          "default": "",
+          "title": "Selected Candidate Id",
+          "type": "string"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/SpaceReplacementCandidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        }
+      },
+      "required": [
+        "mapping_type",
+        "source_id",
+        "status"
+      ],
+      "title": "SpaceReplacementMapping",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.replacement_plan.v1",
+      "default": "neo.comfy_space.replacement_plan.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space_replacement_plan",
+      "default": "comfy_space_replacement_plan",
+      "title": "Kind",
+      "type": "string"
+    },
+    "plan_id": {
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "draft_id": {
+      "title": "Draft Id",
+      "type": "string"
+    },
+    "space_id": {
+      "title": "Space Id",
+      "type": "string"
+    },
+    "from_version": {
+      "title": "From Version",
+      "type": "string"
+    },
+    "to_version": {
+      "title": "To Version",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    },
+    "source_publication_fingerprint": {
+      "title": "Source Publication Fingerprint",
+      "type": "string"
+    },
+    "old_workflow_sha256": {
+      "title": "Old Workflow Sha256",
+      "type": "string"
+    },
+    "new_workflow_sha256": {
+      "title": "New Workflow Sha256",
+      "type": "string"
+    },
+    "review_confirmed": {
+      "default": false,
+      "title": "Review Confirmed",
+      "type": "boolean"
+    },
+    "reviewed_at": {
+      "default": "",
+      "title": "Reviewed At",
+      "type": "string"
+    },
+    "reviewed_draft_revision": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Reviewed Draft Revision",
+      "type": "integer"
+    },
+    "graph_diff": {
+      "additionalProperties": true,
+      "title": "Graph Diff",
+      "type": "object"
+    },
+    "mappings": {
+      "items": {
+        "$ref": "#/$defs/SpaceReplacementMapping"
+      },
+      "title": "Mappings",
+      "type": "array"
+    },
+    "summary": {
+      "additionalProperties": true,
+      "title": "Summary",
+      "type": "object"
+    },
+    "execution_performed": {
+      "const": false,
+      "default": false,
+      "title": "Execution Performed",
+      "type": "boolean"
+    },
+    "published_package_mutated": {
+      "const": false,
+      "default": false,
+      "title": "Published Package Mutated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "plan_id",
+    "draft_id",
+    "space_id",
+    "from_version",
+    "to_version",
+    "created_at",
+    "updated_at",
+    "source_publication_fingerprint",
+    "old_workflow_sha256",
+    "new_workflow_sha256"
+  ],
+  "type": "object"
+}

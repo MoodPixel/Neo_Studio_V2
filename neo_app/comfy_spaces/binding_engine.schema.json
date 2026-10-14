@@ -1,0 +1,541 @@
+{
+  "$defs": {
+    "SpaceAssetReference": {
+      "additionalProperties": false,
+      "description": "Portable NCS-4 asset handle.\n\nNCS-4 deliberately knows only the stable identity/kind. NCS-6 owns upload,\nstorage, metadata, and conversion into a Comfy-ready filename/value.",
+      "properties": {
+        "ref_type": {
+          "const": "neo_asset_ref",
+          "default": "neo_asset_ref",
+          "title": "Ref Type",
+          "type": "string"
+        },
+        "asset_id": {
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "kind"
+      ],
+      "title": "SpaceAssetReference",
+      "type": "object"
+    },
+    "SpaceBindingIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "enum": [
+            "error",
+            "warning"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "input_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Id"
+        },
+        "output_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Id"
+        },
+        "node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Node Id"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        }
+      },
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
+      "title": "SpaceBindingIssue",
+      "type": "object"
+    },
+    "SpaceBindingPlanReport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.binding_engine.v1",
+          "default": "neo.comfy_space.binding_engine.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "ready_for_execution": {
+          "title": "Ready For Execution",
+          "type": "boolean"
+        },
+        "clone_created": {
+          "title": "Clone Created",
+          "type": "boolean"
+        },
+        "source_template_unchanged": {
+          "title": "Source Template Unchanged",
+          "type": "boolean"
+        },
+        "execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        },
+        "workflow_binding_implemented": {
+          "const": true,
+          "default": true,
+          "title": "Workflow Binding Implemented",
+          "type": "boolean"
+        },
+        "asset_transport_implemented": {
+          "const": false,
+          "default": false,
+          "title": "Asset Transport Implemented",
+          "type": "boolean"
+        },
+        "applied_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Applied Count",
+          "type": "integer"
+        },
+        "defaulted_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Defaulted Count",
+          "type": "integer"
+        },
+        "resolved_asset_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Resolved Asset Count",
+          "type": "integer"
+        },
+        "deferred_asset_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Deferred Asset Count",
+          "type": "integer"
+        },
+        "omitted_optional_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Omitted Optional Count",
+          "type": "integer"
+        },
+        "bindings": {
+          "items": {
+            "$ref": "#/$defs/SpaceInputBindingRecord"
+          },
+          "title": "Bindings",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/SpaceBindingIssue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/SpaceBindingIssue"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ok",
+        "ready_for_execution",
+        "clone_created",
+        "source_template_unchanged"
+      ],
+      "title": "SpaceBindingPlanReport",
+      "type": "object"
+    },
+    "SpaceBindingValidationReport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.binding_engine.v1",
+          "default": "neo.comfy_space.binding_engine.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "valid": {
+          "title": "Valid",
+          "type": "boolean"
+        },
+        "execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        },
+        "workflow_mutated": {
+          "const": false,
+          "default": false,
+          "title": "Workflow Mutated",
+          "type": "boolean"
+        },
+        "input_binding_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Input Binding Count",
+          "type": "integer"
+        },
+        "output_binding_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Output Binding Count",
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/SpaceBindingIssue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/SpaceBindingIssue"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "valid"
+      ],
+      "title": "SpaceBindingValidationReport",
+      "type": "object"
+    },
+    "SpaceInputBindingRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "title": "Input Id",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "integer",
+            "number",
+            "boolean",
+            "choice",
+            "json",
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "provided",
+            "default",
+            "template"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "applied",
+            "applied_default",
+            "applied_resolved_asset",
+            "deferred_asset",
+            "omitted_optional"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "value_supplied": {
+          "default": false,
+          "title": "Value Supplied",
+          "type": "boolean"
+        },
+        "asset_ref_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Asset Ref Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input_id",
+        "node_id",
+        "field",
+        "kind",
+        "source",
+        "status"
+      ],
+      "title": "SpaceInputBindingRecord",
+      "type": "object"
+    },
+    "SpaceOutputResolutionRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "title": "Output Id",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "output_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Index"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "integer",
+            "number",
+            "boolean",
+            "choice",
+            "json",
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "collection": {
+          "enum": [
+            "first",
+            "all"
+          ],
+          "title": "Collection",
+          "type": "string"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "missing_node_output",
+            "missing_field",
+            "missing_output_slots",
+            "invalid_output_index",
+            "empty_collection"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        },
+        "asset_collection_deferred": {
+          "default": false,
+          "title": "Asset Collection Deferred",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "output_id",
+        "node_id",
+        "kind",
+        "collection",
+        "resolved",
+        "status"
+      ],
+      "title": "SpaceOutputResolutionRecord",
+      "type": "object"
+    },
+    "SpaceOutputResolutionReport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.binding_engine.v1",
+          "default": "neo.comfy_space.binding_engine.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        },
+        "output_binding_resolution_implemented": {
+          "const": true,
+          "default": true,
+          "title": "Output Binding Resolution Implemented",
+          "type": "boolean"
+        },
+        "asset_transport_implemented": {
+          "const": false,
+          "default": false,
+          "title": "Asset Transport Implemented",
+          "type": "boolean"
+        },
+        "resolved_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Resolved Count",
+          "type": "integer"
+        },
+        "unresolved_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Unresolved Count",
+          "type": "integer"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/SpaceOutputResolutionRecord"
+          },
+          "title": "Outputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "title": "SpaceOutputResolutionReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Schema-only bundle used to publish one coherent JSON Schema document.",
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.binding_engine.v1",
+      "default": "neo.comfy_space.binding_engine.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "asset_reference": {
+      "$ref": "#/$defs/SpaceAssetReference"
+    },
+    "validation_report": {
+      "$ref": "#/$defs/SpaceBindingValidationReport"
+    },
+    "binding_report": {
+      "$ref": "#/$defs/SpaceBindingPlanReport"
+    },
+    "output_report": {
+      "$ref": "#/$defs/SpaceOutputResolutionReport"
+    }
+  },
+  "required": [
+    "asset_reference",
+    "validation_report",
+    "binding_report",
+    "output_report"
+  ],
+  "title": "SpaceBindingSchemaBundle",
+  "type": "object",
+  "$id": "neo.comfy_space.binding_engine.v1"
+}

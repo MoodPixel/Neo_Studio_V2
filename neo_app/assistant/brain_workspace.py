@@ -135,6 +135,7 @@ class AssistantBrainWorkspace:
     def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
         self.db_path = Path(db_path)
         self.control = get_assistant_control_center()
+        self._builtin_workspaces_ensured = False
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -205,6 +206,7 @@ class AssistantBrainWorkspace:
                     create_project_payload(payload)
             created_or_updated += 1
             workspaces.append({**workspace, "project": get_project(project_id) or payload})
+        self._builtin_workspaces_ensured = True
         return {
             "ok": True,
             "status": "ensured",
@@ -244,7 +246,8 @@ class AssistantBrainWorkspace:
         return dashboard
 
     def context(self, payload: dict[str, Any] | None = None, *, persist: bool = True) -> dict[str, Any]:
-        request = AssistantWorkspaceRequest.from_payload(payload)
+        raw_payload = dict(payload or {})
+        request = AssistantWorkspaceRequest.from_payload(raw_payload)
         workspace = self._resolve_workspace(request)
         query = request.query or f"Workspace status for {workspace['name']}"
         identity = self._workspace_identity(workspace, request)
@@ -267,6 +270,16 @@ class AssistantBrainWorkspace:
                 "workspace_name": workspace["name"],
                 "workspace_memory_lanes": workspace.get("memory_lanes", []),
                 "canonical_identity": identity.as_dict(),
+                # NKB-15I-I2: carry the current-turn surface snapshot only as
+                # read-only native query context. The Retrieval Planner decides
+                # whether a native scope operator may consume it.
+                "native_context": (
+                    raw_payload.get("surface_context_snapshot")
+                    or raw_payload.get("active_surface_context")
+                    or raw_payload.get("surface_context")
+                    or raw_payload.get("client_surface_context")
+                    or {}
+                ),
             },
         }
         control_context = self.control.context(cc_payload, persist=persist)
@@ -328,7 +341,11 @@ class AssistantBrainWorkspace:
         return payload
 
     def _resolve_workspace(self, request: AssistantWorkspaceRequest) -> dict[str, Any]:
-        self.ensure_builtin_workspaces()
+        # ACI-7: built-in Scope seeding is startup/first-use work, not foreground
+        # work for every user turn. Explicit Admin/status refreshes can still call
+        # ensure_builtin_workspaces() whenever they want to reconcile the seed.
+        if not self._builtin_workspaces_ensured:
+            self.ensure_builtin_workspaces()
         by_workspace = {w["workspace_id"]: w for w in BUILTIN_WORKSPACES}
         by_scope = {w["scope_id"]: w for w in BUILTIN_WORKSPACES}
         by_project = {w["project_id"]: w for w in BUILTIN_WORKSPACES}  # legacy alias

@@ -1,0 +1,421 @@
+{
+  "$defs": {
+    "SpaceInputTypeDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.type_system.v1",
+          "default": "neo.comfy_space.type_system.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "integer",
+            "number",
+            "boolean",
+            "choice",
+            "json",
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "control": {
+          "enum": [
+            "text_input",
+            "text_area",
+            "integer_input",
+            "number_input",
+            "slider",
+            "seed_input",
+            "toggle",
+            "select",
+            "search_select",
+            "model_select",
+            "json_editor",
+            "image_upload",
+            "mask_upload",
+            "video_upload",
+            "audio_upload",
+            "file_upload"
+          ],
+          "title": "Control",
+          "type": "string"
+        },
+        "semantic_role": {
+          "default": "generic",
+          "title": "Semantic Role",
+          "type": "string"
+        },
+        "value_shape": {
+          "default": "scalar",
+          "enum": [
+            "scalar",
+            "structured",
+            "asset_ref"
+          ],
+          "title": "Value Shape",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "exact",
+          "enum": [
+            "exact",
+            "heuristic",
+            "fallback"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required"
+        },
+        "model_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Type"
+        },
+        "asset_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Kind"
+        },
+        "accepted_mime_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Accepted Mime Types",
+          "type": "array"
+        },
+        "asset_bus_required": {
+          "default": false,
+          "title": "Asset Bus Required",
+          "type": "boolean"
+        },
+        "supports_multiple": {
+          "default": false,
+          "title": "Supports Multiple",
+          "type": "boolean"
+        },
+        "constraints": {
+          "$ref": "#/$defs/SpaceTypeConstraint"
+        },
+        "options": {
+          "$ref": "#/$defs/SpaceOptionContract"
+        },
+        "manifest_renderer_hint": {
+          "title": "Manifest Renderer Hint",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "control",
+        "manifest_renderer_hint",
+        "reason"
+      ],
+      "title": "SpaceInputTypeDescriptor",
+      "type": "object"
+    },
+    "SpaceOptionContract": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "default": "none",
+          "enum": [
+            "none",
+            "inline_catalog",
+            "runtime_catalog"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "preview": {
+          "items": {},
+          "title": "Preview",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "searchable": {
+          "default": false,
+          "title": "Searchable",
+          "type": "boolean"
+        }
+      },
+      "title": "SpaceOptionContract",
+      "type": "object"
+    },
+    "SpaceOutputTypeDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.type_system.v1",
+          "default": "neo.comfy_space.type_system.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "integer",
+            "number",
+            "boolean",
+            "choice",
+            "json",
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "renderer": {
+          "enum": [
+            "text_viewer",
+            "numeric_value",
+            "boolean_value",
+            "choice_value",
+            "json_viewer",
+            "image_preview",
+            "mask_preview",
+            "video_player",
+            "audio_player",
+            "file_download"
+          ],
+          "title": "Renderer",
+          "type": "string"
+        },
+        "value_shape": {
+          "default": "scalar",
+          "enum": [
+            "scalar",
+            "structured",
+            "asset_ref"
+          ],
+          "title": "Value Shape",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "exact",
+          "enum": [
+            "exact",
+            "heuristic",
+            "fallback"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "artifact": {
+          "default": false,
+          "title": "Artifact",
+          "type": "boolean"
+        },
+        "asset_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Kind"
+        },
+        "previewable": {
+          "default": false,
+          "title": "Previewable",
+          "type": "boolean"
+        },
+        "downloadable": {
+          "default": false,
+          "title": "Downloadable",
+          "type": "boolean"
+        },
+        "default_collection": {
+          "default": "first",
+          "enum": [
+            "first",
+            "all"
+          ],
+          "title": "Default Collection",
+          "type": "string"
+        },
+        "supported_collections": {
+          "items": {
+            "enum": [
+              "first",
+              "all"
+            ],
+            "type": "string"
+          },
+          "title": "Supported Collections",
+          "type": "array"
+        },
+        "asset_bus_required": {
+          "default": false,
+          "title": "Asset Bus Required",
+          "type": "boolean"
+        },
+        "manifest_renderer_hint": {
+          "title": "Manifest Renderer Hint",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "renderer",
+        "manifest_renderer_hint",
+        "reason"
+      ],
+      "title": "SpaceOutputTypeDescriptor",
+      "type": "object"
+    },
+    "SpaceTypeConstraint": {
+      "additionalProperties": false,
+      "properties": {
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "multiline": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Multiline"
+        },
+        "tooltip": {
+          "default": "",
+          "title": "Tooltip",
+          "type": "string"
+        }
+      },
+      "title": "SpaceTypeConstraint",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Machine-readable NCS-3 input-control and output-renderer contracts.",
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.type_system.v1",
+      "default": "neo.comfy_space.type_system.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "input_descriptor": {
+      "$ref": "#/$defs/SpaceInputTypeDescriptor"
+    },
+    "output_descriptor": {
+      "$ref": "#/$defs/SpaceOutputTypeDescriptor"
+    }
+  },
+  "required": [
+    "input_descriptor",
+    "output_descriptor"
+  ],
+  "title": "Neo Comfy Spaces universal I/O type system",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.type_system.v1"
+}

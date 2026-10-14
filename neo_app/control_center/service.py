@@ -418,6 +418,7 @@ class NeoControlCenter:
             "filter_project_id": memory_filter.get("project_id") or "",
             "filter_scope_id": memory_filter.get("scope_id") or "",
             "retrieval_profile": retrieval_profile,
+            "native_context": dict((request.metadata or {}).get("native_context") or {}) if isinstance((request.metadata or {}).get("native_context"), dict) else {},
             "lanes": required_lanes,
             "retrieval_order": ["nkb8_query_analysis", "lane_plan", "candidate_retrieval", "weighted_rrf", "rerank", "authority_adjudication", "source_hydration", "sandbox_guard", "control_center_selection"],
             "embedding_required_now": True,
@@ -443,6 +444,7 @@ class NeoControlCenter:
                 "project_id": memory_plan.get("project_id") or "",
                 "scope_id": memory_plan.get("scope_id") or "",
                 "retrieval_profile": memory_plan.get("retrieval_profile") or "smart",
+                "native_context": memory_plan.get("native_context") if isinstance(memory_plan.get("native_context"), dict) else {},
                 "consumer": "assistant_control_center",
                 "limit": limit,
             })

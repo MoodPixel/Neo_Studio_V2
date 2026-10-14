@@ -8,9 +8,10 @@ import shutil
 import zipfile
 
 from neo_app.admin.engine import ROOT_DIR, admin_engine_state_payload, ensure_admin_engine_foundation, VECTOR_STORE_DIR, VECTOR_STORE_PATH
+from neo_app.memory.vector_store import chroma_semantic_compatibility, vector_store_status
 
 CHROMA_SCHEMA_ID = "neo.admin.engine.chroma_collections.v1"
-CHROMA_VERSION = "0.1.0-chroma-export-import"
+CHROMA_VERSION = "0.2.0-aci5-semantic-compatibility"
 EXPORT_DIR = ROOT_DIR / "neo_data" / "admin" / "engine" / "chroma_exports"
 IMPORT_DIR = ROOT_DIR / "neo_data" / "admin" / "engine" / "chroma_imports"
 
@@ -87,6 +88,8 @@ def chroma_collection_state_payload() -> dict[str, Any]:
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     IMPORT_DIR.mkdir(parents=True, exist_ok=True)
     collections = _collection_candidates(root)
+    semantic_compatibility = chroma_semantic_compatibility(engine_state=engine)
+    vector_status = vector_store_status(engine_state=engine)
     exports = []
     for archive in sorted(EXPORT_DIR.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:25]:
         exports.append({
@@ -107,8 +110,8 @@ def chroma_collection_state_payload() -> dict[str, Any]:
         "version": CHROMA_VERSION,
         "surface_id": "admin",
         "tab_id": "engine",
-        "status": "active",
-        "ready": True,
+        "status": semantic_compatibility.get("status") or "active",
+        "ready": semantic_compatibility.get("status") == "ready",
         "owner": "admin",
         "paths": {
             "vector_root": _rel(root),
@@ -116,6 +119,8 @@ def chroma_collection_state_payload() -> dict[str, Any]:
             "import_root": _rel(IMPORT_DIR),
         },
         "vector_store": engine.get("vector_store") or {},
+        "vector_store_status": vector_status,
+        "semantic_compatibility": semantic_compatibility,
         "collections": collections,
         "collection_count": len(collections),
         "exports": exports,
@@ -124,6 +129,7 @@ def chroma_collection_state_payload() -> dict[str, Any]:
         "notes": [
             "Admin owns collection export/import. Roleplay consumes vector collections through the Admin Engine bridge.",
             "This exports filesystem-backed Chroma/vector collection folders and root Chroma files when present.",
+            "ACI-5 refuses semantic reads/writes when a non-empty collection fingerprint does not match the currently qualified embedding profile.",
         ],
     }
 

@@ -9,8 +9,9 @@ from neo_app.assistant.source_grounded import build_source_grounded_context  # c
 from neo_app.assistant.store import assistant_profile, get_project, get_session, list_memory_captures, list_context_items
 from neo_app.assistant.surface_project_context import build_surface_project_context, resolve_surface_project_context_surface, surface_project_context_text
 from neo_app.assistant.project_brain import project_brain_context_text
-from neo_app.context_identity import resolve_canonical_identity
+from neo_app.context_identity import resolve_canonical_identity, is_builtin_scope
 from neo_app.memory.retrieval_gateway import gateway_grounding_payload, render_gateway_context, retrieve_context
+from neo_app.memory.user_profile import core_user_profile_snapshot, render_core_user_profile_context
 from neo_app.services.runtime_debug_logs import log_surface_event, record_surface_error, record_surface_snapshot
 
 
@@ -217,6 +218,7 @@ def build_context_pack(
     surface_context_snapshot: dict[str, Any] | None = None,
     active_surface_context: dict[str, Any] | None = None,
     retrieval_gateway_result: dict[str, Any] | None = None,
+    provider_fast_path: bool = False,
 ) -> dict[str, Any]:
     retrieval_profile = clamp_retrieval_profile(retrieval_profile)
     profile = assistant_profile()
@@ -225,17 +227,27 @@ def build_context_pack(
     session = get_session(session_id) if session_id else None
     resolved_project_id = str(project_id or project.get("project_id") or requested_project_id or "general")
     messages = session.get("messages") if isinstance(session, dict) and isinstance(session.get("messages"), list) else []
-    local_captures = [c for c in list_memory_captures(20) if c.get("project_id") in {resolved_project_id, "general", ""}]
-    context_items = [item for item in list_context_items(project_id=resolved_project_id, limit=20)]
-    global_context_items = [item for item in list_context_items(project_id="general", limit=8) if resolved_project_id != "general"]
-    context_items = (context_items + global_context_items)[:28]
+    if provider_fast_path:
+        # ACI-7: these are Inspector compatibility projections. The provider-visible
+        # Context Packet already receives the Retrieval Gateway shortlist, so reading
+        # the same legacy/local stores again only adds foreground latency.
+        local_captures: list[dict[str, Any]] = []
+        context_items: list[dict[str, Any]] = []
+    else:
+        local_captures = [c for c in list_memory_captures(20) if c.get("project_id") in {resolved_project_id, "general", ""}]
+        context_items = [item for item in list_context_items(project_id=resolved_project_id, limit=20)]
+        global_context_items = [item for item in list_context_items(project_id="general", limit=8) if resolved_project_id != "general"]
+        context_items = (context_items + global_context_items)[:28]
 
-    legacy_workspace, legacy_workspace_reason = _legacy_project_workspace_context(
-        resolved_project_id,
-        message=message,
-        include=include_legacy_project_workspace,
-        limit=12,
-    )
+    if provider_fast_path and not include_legacy_project_workspace and not _message_requests_legacy_project_workspace(message):
+        legacy_workspace, legacy_workspace_reason = {}, "provider_fast_path_excluded"
+    else:
+        legacy_workspace, legacy_workspace_reason = _legacy_project_workspace_context(
+            resolved_project_id,
+            message=message,
+            include=include_legacy_project_workspace,
+            limit=12,
+        )
     legacy_workspace_text, legacy_workspace_context_count, legacy_workspace_link_count = _format_legacy_workspace_context(legacy_workspace)
     legacy_workspace_included = bool(legacy_workspace_text and legacy_workspace_reason in {"explicit_flag", "explicit_message_phrase"})
 
@@ -264,7 +276,11 @@ def build_context_pack(
     query_parts = [message, project.get("name"), project.get("description"), project.get("notes")]
     memory_query = " ".join(str(part or "") for part in query_parts).strip()
 
-    project_brain_text, project_brain_diag = project_brain_context_text(resolved_project_id, surface=resolved_surface, limit={"fast": 3, "smart": 5, "deep": 8}.get(str(retrieval_profile or "smart"), 5), query=message)
+    if provider_fast_path:
+        project_brain_text = "Provider fast path: Project Brain compatibility projection deferred to Inspector; canonical Project evidence is supplied by Retrieval Gateway."
+        project_brain_diag = {"snapshot_count": 0, "index_count": 0, "deferred": True}
+    else:
+        project_brain_text, project_brain_diag = project_brain_context_text(resolved_project_id, surface=resolved_surface, limit={"fast": 3, "smart": 5, "deep": 8}.get(str(retrieval_profile or "smart"), 5), query=message)
     limit = {"fast": 4, "smart": 8, "deep": 14}.get(str(retrieval_profile or "smart"), 8)
 
     identity = resolve_canonical_identity(
@@ -278,6 +294,17 @@ def build_context_pack(
         legacy_project_is_scope=True,
         source="assistant_context_pack",
     )
+    project_metadata = project.get("metadata") if isinstance(project.get("metadata"), dict) else {}
+    project_sandbox = bool(identity.scope_id and identity.scope_id != "general" and not is_builtin_scope(identity.scope_id))
+    allow_project_profile = bool(project_metadata.get("allow_core_user_profile") or project_metadata.get("core_user_profile"))
+    profile_scope_class = "project_sandbox" if project_sandbox else ("general_federated" if identity.scope_id == "general" else "built_in_surface")
+    core_profile = core_user_profile_snapshot({
+        "scope_class": profile_scope_class,
+        "allow_project_profile": allow_project_profile,
+        "limit": 12,
+        "include_history": False,
+    })
+    core_profile_text = render_core_user_profile_context(core_profile, max_chars=2800)
     gateway_reused = bool(isinstance(retrieval_gateway_result, dict) and retrieval_gateway_result.get("schema_id"))
     retrieval_gateway = dict(retrieval_gateway_result or {}) if gateway_reused else retrieve_context({
         "query": memory_query,
@@ -322,7 +349,7 @@ def build_context_pack(
         f"Notes: {_text(project.get('notes'), 2500) or 'none'}",
     ])
     local_capture_text = "\n".join([f"- {c.get('title') or c.get('capture_id')}: {_text(c.get('text'), 600)}" for c in local_captures])
-    thread_text = _format_thread(messages)
+    thread_text = "" if provider_fast_path else _format_thread(messages)
     scope_knowledge_text = "\n".join([
         f"- [{item.get('kind') or 'context'} · {item.get('surface') or 'assistant'}] {item.get('title') or item.get('context_id')}: {_text(item.get('text'), 900)}"
         for item in context_items
@@ -373,6 +400,7 @@ def build_context_pack(
     sections = [
         _section("context_packet", "NKB-9 provider context packet", context_packet.get("rendered_text") or "No Context Packet content.", source="nkb9_context_packet", items=len(context_packet.get("evidence") or [])),
         _section("persona", "Assistant persona and rules", persona_text, source="assistant"),
+        _section("core_user_profile", "Core User Profile", core_profile_text, source="core_user_profile", items=len(core_profile.get("current") or [])),
         _section("current_message", "Current user message", current_text, source="composer"),
         _section("project", "Active Assistant scope", scope_text, source="assistant_scope"),
         _section("active_surface_context", "Live surface project context", live_surface_text or "No live surface project context attached for this Assistant scope.", source="assistant_surface_context_provider", items=1 if live_surface_text else 0),
@@ -399,10 +427,24 @@ def build_context_pack(
         _section("local_captures", "Assistant local captures", local_capture_text or "No local captures for this scope yet.", source="assistant_local", items=len(local_captures)),
     ])
     prompt_block = "\n\n".join([f"## {s['title']}\n{s['content']}" for s in sections if s.get("content")]).strip()
-    health = memory_health_payload()
+    if provider_fast_path:
+        planner_diag = retrieval_gateway.get("planner") if isinstance(retrieval_gateway.get("planner"), dict) else {}
+        health = {
+            "ok": True,
+            "backend": "retrieval_gateway_fast_path",
+            "semantic_available": bool(retrieval_gateway.get("status") not in {"error", "blocked"}),
+            "notes": ["ACI-7 provider fast path skips the full Memory Engine health sweep during chat generation."],
+            "planner_intent": planner_diag.get("intent") or "",
+        }
+    else:
+        health = memory_health_payload()
     diagnostics = {
         "project_id": resolved_project_id,
         "scope_id": project.get("scope_id") or project.get("project_id") or resolved_project_id,
+        "core_user_profile_status": core_profile.get("status") or "unavailable",
+        "core_user_profile_count": len(core_profile.get("current") or []),
+        "core_user_profile_scope_class": profile_scope_class,
+        "core_user_profile_project_opt_in": allow_project_profile,
         "session_id": (session or {}).get("session_id") or session_id,
         "retrieval_profile": retrieval_profile or "smart",
         "memory_source": "retrieval_gateway",
@@ -417,6 +459,8 @@ def build_context_pack(
         "retrieval_gateway_counts": retrieval_gateway.get("counts") if isinstance(retrieval_gateway.get("counts") if isinstance(retrieval_gateway, dict) else None, dict) else {},
         "retrieval_gateway_adapters": retrieval_gateway.get("adapters") if isinstance(retrieval_gateway.get("adapters") if isinstance(retrieval_gateway, dict) else None, dict) else {},
         "retrieval_gateway_adapter_errors": retrieval_gateway.get("adapter_errors") if isinstance(retrieval_gateway.get("adapter_errors") if isinstance(retrieval_gateway, dict) else None, list) else [],
+        "retrieval_gateway_timings_ms": retrieval_gateway.get("timings_ms") if isinstance(retrieval_gateway.get("timings_ms") if isinstance(retrieval_gateway, dict) else None, dict) else {},
+        "provider_fast_path": bool(provider_fast_path),
         "retrieval_planner": retrieval_gateway.get("planner") if isinstance(retrieval_gateway.get("planner") if isinstance(retrieval_gateway, dict) else None, dict) else {},
         "retrieval_planner_trace_id": retrieval_gateway.get("planner_trace_id") if isinstance(retrieval_gateway, dict) else "",
         "retrieval_known_state": retrieval_gateway.get("known_state") if isinstance(retrieval_gateway, dict) else "not_established",
@@ -469,7 +513,7 @@ def build_context_pack(
         "section_count": len(sections),
         "chars": len(prompt_block),
         "memory_health": health,
-        "precedence": ["current_message", "context_packet", "active_surface_context", "retrieval_gateway", "source_grounding", "built_in_guides", "project_brain", "assistant_scope", "scope_knowledge", "thread", "persona", "legacy_project_workspace_explicit_only"],
+        "precedence": ["current_message", "core_user_profile", "context_packet", "active_surface_context", "retrieval_gateway", "source_grounding", "built_in_guides", "project_brain", "assistant_scope", "scope_knowledge", "thread", "persona", "legacy_project_workspace_explicit_only"],
         "lock": contract_lock_payload(),
     }
     pack = {"ok": True, "sections": sections, "prompt_block": prompt_block, "diagnostics": diagnostics, "source_grounding": grounding, "retrieval_gateway": retrieval_gateway, "context_packet": context_packet}

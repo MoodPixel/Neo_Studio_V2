@@ -1,0 +1,128 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.dependency_health.v1",
+      "default": "neo.comfy_space.dependency_health.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space_dependency_health",
+      "default": "comfy_space_dependency_health",
+      "title": "Kind",
+      "type": "string"
+    },
+    "space_id": {
+      "title": "Space Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "runtime_profile_id": {
+      "title": "Runtime Profile Id",
+      "type": "string"
+    },
+    "checked_at": {
+      "title": "Checked At",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "blocked",
+        "degraded",
+        "unreachable",
+        "not_checked"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "ready": {
+      "default": false,
+      "title": "Ready",
+      "type": "boolean"
+    },
+    "stale": {
+      "default": false,
+      "title": "Stale",
+      "type": "boolean"
+    },
+    "stale_reason": {
+      "default": "",
+      "title": "Stale Reason",
+      "type": "string"
+    },
+    "age_seconds": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Age Seconds",
+      "type": "number"
+    },
+    "runtime_inventory": {
+      "additionalProperties": true,
+      "title": "Runtime Inventory",
+      "type": "object"
+    },
+    "base": {
+      "additionalProperties": true,
+      "title": "Base",
+      "type": "object"
+    },
+    "addons": {
+      "additionalProperties": true,
+      "title": "Addons",
+      "type": "object"
+    },
+    "stages": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Stages",
+      "type": "array"
+    },
+    "package_hints": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Package Hints",
+      "type": "array"
+    },
+    "runtime_changed_since_previous": {
+      "default": false,
+      "title": "Runtime Changed Since Previous",
+      "type": "boolean"
+    },
+    "previous_runtime_inventory_fingerprint": {
+      "default": "",
+      "title": "Previous Runtime Inventory Fingerprint",
+      "type": "string"
+    },
+    "queue_time_recheck_required": {
+      "const": true,
+      "default": true,
+      "title": "Queue Time Recheck Required",
+      "type": "boolean"
+    },
+    "automatic_dependency_install": {
+      "const": false,
+      "default": false,
+      "title": "Automatic Dependency Install",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "space_id",
+    "version",
+    "runtime_profile_id",
+    "checked_at",
+    "status"
+  ],
+  "title": "ComfySpaceDependencyHealthSnapshot",
+  "type": "object",
+  "$id": "neo.comfy_space.dependency_health.v1"
+}

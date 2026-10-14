@@ -9,6 +9,14 @@ ADMIN_UX_SCHEMA_ID: Final[str] = "neo.admin.ux_consolidation.phase12.v1"
 # state, links, and older integrations continue to work. The contract separates
 # the user-facing label from the compatibility route.
 ADMIN_UX_AREAS: Final[dict[str, dict[str, Any]]] = {
+    "comfy_spaces": {
+        "label": "Comfy Spaces",
+        "owner": "admin.comfy_spaces",
+        "purpose": "Import normal ComfyUI workflow JSON (API exports are also supported), automatically inspect a selected ComfyUI runtime node schema, review all detected control candidates with advisory exposure defaults, author declarative Space drafts, preview them with Neo's shared renderer, and publish validated package-only Space versions without executing Comfy.",
+        "child_tabs": [],
+        "must_not_duplicate": ["comfy_workflow_execution", "public_space_library", "custom_node_installation"],
+        "related": {"backends": "Comfy runtime profiles", "extensions": "Custom-node management", "models": "Model inventory"},
+    },
     "memory": {
         "label": "Memory",
         "owner": "admin.memory",
@@ -110,12 +118,15 @@ def admin_ux_contract_payload() -> dict[str, Any]:
             {"from": "projects", "to": "assistant", "reason": "Assistant Scope editing/activation belongs on the Assistant surface."},
             {"from": "projects", "to": "memory", "reason": "Delivery Projects shows linked memory read-only; memory governance belongs to Admin Memory."},
             {"from": "assistant_operator", "to": "assistant", "reason": "Admin Scope Readout is diagnostic only; normal Scope management belongs to Assistant."},
+            {"from": "comfy_spaces", "to": "backends", "reason": "Builder may inspect a selected Comfy runtime, but backend connection/configuration remains under Admin Backends."},
+            {"from": "comfy_spaces", "to": "extensions", "reason": "Builder reports custom-node requirements but does not install or manage executable Comfy custom nodes."},
         ],
         "admin_boundary": {
             "memory": "governance",
             "memory_engine": "infrastructure",
             "delivery_projects": "delivery_management",
             "assistant_operator": "orchestration_and_permissions",
+            "comfy_spaces": "declarative_comfy_space_authoring",
             "assistant_surface": "normal_assistant_work_and_scope_management",
         },
     }

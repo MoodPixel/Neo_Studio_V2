@@ -28,7 +28,9 @@
       "optional_dependencies": [
         "chromadb",
         "sentence-transformers",
-        "transformers"
+        "transformers",
+        "docling",
+        "rapidocr"
       ],
       "assignment_policy": "global_resources_assigned_per_surface"
     },

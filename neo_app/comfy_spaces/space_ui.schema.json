@@ -1,0 +1,433 @@
+{
+  "$defs": {
+    "ComfySpaceUI": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.ui.v1",
+          "default": "neo.comfy_space.ui.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "comfy_space_ui",
+          "default": "comfy_space_ui",
+          "title": "Kind",
+          "type": "string"
+        },
+        "space_id": {
+          "title": "Space Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "declarative_only": {
+          "const": true,
+          "default": true,
+          "title": "Declarative Only",
+          "type": "boolean"
+        },
+        "execution_authority": {
+          "const": false,
+          "default": false,
+          "title": "Execution Authority",
+          "type": "boolean"
+        },
+        "binding_authority": {
+          "const": false,
+          "default": false,
+          "title": "Binding Authority",
+          "type": "boolean"
+        },
+        "layout": {
+          "$ref": "#/$defs/SpaceUILayout"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/SpaceUIInputPresentation"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/SpaceUIOutputPresentation"
+          },
+          "title": "Outputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "space_id",
+        "version"
+      ],
+      "title": "ComfySpaceUI",
+      "type": "object"
+    },
+    "SpaceOptionContract": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "default": "none",
+          "enum": [
+            "none",
+            "inline_catalog",
+            "runtime_catalog"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "preview": {
+          "items": {},
+          "title": "Preview",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "searchable": {
+          "default": false,
+          "title": "Searchable",
+          "type": "boolean"
+        }
+      },
+      "title": "SpaceOptionContract",
+      "type": "object"
+    },
+    "SpaceTypeConstraint": {
+      "additionalProperties": false,
+      "properties": {
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "multiline": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Multiline"
+        },
+        "tooltip": {
+          "default": "",
+          "title": "Tooltip",
+          "type": "string"
+        }
+      },
+      "title": "SpaceTypeConstraint",
+      "type": "object"
+    },
+    "SpaceUIInputPresentation": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "title": "Input Id",
+          "type": "string"
+        },
+        "control": {
+          "enum": [
+            "text_input",
+            "text_area",
+            "integer_input",
+            "number_input",
+            "slider",
+            "seed_input",
+            "toggle",
+            "select",
+            "search_select",
+            "model_select",
+            "json_editor",
+            "image_upload",
+            "mask_upload",
+            "video_upload",
+            "audio_upload",
+            "file_upload"
+          ],
+          "title": "Control",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "help_text": {
+          "default": "",
+          "title": "Help Text",
+          "type": "string"
+        },
+        "section_id": {
+          "default": "main",
+          "title": "Section Id",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "advanced": {
+          "default": false,
+          "title": "Advanced",
+          "type": "boolean"
+        },
+        "semantic_role": {
+          "default": "generic",
+          "title": "Semantic Role",
+          "type": "string"
+        },
+        "source_node_id": {
+          "default": "",
+          "title": "Source Node Id",
+          "type": "string"
+        },
+        "source_node_label": {
+          "default": "",
+          "title": "Source Node Label",
+          "type": "string"
+        },
+        "model_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Type"
+        },
+        "accepted_mime_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Accepted Mime Types",
+          "type": "array"
+        },
+        "supports_multiple": {
+          "default": false,
+          "title": "Supports Multiple",
+          "type": "boolean"
+        },
+        "constraints": {
+          "$ref": "#/$defs/SpaceTypeConstraint"
+        },
+        "options": {
+          "$ref": "#/$defs/SpaceOptionContract"
+        }
+      },
+      "required": [
+        "input_id",
+        "control",
+        "label"
+      ],
+      "title": "SpaceUIInputPresentation",
+      "type": "object"
+    },
+    "SpaceUILayout": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "const": "form",
+          "default": "form",
+          "title": "Mode",
+          "type": "string"
+        },
+        "submit_label": {
+          "default": "Create",
+          "title": "Submit Label",
+          "type": "string"
+        },
+        "results_title": {
+          "default": "Results",
+          "title": "Results Title",
+          "type": "string"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/SpaceUISection"
+          },
+          "title": "Sections",
+          "type": "array"
+        }
+      },
+      "title": "SpaceUILayout",
+      "type": "object"
+    },
+    "SpaceUIOutputPresentation": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "title": "Output Id",
+          "type": "string"
+        },
+        "renderer": {
+          "enum": [
+            "text_viewer",
+            "numeric_value",
+            "boolean_value",
+            "choice_value",
+            "json_viewer",
+            "image_preview",
+            "mask_preview",
+            "video_player",
+            "audio_player",
+            "file_download"
+          ],
+          "title": "Renderer",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "previewable": {
+          "default": false,
+          "title": "Previewable",
+          "type": "boolean"
+        },
+        "downloadable": {
+          "default": false,
+          "title": "Downloadable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "output_id",
+        "renderer",
+        "label"
+      ],
+      "title": "SpaceUIOutputPresentation",
+      "type": "object"
+    },
+    "SpaceUISection": {
+      "additionalProperties": false,
+      "properties": {
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "advanced": {
+          "default": false,
+          "title": "Advanced",
+          "type": "boolean"
+        },
+        "collapsible": {
+          "default": false,
+          "title": "Collapsible",
+          "type": "boolean"
+        },
+        "default_collapsed": {
+          "default": false,
+          "title": "Default Collapsed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "section_id",
+        "title"
+      ],
+      "title": "SpaceUISection",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Schema-only bundle used to publish one coherent JSON Schema document.",
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.ui.v1",
+      "default": "neo.comfy_space.ui.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "ui": {
+      "$ref": "#/$defs/ComfySpaceUI"
+    }
+  },
+  "required": [
+    "ui"
+  ],
+  "title": "Neo Comfy Space UI v1",
+  "type": "object",
+  "$id": "neo.comfy_space.ui.v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

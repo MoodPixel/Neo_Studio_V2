@@ -1,0 +1,663 @@
+{
+  "$defs": {
+    "ComfySpaceAssetRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.asset.v1",
+          "default": "neo.comfy_space.asset.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "asset_id": {
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "input",
+            "output",
+            "intermediate"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "upload",
+            "local_import",
+            "comfy_output",
+            "generated_intermediate"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "state": {
+          "default": "ready",
+          "enum": [
+            "ready",
+            "deleted"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "original_filename": {
+          "title": "Original Filename",
+          "type": "string"
+        },
+        "stored_filename": {
+          "title": "Stored Filename",
+          "type": "string"
+        },
+        "content_type": {
+          "title": "Content Type",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 1,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "storage_relpath": {
+          "title": "Storage Relpath",
+          "type": "string"
+        },
+        "retention": {
+          "enum": [
+            "temporary",
+            "durable"
+          ],
+          "title": "Retention",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpaceAssetSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "transports": {
+          "items": {
+            "$ref": "#/$defs/SpaceAssetTransportRecord"
+          },
+          "title": "Transports",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "asset_id",
+        "kind",
+        "direction",
+        "origin",
+        "original_filename",
+        "stored_filename",
+        "content_type",
+        "size_bytes",
+        "sha256",
+        "storage_relpath",
+        "retention",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "ComfySpaceAssetRecord",
+      "type": "object"
+    },
+    "SpaceAssetBindingResolutionReport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.asset_bus.v1",
+          "default": "neo.comfy_space.asset_bus.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "ready_for_binding": {
+          "title": "Ready For Binding",
+          "type": "boolean"
+        },
+        "runtime_profile_id": {
+          "title": "Runtime Profile Id",
+          "type": "string"
+        },
+        "resolved_values": {
+          "additionalProperties": true,
+          "title": "Resolved Values",
+          "type": "object"
+        },
+        "resolutions": {
+          "items": {
+            "$ref": "#/$defs/SpaceAssetResolutionRecord"
+          },
+          "title": "Resolutions",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/SpaceAssetIssue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/SpaceAssetIssue"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "workflow_execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Workflow Execution Performed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok",
+        "ready_for_binding",
+        "runtime_profile_id"
+      ],
+      "title": "SpaceAssetBindingResolutionReport",
+      "type": "object"
+    },
+    "SpaceAssetCleanupReport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.asset_bus.v1",
+          "default": "neo.comfy_space.asset_bus.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ok": {
+          "default": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "scanned": {
+          "minimum": 0,
+          "title": "Scanned",
+          "type": "integer"
+        },
+        "deleted": {
+          "minimum": 0,
+          "title": "Deleted",
+          "type": "integer"
+        },
+        "skipped_durable": {
+          "minimum": 0,
+          "title": "Skipped Durable",
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/SpaceAssetIssue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "workflow_execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Workflow Execution Performed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "scanned",
+        "deleted",
+        "skipped_durable"
+      ],
+      "title": "SpaceAssetCleanupReport",
+      "type": "object"
+    },
+    "SpaceAssetCollectionReport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.asset_bus.v1",
+          "default": "neo.comfy_space.asset_bus.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ok": {
+          "default": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "asset": {
+          "$ref": "#/$defs/ComfySpaceAssetRecord"
+        },
+        "asset_ref": {
+          "$ref": "#/$defs/SpaceAssetReference"
+        },
+        "content_url": {
+          "title": "Content Url",
+          "type": "string"
+        },
+        "workflow_execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Workflow Execution Performed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "asset",
+        "asset_ref",
+        "content_url"
+      ],
+      "title": "SpaceAssetCollectionReport",
+      "type": "object"
+    },
+    "SpaceAssetIngestReport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.asset_bus.v1",
+          "default": "neo.comfy_space.asset_bus.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ok": {
+          "default": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "asset": {
+          "$ref": "#/$defs/ComfySpaceAssetRecord"
+        },
+        "asset_ref": {
+          "$ref": "#/$defs/SpaceAssetReference"
+        },
+        "content_url": {
+          "title": "Content Url",
+          "type": "string"
+        },
+        "workflow_execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Workflow Execution Performed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "asset",
+        "asset_ref",
+        "content_url"
+      ],
+      "title": "SpaceAssetIngestReport",
+      "type": "object"
+    },
+    "SpaceAssetIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "input_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Id"
+        },
+        "asset_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Id"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "SpaceAssetIssue",
+      "type": "object"
+    },
+    "SpaceAssetReference": {
+      "additionalProperties": false,
+      "description": "Portable NCS-4 asset handle.\n\nNCS-4 deliberately knows only the stable identity/kind. The NCS-6 neutral\nasset bus owns upload, storage, metadata, and conversion into a Comfy-ready\nfilename/value before feeding the existing resolved-asset seam.",
+      "properties": {
+        "ref_type": {
+          "const": "neo_asset_ref",
+          "default": "neo_asset_ref",
+          "title": "Ref Type",
+          "type": "string"
+        },
+        "asset_id": {
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "kind"
+      ],
+      "title": "SpaceAssetReference",
+      "type": "object"
+    },
+    "SpaceAssetResolutionRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "runtime_profile_id": {
+          "title": "Runtime Profile Id",
+          "type": "string"
+        },
+        "comfy_value": {
+          "title": "Comfy Value",
+          "type": "string"
+        },
+        "reused_transport": {
+          "default": false,
+          "title": "Reused Transport",
+          "type": "boolean"
+        },
+        "verified": {
+          "default": true,
+          "title": "Verified",
+          "type": "boolean"
+        },
+        "transport_method": {
+          "title": "Transport Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "kind",
+        "runtime_profile_id",
+        "comfy_value",
+        "transport_method"
+      ],
+      "title": "SpaceAssetResolutionRecord",
+      "type": "object"
+    },
+    "SpaceAssetSource": {
+      "additionalProperties": false,
+      "properties": {
+        "runtime_profile_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime Profile Id"
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Id"
+        },
+        "prompt_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Id"
+        },
+        "node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Node Id"
+        },
+        "filename": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filename"
+        },
+        "subfolder": {
+          "default": "",
+          "title": "Subfolder",
+          "type": "string"
+        },
+        "artifact_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Type"
+        },
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "title": "SpaceAssetSource",
+      "type": "object"
+    },
+    "SpaceAssetTransportRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "runtime_profile_id": {
+          "title": "Runtime Profile Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "comfy_name": {
+          "title": "Comfy Name",
+          "type": "string"
+        },
+        "comfy_subfolder": {
+          "default": "",
+          "title": "Comfy Subfolder",
+          "type": "string"
+        },
+        "comfy_type": {
+          "const": "input",
+          "default": "input",
+          "title": "Comfy Type",
+          "type": "string"
+        },
+        "comfy_value": {
+          "title": "Comfy Value",
+          "type": "string"
+        },
+        "verified": {
+          "default": true,
+          "title": "Verified",
+          "type": "boolean"
+        },
+        "content_sha256": {
+          "title": "Content Sha256",
+          "type": "string"
+        },
+        "resolved_at": {
+          "title": "Resolved At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime_profile_id",
+        "provider_id",
+        "method",
+        "comfy_name",
+        "comfy_value",
+        "content_sha256",
+        "resolved_at"
+      ],
+      "title": "SpaceAssetTransportRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.asset_bus.v1",
+      "default": "neo.comfy_space.asset_bus.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "asset_record": {
+      "$ref": "#/$defs/ComfySpaceAssetRecord"
+    },
+    "ingest_report": {
+      "$ref": "#/$defs/SpaceAssetIngestReport"
+    },
+    "binding_resolution_report": {
+      "$ref": "#/$defs/SpaceAssetBindingResolutionReport"
+    },
+    "collection_report": {
+      "$ref": "#/$defs/SpaceAssetCollectionReport"
+    },
+    "cleanup_report": {
+      "$ref": "#/$defs/SpaceAssetCleanupReport"
+    }
+  },
+  "required": [
+    "asset_record",
+    "ingest_report",
+    "binding_resolution_report",
+    "collection_report",
+    "cleanup_report"
+  ],
+  "title": "Neo Comfy Spaces neutral asset/media bus",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neo-studio.local/schema/comfy-spaces/asset-bus-v1.json"
+}

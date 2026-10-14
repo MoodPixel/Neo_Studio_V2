@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.migration_audit.v1",
+  "title": "Neo Comfy Spaces migration audit",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.migration_audit.v1",
+      "default": "neo.comfy_space.migration_audit.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space_migration_audit",
+      "default": "comfy_space_migration_audit",
+      "title": "Kind",
+      "type": "string"
+    },
+    "space_id": {
+      "title": "Space Id",
+      "type": "string"
+    },
+    "from_version": {
+      "title": "From Version",
+      "type": "string"
+    },
+    "to_version": {
+      "title": "To Version",
+      "type": "string"
+    },
+    "published_at": {
+      "title": "Published At",
+      "type": "string"
+    },
+    "replacement_plan_sha256": {
+      "title": "Replacement Plan Sha256",
+      "type": "string"
+    },
+    "review_confirmed": {
+      "const": true,
+      "default": true,
+      "title": "Review Confirmed",
+      "type": "boolean"
+    },
+    "mapping_summary": {
+      "additionalProperties": true,
+      "title": "Mapping Summary",
+      "type": "object"
+    },
+    "graph_diff": {
+      "additionalProperties": true,
+      "title": "Graph Diff",
+      "type": "object"
+    },
+    "execution_authority": {
+      "const": false,
+      "default": false,
+      "title": "Execution Authority",
+      "type": "boolean"
+    },
+    "binding_authority": {
+      "const": false,
+      "default": false,
+      "title": "Binding Authority",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "space_id",
+    "from_version",
+    "to_version",
+    "published_at",
+    "replacement_plan_sha256"
+  ],
+  "type": "object"
+}

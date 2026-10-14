@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.publication_receipt.v1",
+  "title": "Neo Comfy Spaces publication receipt",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.publication_receipt.v1",
+      "default": "neo.comfy_space.publication_receipt.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space_publication_receipt",
+      "default": "comfy_space_publication_receipt",
+      "title": "Kind",
+      "type": "string"
+    },
+    "space_id": {
+      "title": "Space Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "draft_id": {
+      "title": "Draft Id",
+      "type": "string"
+    },
+    "draft_revision": {
+      "title": "Draft Revision",
+      "type": "integer"
+    },
+    "published_at": {
+      "title": "Published At",
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "workflow_sha256": {
+      "title": "Workflow Sha256",
+      "type": "string"
+    },
+    "ui_sha256": {
+      "title": "Ui Sha256",
+      "type": "string"
+    },
+    "graph_anchors_sha256": {
+      "default": "",
+      "title": "Graph Anchors Sha256",
+      "type": "string"
+    },
+    "stages_sha256": {
+      "default": "",
+      "title": "Stages Sha256",
+      "type": "string"
+    },
+    "dynamic_controls_sha256": {
+      "default": "",
+      "title": "Dynamic Controls Sha256",
+      "type": "string"
+    },
+    "migration_sha256": {
+      "default": "",
+      "title": "Migration Sha256",
+      "type": "string"
+    },
+    "replaces_version": {
+      "default": "",
+      "title": "Replaces Version",
+      "type": "string"
+    },
+    "source_workflow_sha256": {
+      "title": "Source Workflow Sha256",
+      "type": "string"
+    },
+    "source_analysis_sha256": {
+      "title": "Source Analysis Sha256",
+      "type": "string"
+    },
+    "dependency_preflight_state": {
+      "title": "Dependency Preflight State",
+      "type": "string"
+    },
+    "dependency_preflight_checked": {
+      "title": "Dependency Preflight Checked",
+      "type": "boolean"
+    },
+    "portability_ready": {
+      "const": true,
+      "default": true,
+      "title": "Portability Ready",
+      "type": "boolean"
+    },
+    "trust_validated": {
+      "const": true,
+      "default": true,
+      "title": "Trust Validated",
+      "type": "boolean"
+    },
+    "package_validated": {
+      "const": true,
+      "default": true,
+      "title": "Package Validated",
+      "type": "boolean"
+    },
+    "execution_performed": {
+      "const": false,
+      "default": false,
+      "title": "Execution Performed",
+      "type": "boolean"
+    },
+    "generated_neo_code": {
+      "const": false,
+      "default": false,
+      "title": "Generated Neo Code",
+      "type": "boolean"
+    },
+    "automatic_dependency_install": {
+      "const": false,
+      "default": false,
+      "title": "Automatic Dependency Install",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "space_id",
+    "version",
+    "draft_id",
+    "draft_revision",
+    "published_at",
+    "manifest_sha256",
+    "workflow_sha256",
+    "ui_sha256",
+    "source_workflow_sha256",
+    "source_analysis_sha256",
+    "dependency_preflight_state",
+    "dependency_preflight_checked"
+  ],
+  "type": "object"
+}

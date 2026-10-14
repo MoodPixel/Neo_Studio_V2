@@ -2,14 +2,23 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
 from neo_app.assistant.context_pack import build_context_pack, compact_context_messages  # compatibility export; Phase 4 compiler does not use it
+from neo_app.assistant.checkpoints import (
+    RECENT_MESSAGE_WINDOW,
+    ensure_conversation_checkpoints,
+    render_provider_checkpoint_context,
+)
 from neo_app.assistant.attachments import (
     attachment_context_payload,
+    attachment_native_image_context,
     image_attachment_content_part,
     resolve_payload_attachments,
+    get_attachment_record,
 )
 from neo_app.control_center.assistant_controller import DEFAULT_DB_PATH as ASSISTANT_MEMORY_DB_PATH, get_assistant_control_center
 from neo_app.assistant.store import assistant_profile, create_session_payload, get_session, now_iso, save_session_payload, session_summary
@@ -20,6 +29,14 @@ from neo_app.services.runtime_debug_logs import log_surface_event, record_surfac
 from neo_app.assistant.prompt_compiler import compile_assistant_prompt
 from neo_app.assistant.grounding_modes import enforce_grounding_output, established_evidence_meta_refusal
 from neo_app.assistant.knowledge_inspector import build_knowledge_inspector_trace
+from neo_app.assistant.turn_relevance import classify_turn_relevance
+from neo_app.assistant.conversation_index import retrieve_conversation_context
+from neo_app.assistant.native_referents import active_image_referent, update_image_referent
+from neo_app.assistant.native_response_state import (
+    clear_native_response_state,
+    maybe_render_native_response,
+    session_native_response_state,
+)
 from neo_app.memory.writeback_engine import MemoryWritebackEngine
 from neo_app.assistant.universal_contract import (
     action_receipt_succeeded,
@@ -33,6 +50,124 @@ from neo_app.assistant.universal_contract import (
 
 TEXT_PROVIDER_IDS = {"koboldcpp", "openai_compatible_text", "ollama", "local_gguf_text", "local_gguf_vision"}
 TEXT_SURFACES = {"assistant", "text", "prompt_captioning", "roleplay"}
+ROOT_DIR = Path(__file__).resolve().parents[2]
+
+def _payload_with_native_attachment_context(
+    payload: dict[str, Any],
+    session: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Expose current-turn Image proof plus the session's active Image referent.
+
+    Explicit attachments always win. A single image updates the ephemeral session
+    referent; multiple images replace it with an ambiguous referent; no-image turns
+    may reuse the active referent for deictic native Image questions. This is not
+    durable memory and never promotes visual similarity into identity.
+    """
+    records = resolve_payload_attachments(payload)
+    image_context = attachment_native_image_context(records) if records else []
+    session_obj = session if isinstance(session, dict) else {}
+    if image_context:
+        update_image_referent(session_obj, image_context, updated_at=now_iso())
+    referent = active_image_referent(session_obj)
+
+    snapshot = payload.get("surface_context_snapshot") if isinstance(payload.get("surface_context_snapshot"), dict) else (
+        payload.get("active_surface_context") if isinstance(payload.get("active_surface_context"), dict) else {}
+    )
+    snapshot = dict(snapshot or {})
+    if image_context:
+        snapshot["attachment_image_intelligence"] = image_context
+        snapshot["current_turn_image_attachment_count"] = len(image_context)
+    elif referent:
+        snapshot["active_image_referent"] = referent
+        snapshot["current_turn_image_attachment_count"] = 0
+    augmented = dict(payload)
+    if snapshot:
+        augmented["surface_context_snapshot"] = snapshot
+    return augmented, records
+
+
+
+def _session_ephemeral_attachment_records(
+    session: dict[str, Any] | None,
+    current_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return current attachments plus source attachments established in this chat.
+
+    Previous images are intentionally excluded here; image referents have their own
+    guarded lifecycle. Documents and transcribed media remain queryable for the chat
+    lifetime without becoming durable Memory or Project Brain knowledge.
+    """
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for record in current_records or []:
+        attachment_id = str(record.get("attachment_id") or "").strip()
+        if attachment_id and attachment_id not in seen:
+            result.append(record)
+            seen.add(attachment_id)
+    session_obj = session if isinstance(session, dict) else {}
+    for message in session_obj.get("messages") or []:
+        if not isinstance(message, dict):
+            continue
+        ids = message.get("attachment_ids") or []
+        if isinstance(ids, str):
+            ids = [ids]
+        for attachment_id in ids if isinstance(ids, list) else []:
+            key = str(attachment_id or "").strip()
+            if not key or key in seen:
+                continue
+            record = get_attachment_record(key)
+            if not isinstance(record, dict) or str(record.get("kind") or "") not in {"document", "media"}:
+                continue
+            result.append(record)
+            seen.add(key)
+    return result
+
+
+def _native_response_public_meta(result: dict[str, Any] | None) -> dict[str, Any]:
+    data = result if isinstance(result, dict) else {}
+    state = data.get("state") if isinstance(data.get("state"), dict) else {}
+    return {
+        "schema_id": "neo.assistant.native_response.public.v1",
+        "kind": str(data.get("kind") or ""),
+        "status": str(data.get("status") or ""),
+        "field_path": str(data.get("field_path") or state.get("field_path") or ""),
+        "continuation_available": str(data.get("status") or "") == "partial",
+        "cursor_start": int(data.get("cursor_start") or 0),
+        "cursor_end": int(data.get("cursor_end") or state.get("cursor") or 0),
+        "total_chars": int(data.get("total_chars") or state.get("total_chars") or 0),
+        "source_ref": data.get("source_ref") if isinstance(data.get("source_ref"), dict) else (state.get("source_ref") if isinstance(state.get("source_ref"), dict) else {}),
+    }
+
+
+def _native_response_diagnostics(result: dict[str, Any] | None) -> dict[str, Any]:
+    meta = _native_response_public_meta(result)
+    return {
+        **meta,
+        "provider_bypassed": True,
+        "response_state": {
+            key: value for key, value in session_native_response_state({"native_response_state": (result or {}).get("state") or {}}).items()
+            if key != "exact_text"
+        },
+    }
+
+
+def _current_attachment_summaries(attachment_context: dict[str, Any], current_records: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    records = attachment_context.get("records") if isinstance(attachment_context.get("records"), list) else []
+    if current_records is None:
+        return records
+    allowed = {str(item.get("attachment_id") or "") for item in current_records if isinstance(item, dict)}
+    return [item for item in records if isinstance(item, dict) and str(item.get("attachment_id") or "") in allowed]
+
+
+def _attach_records_to_user_message(
+    user_message: dict[str, Any],
+    attachment_context: dict[str, Any],
+    current_records: list[dict[str, Any]] | None = None,
+) -> None:
+    records = _current_attachment_summaries(attachment_context, current_records)
+    if records:
+        user_message["attachments"] = records
+        user_message["attachment_ids"] = [item.get("attachment_id") for item in records if isinstance(item, dict) and item.get("attachment_id")]
 
 
 def _capture_durable_assistant_memory(
@@ -424,7 +559,7 @@ def _attachment_context_messages(attachment_context: dict[str, Any]) -> list[dic
     if document_context:
         messages.append({
             "role": "system",
-            "content": "Assistant attachments extracted from uploaded documents. Use them as user-provided context, and mention when extraction was unavailable.\n\n" + document_context,
+            "content": "Assistant attachment evidence prepared from uploaded documents and transcribed media. Use it as user-provided context. Media time ranges are source locators, and video attachments in ACI-4 contribute audio-track evidence only unless another visual system explicitly supplied visual evidence. Mention when preparation/transcription was unavailable.\n\n" + document_context,
         })
     warnings = attachment_context.get("warnings") if isinstance(attachment_context.get("warnings"), list) else []
     if warnings:
@@ -432,10 +567,41 @@ def _attachment_context_messages(attachment_context: dict[str, Any]) -> list[dic
     return messages
 
 
-def _build_history_messages_with_attachments(messages: list[dict[str, Any]], current_user_message_id: str, attachment_context: dict[str, Any]) -> list[dict[str, Any]]:
+def _build_history_messages_with_attachments(
+    messages: list[dict[str, Any]],
+    current_user_message_id: str,
+    attachment_context: dict[str, Any],
+    *,
+    session: dict[str, Any] | None = None,
+    history_mode: str = "checkpointed",
+    conversation_context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Build only the conversation history the latest turn actually depends on.
+
+    ACI-7.1 separates retrieval relevance from conversation-history relevance. A
+    self-contained preference or standalone factual lookup must not inherit an
+    unrelated old checkpoint merely because the chat itself is long.
+    """
+    mode = history_mode if history_mode in {"current_only", "recent", "checkpointed"} else "checkpointed"
     history_messages: list[dict[str, Any]] = []
+    if mode == "checkpointed":
+        checkpoint_text, _checkpoint_diag = render_provider_checkpoint_context(session)
+        if checkpoint_text:
+            history_messages.append({"role": "system", "content": checkpoint_text})
+
+    chat_context = conversation_context if isinstance(conversation_context, dict) else {}
+    chat_context_text = str(chat_context.get("context") or "").strip()
+    if chat_context_text:
+        history_messages.append({"role": "system", "content": chat_context_text})
+
+    current_index = next((idx for idx, msg in enumerate(messages) if str(msg.get("message_id") or "") == current_user_message_id), len(messages) - 1)
+    if mode == "current_only":
+        selected_messages = [messages[current_index]] if 0 <= current_index < len(messages) else messages[-1:]
+    else:
+        selected_messages = messages[-RECENT_MESSAGE_WINDOW:]
+
     vision_supported = bool(attachment_context.get("vision_supported"))
-    for msg in messages[-12:]:
+    for msg in selected_messages:
         role = "assistant" if msg.get("role") == "assistant" else "user"
         content_text = str(msg.get("text") or "").strip()
         if not content_text:
@@ -452,6 +618,29 @@ def _build_history_messages_with_attachments(messages: list[dict[str, Any]], cur
                 continue
         history_messages.append({"role": role, "content": content_text})
     return history_messages
+
+
+def _history_mode_from_control(
+    assistant_control: dict[str, Any] | None,
+    *,
+    text: str,
+    has_current_attachments: bool,
+    is_continue: bool,
+    behavior_mode: str,
+) -> tuple[str, dict[str, Any]]:
+    gateway = _retrieval_gateway_result_from_control(assistant_control)
+    planner = gateway.get("planner") if isinstance(gateway, dict) and isinstance(gateway.get("planner"), dict) else {}
+    relevance = planner.get("turn_relevance") if isinstance(planner.get("turn_relevance"), dict) else {}
+    mode = str(relevance.get("history_mode") or "")
+    if mode not in {"current_only", "recent", "checkpointed"}:
+        relevance = classify_turn_relevance(
+            text,
+            has_current_attachments=has_current_attachments,
+            is_continue=is_continue,
+            behavior_mode=behavior_mode,
+        )
+        mode = str(relevance.get("history_mode") or "current_only")
+    return mode, dict(relevance)
 
 
 def _assistant_generation_params(
@@ -744,6 +933,8 @@ def _retrieval_gateway_result_from_control(assistant_control: dict[str, Any] | N
 
 
 def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
+    turn_started = time.perf_counter()
+    timings_ms: dict[str, float] = {}
     payload = resolve_assistant_brain_chat_payload(payload or {})
     is_continue = bool(payload.get("continue_response") or str(payload.get("mode") or "").lower() in {"continue_response", "continue"})
     text = str(payload.get("message") or payload.get("text") or "").strip()
@@ -770,8 +961,17 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         title=str(payload.get("title") or "New assistant chat"),
         mode=str(payload.get("mode") or "general"),
     )
+    if not is_continue:
+        clear_native_response_state(session)
 
     semantic_text = _continuation_semantic_query(session, text) if is_continue else text
+    preliminary_turn_relevance = classify_turn_relevance(
+        semantic_text,
+        has_current_attachments=has_attachment_payload,
+        is_continue=is_continue,
+        behavior_mode=behavior_mode,
+    )
+    preliminary_history_mode = str(preliminary_turn_relevance.get("history_mode") or "current_only")
 
     _safe_log_assistant_event("assistant.chat.started", run_id=session_id, payload=_assistant_chat_log_summary(session_id=session_id, project_id=project_id, text=text, status="started"))
 
@@ -780,10 +980,77 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
     messages.append(user_message)
     session["messages"] = messages
     session["project_id"] = project_id
+    stage_started = time.perf_counter()
+    if preliminary_history_mode == "checkpointed":
+        checkpoint_build = ensure_conversation_checkpoints(session)
+    else:
+        checkpoint_build = {
+            "ok": True, "status": "deferred_not_needed_for_current_turn",
+            "checkpoint_count": len(session.get("conversation_checkpoints") or []),
+            "source_message_count": len(messages),
+            "history_mode": preliminary_history_mode,
+        }
+    timings_ms["checkpoint_build"] = round((time.perf_counter() - stage_started) * 1000, 3)
 
     retrieval_profile = str(payload.get("retrieval_profile") or assistant_profile().get("retrieval_profile") or "smart")
+    control_payload, current_attachment_records = _payload_with_native_attachment_context(payload, session)
+    attachment_records = _session_ephemeral_attachment_records(session, current_attachment_records)
+    native_snapshot = control_payload.get("surface_context_snapshot") if isinstance(control_payload.get("surface_context_snapshot"), dict) else {}
+    native_direct = maybe_render_native_response(
+        root_dir=ROOT_DIR,
+        session=session,
+        user_text=text,
+        native_context=native_snapshot,
+        is_continue=is_continue,
+    )
+    if native_direct is not None:
+        attachment_context = attachment_context_payload(attachment_records, vision_supported=False, query=semantic_text, session_id=session_id)
+        _attach_records_to_user_message(user_message, attachment_context, current_attachment_records)
+        session["messages"] = messages
+        native_meta = _native_response_public_meta(native_direct)
+        diagnostics = {
+            "schema_id": "neo.assistant.native_response_runtime.v1",
+            "native_response": _native_response_diagnostics(native_direct),
+            "attachments": {
+                "counts": attachment_context.get("counts") or {},
+                "records": attachment_context.get("records") or [],
+                "image_intelligence": attachment_context.get("image_intelligence") or [],
+                "ephemeral_retrieval": attachment_context.get("ephemeral_retrieval") or {},
+                "active_image_referent": active_image_referent(session),
+            },
+            "answer_mode": answer_mode,
+            "behavior_mode": behavior_mode,
+            "scope_session_replaced": bool(scope_session_replaced),
+        }
+        assistant_text = str(native_direct.get("text") or "")
+        assistant_message = {
+            "message_id": uuid4().hex,
+            "role": "assistant",
+            "text": assistant_text,
+            "created_at": now_iso(),
+            "source": "assistant_native_response_runtime",
+            "native_response": native_meta,
+            "diagnostics": diagnostics,
+            "source_grounding": {"mode": "native_exact" if native_meta.get("kind") == "exact_field" else "native_structured"},
+        }
+        messages.append(assistant_message)
+        diagnostics["conversation_checkpoints_after_turn"] = ensure_conversation_checkpoints(session)
+        saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics, "memory_summary": session.get("memory_summary") or session_summary({**session, "messages": messages}).get("preview") or ""})
+        _safe_log_assistant_event("assistant.chat.native_response", run_id=session_id, payload=_assistant_chat_log_summary(session_id=session_id, project_id=project_id, text=text, status="native_response", diagnostics=diagnostics, result={"ok": True, "text": assistant_text}))
+        return {
+            "ok": True,
+            "status": "completed_native",
+            "reply": assistant_text,
+            "assistant_message": assistant_message,
+            "session": saved["session"],
+            "sessions": saved.get("sessions", []),
+            "context_pack": {},
+            "diagnostics": diagnostics,
+            "native_response": native_meta,
+        }
+    stage_started = time.perf_counter()
     assistant_control = get_assistant_brain_workspace().context({
-        **payload,
+        **control_payload,
         "message": semantic_text,
         "planner_query": semantic_text,
         "continuation_query": semantic_text if is_continue else "",
@@ -792,22 +1059,43 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         "retrieval_profile": retrieval_profile,
         "behavior_mode": behavior_mode,
     }, persist=True)
+    timings_ms["brain_control_context"] = round((time.perf_counter() - stage_started) * 1000, 3)
+    stage_started = time.perf_counter()
     context_pack = build_context_pack(
         session_id=session_id,
         project_id=project_id,
         message=semantic_text,
         retrieval_profile=retrieval_profile,
         active_surface=str(payload.get("active_surface") or payload.get("surface") or ""),
-        surface_context_snapshot=(payload.get("surface_context_snapshot") if isinstance(payload.get("surface_context_snapshot"), dict) else (payload.get("active_surface_context") if isinstance(payload.get("active_surface_context"), dict) else None)),
+        surface_context_snapshot=(control_payload.get("surface_context_snapshot") if isinstance(control_payload.get("surface_context_snapshot"), dict) else (control_payload.get("active_surface_context") if isinstance(control_payload.get("active_surface_context"), dict) else None)),
         retrieval_gateway_result=_retrieval_gateway_result_from_control(assistant_control),
+        provider_fast_path=True,
     )
+    timings_ms["context_pack"] = round((time.perf_counter() - stage_started) * 1000, 3)
+    history_mode, turn_relevance = _history_mode_from_control(
+        assistant_control, text=semantic_text, has_current_attachments=bool(current_attachment_records),
+        is_continue=is_continue, behavior_mode=behavior_mode,
+    )
+    if history_mode == "checkpointed" and preliminary_history_mode != "checkpointed":
+        stage_started = time.perf_counter()
+        checkpoint_build = ensure_conversation_checkpoints(session)
+        timings_ms["checkpoint_build"] = round((time.perf_counter() - stage_started) * 1000, 3)
+    conversation_retrieval = {"status": "not_needed", "same_chat_only": True}
+    if bool(turn_relevance.get("conversation_retrieval_required")):
+        stage_started = time.perf_counter()
+        conversation_retrieval = retrieve_conversation_context(
+            session_id, semantic_text, session=session, exclude_message_id=str(user_message.get("message_id") or "")
+        )
+        timings_ms["conversation_retrieval"] = round((time.perf_counter() - stage_started) * 1000, 3)
+    stage_started = time.perf_counter()
     profile = resolve_assistant_backend_profile(payload)
     available, reason = _backend_available(profile or {})
-    attachment_records = resolve_payload_attachments(payload)
-    attachment_context = attachment_context_payload(attachment_records, vision_supported=_profile_supports_vision(profile or {}))
+    attachment_context = attachment_context_payload(attachment_records, vision_supported=_profile_supports_vision(profile or {}), query=semantic_text, session_id=session_id)
+    timings_ms["attachment_context"] = round((time.perf_counter() - stage_started) * 1000, 3)
     if attachment_records:
-        user_message["attachments"] = attachment_context.get("records") or []
-        user_message["attachment_ids"] = [item.get("attachment_id") for item in (attachment_context.get("records") or []) if item.get("attachment_id")]
+        current_public_records = _current_attachment_summaries(attachment_context, current_attachment_records)
+        user_message["attachments"] = current_public_records
+        user_message["attachment_ids"] = [item.get("attachment_id") for item in current_public_records if item.get("attachment_id")]
         session["messages"] = messages
     diagnostics = {
         "assistant_brain_workspace": assistant_control.get("diagnostics") or {},
@@ -818,8 +1106,11 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
             "schema_id": "neo.assistant.attachments.runtime.v1",
             "counts": attachment_context.get("counts") or {},
             "records": attachment_context.get("records") or [],
+            "image_intelligence": attachment_context.get("image_intelligence") or [],
             "warnings": attachment_context.get("warnings") or [],
+            "ephemeral_retrieval": attachment_context.get("ephemeral_retrieval") or {},
             "vision_supported": bool(attachment_context.get("vision_supported")),
+            "active_image_referent": active_image_referent(session),
         },
         "backend_profile_id": (profile or {}).get("profile_id") or "",
         "provider_id": (profile or {}).get("provider_id") or "",
@@ -828,7 +1119,15 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         "answer_mode": answer_mode,
         "behavior_mode": behavior_mode,
         "scope_session_replaced": bool(scope_session_replaced),
+        "conversation_checkpoints": checkpoint_build,
+        "history_mode": history_mode,
+        "turn_relevance": turn_relevance,
+        "conversation_retrieval": conversation_retrieval,
+        "timings_ms": timings_ms,
     }
+    retrieval_timings = (context_pack.get("diagnostics") or {}).get("retrieval_gateway_timings_ms") if isinstance(context_pack.get("diagnostics"), dict) else None
+    if isinstance(retrieval_timings, dict):
+        diagnostics["retrieval_gateway_timings_ms"] = retrieval_timings
     diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
         context_pack=context_pack, diagnostics=diagnostics, session_id=session_id, project_id=project_id, user_text=text, status="context_ready"
     )
@@ -842,7 +1141,11 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
             pass
         return {"ok": False, "status": "provider_gated", "message": reason, "session": saved["session"], "sessions": saved.get("sessions", []), "context_pack": context_pack, "diagnostics": diagnostics}
 
-    history_messages = _build_history_messages_with_attachments(messages, str(user_message.get("message_id") or ""), attachment_context)
+    stage_started = time.perf_counter()
+    history_messages = _build_history_messages_with_attachments(
+        messages, str(user_message.get("message_id") or ""), attachment_context, session=session, history_mode=history_mode,
+        conversation_context=conversation_retrieval,
+    )
     compiled_prompt = compile_assistant_prompt(
         user_text=text,
         behavior_mode=behavior_mode,
@@ -852,6 +1155,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         history_messages=history_messages,
         grounding_mode=str(payload.get("grounding_mode") or ""),
     )
+    timings_ms["prompt_compile"] = round((time.perf_counter() - stage_started) * 1000, 3)
     request_messages = compiled_prompt.get("messages") if isinstance(compiled_prompt.get("messages"), list) else history_messages
     diagnostics["prompt_compiler"] = compiled_prompt.get("diagnostics") or {}
     diagnostics["grounding"] = compiled_prompt.get("grounding_policy") or {}
@@ -866,7 +1170,10 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         pass
     params = _assistant_generation_params(text, behavior_mode, payload.get("params") if isinstance(payload.get("params"), dict) else {}, profile)
+    timings_ms["total_before_backend"] = round((time.perf_counter() - turn_started) * 1000, 3)
+    stage_started = time.perf_counter()
     result = _provider_run_chat(profile or {}, request_messages, params)
+    timings_ms["provider_generation"] = round((time.perf_counter() - stage_started) * 1000, 3)
     diagnostics["provider_result"] = {k: result.get(k) for k in ("ok", "recoverable", "error_type", "finish_reason", "warning", "model") if k in result}
     if not result.get("ok"):
         saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
@@ -879,6 +1186,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "status": "provider_error", "message": result.get("error") or "Assistant backend failed.", "session": saved["session"], "sessions": saved.get("sessions", []), "context_pack": context_pack, "diagnostics": diagnostics, "provider_result": result}
 
     raw_assistant_text = str(result.get("text") or result.get("partial_text") or "").strip()
+    stage_started = time.perf_counter()
     assistant_text, output_guard, repair_result = _finalize_assistant_output(
         profile=profile or {},
         request_messages=request_messages,
@@ -889,6 +1197,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         raw_text=raw_assistant_text,
         grounding_policy=compiled_prompt.get("grounding_policy") if isinstance(compiled_prompt, dict) else {},
     )
+    timings_ms["output_guard"] = round((time.perf_counter() - stage_started) * 1000, 3)
     diagnostics["reply_cleanup"] = output_guard.get("cleanup") or {}
     diagnostics["output_guard"] = output_guard
     diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
@@ -927,6 +1236,7 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         )
     except Exception:
         pass
+    stage_started = time.perf_counter()
     diagnostics["durable_writeback"] = _capture_durable_assistant_memory(
         assistant_control=assistant_control,
         trace_id=diagnostics.get("assistant_control_trace_id") or "",
@@ -936,8 +1246,16 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
         grounding_mode=str((diagnostics.get("grounding") or {}).get("mode") or ""),
         source_id=str(user_message.get("message_id") or ""),
     )
+    timings_ms["durable_writeback"] = round((time.perf_counter() - stage_started) * 1000, 3)
     assistant_message["diagnostics"] = diagnostics
     messages.append(assistant_message)
+    checkpoint_after = ensure_conversation_checkpoints(session)
+    diagnostics["conversation_checkpoints_after_turn"] = checkpoint_after
+    timings_ms["total"] = round((time.perf_counter() - turn_started) * 1000, 3)
+    diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
+        context_pack=context_pack, compiled_prompt=compiled_prompt, diagnostics=diagnostics, output_guard=output_guard,
+        session_id=session_id, project_id=project_id, user_text=text, status="completed"
+    )
     saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics, "memory_summary": session.get("memory_summary") or session_summary({**session, "messages": messages}).get("preview") or ""})
     summary = _assistant_chat_log_summary(session_id=session_id, project_id=project_id, text=text, status="completed", profile=profile, diagnostics=diagnostics, result=result)
     _safe_log_assistant_event("assistant.chat.completed", run_id=session_id, payload=summary)
@@ -950,6 +1268,8 @@ def run_assistant_chat_turn(payload: dict[str, Any]) -> dict[str, Any]:
 
 def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Execute an Assistant turn and emit SSE-friendly event dictionaries."""
+    turn_started = time.perf_counter()
+    timings_ms: dict[str, float] = {}
     payload = resolve_assistant_brain_chat_payload(payload or {})
     is_continue = bool(payload.get("continue_response") or str(payload.get("mode") or "").lower() in {"continue_response", "continue"})
     text = str(payload.get("message") or payload.get("text") or "").strip()
@@ -974,8 +1294,17 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         title=str(payload.get("title") or "New assistant chat"),
         mode=str(payload.get("mode") or "general"),
     )
+    if not is_continue:
+        clear_native_response_state(session)
 
     semantic_text = _continuation_semantic_query(session, text) if is_continue else text
+    preliminary_turn_relevance = classify_turn_relevance(
+        semantic_text,
+        has_current_attachments=has_attachment_payload,
+        is_continue=is_continue,
+        behavior_mode=behavior_mode,
+    )
+    preliminary_history_mode = str(preliminary_turn_relevance.get("history_mode") or "current_only")
 
     run_id = uuid4().hex
     yield {"type": "status", "schema_id": "neo.assistant.chat_stream.v1", "status": "preparing_context", "session_id": session_id, "run_id": run_id, "message": "Preparing Assistant context…"}
@@ -985,10 +1314,76 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
     messages.append(user_message)
     session["messages"] = messages
     session["project_id"] = project_id
+    stage_started = time.perf_counter()
+    if preliminary_history_mode == "checkpointed":
+        checkpoint_build = ensure_conversation_checkpoints(session)
+    else:
+        checkpoint_build = {
+            "ok": True, "status": "deferred_not_needed_for_current_turn",
+            "checkpoint_count": len(session.get("conversation_checkpoints") or []),
+            "source_message_count": len(messages),
+            "history_mode": preliminary_history_mode,
+        }
+    timings_ms["checkpoint_build"] = round((time.perf_counter() - stage_started) * 1000, 3)
 
     retrieval_profile = str(payload.get("retrieval_profile") or assistant_profile().get("retrieval_profile") or "smart")
+    control_payload, current_attachment_records = _payload_with_native_attachment_context(payload, session)
+    attachment_records = _session_ephemeral_attachment_records(session, current_attachment_records)
+    native_snapshot = control_payload.get("surface_context_snapshot") if isinstance(control_payload.get("surface_context_snapshot"), dict) else {}
+    native_direct = maybe_render_native_response(
+        root_dir=ROOT_DIR,
+        session=session,
+        user_text=text,
+        native_context=native_snapshot,
+        is_continue=is_continue,
+    )
+    if native_direct is not None:
+        attachment_context = attachment_context_payload(attachment_records, vision_supported=False, query=semantic_text, session_id=session_id)
+        _attach_records_to_user_message(user_message, attachment_context, current_attachment_records)
+        session["messages"] = messages
+        native_meta = _native_response_public_meta(native_direct)
+        diagnostics = {
+            "schema_id": "neo.assistant.native_response_runtime.v1",
+            "native_response": _native_response_diagnostics(native_direct),
+            "attachments": {
+                "counts": attachment_context.get("counts") or {},
+                "records": attachment_context.get("records") or [],
+                "image_intelligence": attachment_context.get("image_intelligence") or [],
+                "ephemeral_retrieval": attachment_context.get("ephemeral_retrieval") or {},
+                "active_image_referent": active_image_referent(session),
+            },
+            "answer_mode": answer_mode,
+            "behavior_mode": behavior_mode,
+            "scope_session_replaced": bool(scope_session_replaced),
+            "streaming": True,
+            "run_id": run_id,
+        }
+        saved_user = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics})
+        yield {"type": "start", "ok": True, "schema_id": "neo.assistant.chat_stream.v1", "status": "started_native", "session_id": session_id, "run_id": run_id, "user_message": user_message, "session": saved_user.get("session"), "context_pack": {}, "diagnostics": diagnostics}
+        yield {"type": "user_message", "session_id": session_id, "run_id": run_id, "message": user_message}
+        assistant_text = str(native_direct.get("text") or "")
+        if assistant_text:
+            yield {"type": "delta", "status": "streaming_native", "session_id": session_id, "run_id": run_id, "text": assistant_text, "token": assistant_text}
+        assistant_message = {
+            "message_id": uuid4().hex,
+            "role": "assistant",
+            "text": assistant_text,
+            "created_at": now_iso(),
+            "source": "assistant_native_response_runtime",
+            "native_response": native_meta,
+            "diagnostics": diagnostics,
+            "source_grounding": {"mode": "native_exact" if native_meta.get("kind") == "exact_field" else "native_structured"},
+            "streaming": True,
+        }
+        messages.append(assistant_message)
+        diagnostics["conversation_checkpoints_after_turn"] = ensure_conversation_checkpoints(session)
+        saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics, "memory_summary": session.get("memory_summary") or session_summary({**session, "messages": messages}).get("preview") or ""})
+        done = {"type": "done", "ok": True, "status": "completed_native", "reply": assistant_text, "assistant_message": assistant_message, "session_id": session_id, "run_id": run_id, "session": saved.get("session"), "sessions": saved.get("sessions", []), "context_pack": {}, "diagnostics": diagnostics, "native_response": native_meta}
+        yield done
+        return
+    stage_started = time.perf_counter()
     assistant_control = get_assistant_brain_workspace().context({
-        **payload,
+        **control_payload,
         "message": semantic_text,
         "planner_query": semantic_text,
         "continuation_query": semantic_text if is_continue else "",
@@ -997,22 +1392,43 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         "retrieval_profile": retrieval_profile,
         "behavior_mode": behavior_mode,
     }, persist=True)
+    timings_ms["brain_control_context"] = round((time.perf_counter() - stage_started) * 1000, 3)
+    stage_started = time.perf_counter()
     context_pack = build_context_pack(
         session_id=session_id,
         project_id=project_id,
         message=semantic_text,
         retrieval_profile=retrieval_profile,
         active_surface=str(payload.get("active_surface") or payload.get("surface") or ""),
-        surface_context_snapshot=(payload.get("surface_context_snapshot") if isinstance(payload.get("surface_context_snapshot"), dict) else (payload.get("active_surface_context") if isinstance(payload.get("active_surface_context"), dict) else None)),
+        surface_context_snapshot=(control_payload.get("surface_context_snapshot") if isinstance(control_payload.get("surface_context_snapshot"), dict) else (control_payload.get("active_surface_context") if isinstance(control_payload.get("active_surface_context"), dict) else None)),
         retrieval_gateway_result=_retrieval_gateway_result_from_control(assistant_control),
+        provider_fast_path=True,
     )
+    timings_ms["context_pack"] = round((time.perf_counter() - stage_started) * 1000, 3)
+    history_mode, turn_relevance = _history_mode_from_control(
+        assistant_control, text=semantic_text, has_current_attachments=bool(current_attachment_records),
+        is_continue=is_continue, behavior_mode=behavior_mode,
+    )
+    if history_mode == "checkpointed" and preliminary_history_mode != "checkpointed":
+        stage_started = time.perf_counter()
+        checkpoint_build = ensure_conversation_checkpoints(session)
+        timings_ms["checkpoint_build"] = round((time.perf_counter() - stage_started) * 1000, 3)
+    conversation_retrieval = {"status": "not_needed", "same_chat_only": True}
+    if bool(turn_relevance.get("conversation_retrieval_required")):
+        stage_started = time.perf_counter()
+        conversation_retrieval = retrieve_conversation_context(
+            session_id, semantic_text, session=session, exclude_message_id=str(user_message.get("message_id") or "")
+        )
+        timings_ms["conversation_retrieval"] = round((time.perf_counter() - stage_started) * 1000, 3)
+    stage_started = time.perf_counter()
     profile = resolve_assistant_backend_profile(payload)
     available, reason = _backend_available(profile or {})
-    attachment_records = resolve_payload_attachments(payload)
-    attachment_context = attachment_context_payload(attachment_records, vision_supported=_profile_supports_vision(profile or {}))
+    attachment_context = attachment_context_payload(attachment_records, vision_supported=_profile_supports_vision(profile or {}), query=semantic_text, session_id=session_id)
+    timings_ms["attachment_context"] = round((time.perf_counter() - stage_started) * 1000, 3)
     if attachment_records:
-        user_message["attachments"] = attachment_context.get("records") or []
-        user_message["attachment_ids"] = [item.get("attachment_id") for item in (attachment_context.get("records") or []) if item.get("attachment_id")]
+        current_public_records = _current_attachment_summaries(attachment_context, current_attachment_records)
+        user_message["attachments"] = current_public_records
+        user_message["attachment_ids"] = [item.get("attachment_id") for item in current_public_records if item.get("attachment_id")]
         session["messages"] = messages
 
     diagnostics = {
@@ -1024,8 +1440,11 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
             "schema_id": "neo.assistant.attachments.runtime.v1",
             "counts": attachment_context.get("counts") or {},
             "records": attachment_context.get("records") or [],
+            "image_intelligence": attachment_context.get("image_intelligence") or [],
             "warnings": attachment_context.get("warnings") or [],
+            "ephemeral_retrieval": attachment_context.get("ephemeral_retrieval") or {},
             "vision_supported": bool(attachment_context.get("vision_supported")),
+            "active_image_referent": active_image_referent(session),
         },
         "backend_profile_id": (profile or {}).get("profile_id") or "",
         "provider_id": (profile or {}).get("provider_id") or "",
@@ -1036,7 +1455,15 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         "scope_session_replaced": bool(scope_session_replaced),
         "streaming": True,
         "run_id": run_id,
+        "conversation_checkpoints": checkpoint_build,
+        "history_mode": history_mode,
+        "turn_relevance": turn_relevance,
+        "conversation_retrieval": conversation_retrieval,
+        "timings_ms": timings_ms,
     }
+    retrieval_timings = (context_pack.get("diagnostics") or {}).get("retrieval_gateway_timings_ms") if isinstance(context_pack.get("diagnostics"), dict) else None
+    if isinstance(retrieval_timings, dict):
+        diagnostics["retrieval_gateway_timings_ms"] = retrieval_timings
     diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
         context_pack=context_pack, diagnostics=diagnostics, session_id=session_id, project_id=project_id, user_text=text, status="context_ready"
     )
@@ -1053,7 +1480,11 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         yield {**event, "type": "done"}
         return
 
-    history_messages = _build_history_messages_with_attachments(messages, str(user_message.get("message_id") or ""), attachment_context)
+    stage_started = time.perf_counter()
+    history_messages = _build_history_messages_with_attachments(
+        messages, str(user_message.get("message_id") or ""), attachment_context, session=session, history_mode=history_mode,
+        conversation_context=conversation_retrieval,
+    )
     compiled_prompt = compile_assistant_prompt(
         user_text=text,
         behavior_mode=behavior_mode,
@@ -1063,6 +1494,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         history_messages=history_messages,
         grounding_mode=str(payload.get("grounding_mode") or ""),
     )
+    timings_ms["prompt_compile"] = round((time.perf_counter() - stage_started) * 1000, 3)
     request_messages = compiled_prompt.get("messages") if isinstance(compiled_prompt.get("messages"), list) else history_messages
     diagnostics["prompt_compiler"] = compiled_prompt.get("diagnostics") or {}
     diagnostics["grounding"] = compiled_prompt.get("grounding_policy") or {}
@@ -1079,7 +1511,10 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
     params = _assistant_generation_params(text, behavior_mode, payload.get("params") if isinstance(payload.get("params"), dict) else {}, profile)
     raw_parts: list[str] = []
     provider_meta: dict[str, Any] = {}
+    timings_ms["total_before_backend"] = round((time.perf_counter() - turn_started) * 1000, 3)
+    yield {"type": "status", "status": "context_ready", "session_id": session_id, "run_id": run_id, "message": "Assistant context ready.", "timings_ms": dict(timings_ms)}
     yield {"type": "status", "status": "backend_streaming", "session_id": session_id, "run_id": run_id, "message": "Streaming Assistant reply…"}
+    provider_started = time.perf_counter()
     for event in _provider_run_chat_stream(profile or {}, request_messages, params):
         event_type = str(event.get("type") or "")
         if event_type == "backend_start":
@@ -1105,8 +1540,10 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
             provider_meta.update({k: event.get(k) for k in ("provider", "backend_profile_id", "model", "status") if k in event})
             if event.get("text") and not raw_parts:
                 raw_parts.append(str(event.get("text") or ""))
+    timings_ms["provider_generation"] = round((time.perf_counter() - provider_started) * 1000, 3)
 
     raw_assistant_text = "".join(raw_parts).strip()
+    stage_started = time.perf_counter()
     assistant_text, output_guard, repair_result = _finalize_assistant_output(
         profile=profile or {},
         request_messages=request_messages,
@@ -1117,6 +1554,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         raw_text=raw_assistant_text,
         grounding_policy=compiled_prompt.get("grounding_policy") if isinstance(compiled_prompt, dict) else {},
     )
+    timings_ms["output_guard"] = round((time.perf_counter() - stage_started) * 1000, 3)
     diagnostics["reply_cleanup"] = output_guard.get("cleanup") or {}
     diagnostics["output_guard"] = output_guard
     diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
@@ -1170,6 +1608,7 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         )
     except Exception:
         pass
+    stage_started = time.perf_counter()
     diagnostics["durable_writeback"] = _capture_durable_assistant_memory(
         assistant_control=assistant_control,
         trace_id=diagnostics.get("assistant_control_trace_id") or "",
@@ -1179,6 +1618,14 @@ def stream_assistant_chat_turn_event_dicts(payload: dict[str, Any]) -> Iterator[
         grounding_mode=str((diagnostics.get("grounding") or {}).get("mode") or ""),
         source_id=str(user_message.get("message_id") or ""),
     )
+    timings_ms["durable_writeback"] = round((time.perf_counter() - stage_started) * 1000, 3)
     assistant_message["diagnostics"] = diagnostics
+    checkpoint_after = ensure_conversation_checkpoints(session)
+    diagnostics["conversation_checkpoints_after_turn"] = checkpoint_after
+    timings_ms["total"] = round((time.perf_counter() - turn_started) * 1000, 3)
+    diagnostics["knowledge_inspector"] = build_knowledge_inspector_trace(
+        context_pack=context_pack, compiled_prompt=compiled_prompt, diagnostics=diagnostics, output_guard=output_guard,
+        session_id=session_id, project_id=project_id, user_text=text, status="completed"
+    )
     saved = save_session_payload({**session, "messages": messages, "draft": "", "last_diagnostics": diagnostics, "memory_summary": session.get("memory_summary") or session_summary({**session, "messages": messages}).get("preview") or ""})
     yield {"type": "done", "ok": True, "schema_id": "neo.assistant.chat_stream.v1", "status": "completed", "session_id": session_id, "run_id": run_id, "reply": assistant_text, "assistant_message": assistant_message, "session": saved.get("session"), "sessions": saved.get("sessions", []), "context_pack": context_pack, "diagnostics": diagnostics}

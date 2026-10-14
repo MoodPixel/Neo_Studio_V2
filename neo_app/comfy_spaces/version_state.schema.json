@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.version_state.v1",
+  "title": "Neo Comfy Spaces version state",
+  "$defs": {
+    "SpaceVersionActivation": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "activated_at": {
+          "title": "Activated At",
+          "type": "string"
+        },
+        "reason": {
+          "default": "manual",
+          "enum": [
+            "publish",
+            "rollback",
+            "manual"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "previous_version": {
+          "default": "",
+          "title": "Previous Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "activated_at"
+      ],
+      "title": "SpaceVersionActivation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.version_state.v1",
+      "default": "neo.comfy_space.version_state.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space_version_state",
+      "default": "comfy_space_version_state",
+      "title": "Kind",
+      "type": "string"
+    },
+    "space_id": {
+      "title": "Space Id",
+      "type": "string"
+    },
+    "active_version": {
+      "title": "Active Version",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    },
+    "activation_history": {
+      "items": {
+        "$ref": "#/$defs/SpaceVersionActivation"
+      },
+      "title": "Activation History",
+      "type": "array"
+    }
+  },
+  "required": [
+    "space_id",
+    "active_version",
+    "updated_at"
+  ],
+  "type": "object"
+}

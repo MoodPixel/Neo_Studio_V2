@@ -91,6 +91,15 @@ def assistant_memory_lens_payload(project_id: str = "general", surface: str = ""
     current_retrieval = current_snapshot.get("retrieval_inspector") or {}
 
     project_sandbox = bool(identity.scope_id and identity.scope_id != "general" and not is_builtin_scope(identity.scope_id))
+    project_metadata = project.get("metadata") if isinstance(project.get("metadata"), dict) else {}
+    allow_project_profile = bool(project_metadata.get("allow_core_user_profile") or project_metadata.get("core_user_profile"))
+    profile_scope_class = "project_sandbox" if project_sandbox else ("general_federated" if identity.scope_id == "general" else "built_in_surface")
+    core_profile = service.core_user_profile({
+        "scope_class": profile_scope_class,
+        "allow_project_profile": allow_project_profile,
+        "limit": 12,
+        "include_history": True,
+    })
     general_memory: dict[str, Any] = {}
     if identity.scope_id != "general" and not project_sandbox:
         general_identity = resolve_canonical_identity(
@@ -165,7 +174,10 @@ def assistant_memory_lens_payload(project_id: str = "general", surface: str = ""
             "scope_knowledge_count": len(scope_knowledge),
             "recent_retrieval_count": len(traces),
             "job_count": len(jobs),
+            "core_profile_count": int(core_profile.get("current_count") or 0),
+            "core_profile_history_count": int(core_profile.get("history_count") or 0),
         },
+        "core_user_profile": core_profile,
         "scope_memory": current_items,
         "general_memory": general_items,
         "durable_memory": durable,
@@ -177,6 +189,9 @@ def assistant_memory_lens_payload(project_id: str = "general", surface: str = ""
         "jobs": jobs,
         "diagnostics": {
             "memory_filter": memory_filter,
+            "core_user_profile_status": core_profile.get("status") or "unavailable",
+            "core_user_profile_scope_class": profile_scope_class,
+            "core_user_profile_project_opt_in": allow_project_profile,
             "current_memory": current_memory,
             "current_retrieval": current_retrieval,
             "current_summary": current_snapshot.get("summary") or {},

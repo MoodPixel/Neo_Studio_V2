@@ -372,6 +372,10 @@ def create_session_payload(payload: dict[str, Any] | None = None) -> dict[str, A
         "mode": str(payload.get("mode") or assistant_profile().get("default_mode") or "general"),
         "messages": payload.get("messages") if isinstance(payload.get("messages"), list) else [],
         "context_items": payload.get("context_items") if isinstance(payload.get("context_items"), list) else [],
+        "native_referents": payload.get("native_referents") if isinstance(payload.get("native_referents"), dict) else {},
+        "native_response_state": payload.get("native_response_state") if isinstance(payload.get("native_response_state"), dict) else {},
+        "conversation_checkpoints": payload.get("conversation_checkpoints") if isinstance(payload.get("conversation_checkpoints"), list) else [],
+        "checkpoint_state": payload.get("checkpoint_state") if isinstance(payload.get("checkpoint_state"), dict) else {},
         "memory_summary": str(payload.get("memory_summary") or ""),
         "draft": str(payload.get("draft") or ""),
         "created_at": stamp,
@@ -381,6 +385,15 @@ def create_session_payload(payload: dict[str, Any] | None = None) -> dict[str, A
     sessions = [s for s in list_sessions() if s.get("session_id") != session_id]
     sessions.insert(0, session_summary(record))
     _write_sessions(sessions)
+    if record.get("messages"):
+        try:
+            from neo_app.assistant.conversation_index import sync_conversation_index, schedule_conversation_semantic_index
+            continuity = sync_conversation_index(record)
+            last_message = (record.get("messages") or [])[-1] if record.get("messages") else {}
+            if continuity.get("semantic_reindex_needed") and isinstance(last_message, dict) and last_message.get("role") == "assistant":
+                schedule_conversation_semantic_index(session_id)
+        except Exception:
+            pass
     return {"ok": True, "session": record, "sessions": list_sessions()}
 
 
@@ -397,11 +410,15 @@ def save_session_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "context_items": [],
         "created_at": now_iso(),
     }
-    for key in ("title", "project_id", "scope_id", "mode", "messages", "context_items", "memory_summary", "draft", "last_diagnostics"):
+    previous_messages = current.get("messages") if isinstance(current.get("messages"), list) else []
+    messages_supplied = "messages" in payload
+    for key in ("title", "project_id", "scope_id", "mode", "messages", "context_items", "native_referents", "native_response_state", "conversation_checkpoints", "checkpoint_state", "memory_summary", "draft", "last_diagnostics"):
         if key in payload:
             value = payload[key]
-            if key in {"messages", "context_items"} and not isinstance(value, list):
+            if key in {"messages", "context_items", "conversation_checkpoints"} and not isinstance(value, list):
                 value = []
+            if key in {"native_referents", "native_response_state", "checkpoint_state"} and not isinstance(value, dict):
+                value = {}
             current[key] = value
     if "project_id" in payload and "scope_id" not in payload:
         current["scope_id"] = str(current.get("project_id") or "general")
@@ -410,6 +427,22 @@ def save_session_payload(payload: dict[str, Any]) -> dict[str, Any]:
     sessions = [s for s in list_sessions() if s.get("session_id") != session_id]
     sessions.insert(0, session_summary(current))
     _write_sessions(sessions)
+    if messages_supplied and previous_messages != current.get("messages"):
+        try:
+            from neo_app.assistant.conversation_index import delete_conversation_index, sync_conversation_index, schedule_conversation_semantic_index
+            current_messages = current.get("messages") if isinstance(current.get("messages"), list) else []
+            if not current_messages:
+                delete_conversation_index(session_id)
+            else:
+                continuity = sync_conversation_index(current)
+                last_message = current_messages[-1] if current_messages else {}
+                # Never wake the embedding model while a streaming user turn is
+                # still waiting for provider generation. Queue semantic catch-up
+                # only after an Assistant message closes the turn.
+                if continuity.get("semantic_reindex_needed") and isinstance(last_message, dict) and last_message.get("role") == "assistant":
+                    schedule_conversation_semantic_index(session_id)
+        except Exception:
+            pass
     return {"ok": True, "session": current, "sessions": list_sessions()}
 
 
@@ -436,9 +469,18 @@ def clear_session_messages_payload(payload: dict[str, Any]) -> dict[str, Any]:
     current = get_session(session_id)
     if not current:
         raise FileNotFoundError("Assistant session not found")
+    try:
+        from neo_app.assistant.conversation_index import delete_conversation_index
+        delete_conversation_index(session_id)
+    except Exception:
+        pass
     current["messages"] = []
+    current["conversation_checkpoints"] = []
+    current["checkpoint_state"] = {}
     current["draft"] = ""
     current["memory_summary"] = ""
+    current["native_referents"] = {}
+    current["native_response_state"] = {}
     current["last_diagnostics"] = {
         "schema_id": "neo.assistant.session_clear.v1",
         "status": "messages_cleared",
@@ -451,6 +493,11 @@ def delete_session_payload(payload: dict[str, Any]) -> dict[str, Any]:
     session_id = str(payload.get("session_id") or "").strip()
     if not session_id:
         raise ValueError("session_id is required")
+    try:
+        from neo_app.assistant.conversation_index import delete_conversation_index
+        delete_conversation_index(session_id)
+    except Exception:
+        pass
     path = _safe_record_path(SESSIONS_DIR, session_id, "session")
     if path.exists():
         path.unlink()

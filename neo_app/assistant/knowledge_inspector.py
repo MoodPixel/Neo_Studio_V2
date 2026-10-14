@@ -89,6 +89,7 @@ def build_knowledge_inspector_trace(
     enforcement = guard.get("grounding_enforcement") if isinstance(guard.get("grounding_enforcement"), dict) else {}
     fusion = gateway.get("fusion") if isinstance(gateway.get("fusion"), dict) else {}
     packet_budget = packet.get("budget") if isinstance(packet.get("budget"), dict) else {}
+    conversation = diag.get("conversation_retrieval") if isinstance(diag.get("conversation_retrieval"), dict) else {}
 
     selected = [_candidate_view(item, selected=True) for item in (gateway.get("items") or []) if isinstance(item, dict)][:40]
     rejected = [_rejected_view(item) for item in (gateway.get("authority_rejections") or []) if isinstance(item, dict)][:40]
@@ -140,6 +141,10 @@ def build_knowledge_inspector_trace(
             "grounding_mode": _clean(grounding.get("mode"), 80),
             "intent": _clean(planner.get("intent"), 100),
             "claim_type": _clean(planner.get("claim_type"), 100),
+            "retrieval_required": planner.get("retrieval_required") is not False,
+            "turn_relevance_reason": _clean((planner.get("turn_relevance") or {}).get("reason") if isinstance(planner.get("turn_relevance"), dict) else "", 180),
+            "history_mode": _clean(diag.get("history_mode"), 40),
+            "conversation_retrieval_required": bool((diag.get("turn_relevance") or {}).get("conversation_retrieval_required")) if isinstance(diag.get("turn_relevance"), dict) else False,
             "target_surface": _clean(planner.get("target_surface"), 100),
             "scope_class": _clean(planner.get("scope_class") or "", 100),
             "hard_sandbox": bool(planner.get("hard_sandbox")),
@@ -147,6 +152,28 @@ def build_knowledge_inspector_trace(
             "fail_closed_recommended": bool(gateway.get("fail_closed_recommended")),
             "deterministic_fail_closed": bool(grounding.get("deterministic_fail_closed")),
             "resolution_reason": _clean(grounding.get("resolution_reason"), 300),
+        },
+        "conversation_continuity": {
+            "status": _clean(conversation.get("status") or "not_needed", 80),
+            "same_chat_only": bool(conversation.get("same_chat_only", True)),
+            "selected_count": int(conversation.get("selected_count") or 0),
+            "context_chars": int(conversation.get("context_chars") or 0),
+            "fts_count": int(conversation.get("fts_count") or 0),
+            "semantic_status": _clean((conversation.get("semantic") or {}).get("status") if isinstance(conversation.get("semantic"), dict) else "", 80),
+            "semantic_reason": _clean((conversation.get("semantic") or {}).get("reason") if isinstance(conversation.get("semantic"), dict) else "", 160),
+            "selected": [
+                {
+                    "rank": item.get("rank"),
+                    "item_kind": _clean(item.get("item_kind"), 40),
+                    "message_id": _clean(item.get("message_id"), 120),
+                    "message_index": item.get("message_index"),
+                    "decision_status": _clean(item.get("decision_status"), 40),
+                    "decision_topic": _clean(item.get("decision_topic"), 120),
+                    "retrieval_lanes": list(item.get("retrieval_lanes") or [])[:4],
+                }
+                for item in (conversation.get("selected") or [])
+                if isinstance(item, dict)
+            ][:12],
         },
         "query_analysis": {
             "entities": list(planner.get("entities") or [])[:20],
@@ -200,6 +227,13 @@ def build_knowledge_inspector_trace(
                 or "evidence_item_answer_dump" in ((guard.get("repair_assessment") or {}).get("issues") or [])
             ),
         },
+        "performance": {
+            "turn_timings_ms": dict(diag.get("timings_ms") or {}) if isinstance(diag.get("timings_ms"), dict) else {},
+            "retrieval_gateway_timings_ms": dict(gateway.get("timings_ms") or {}) if isinstance(gateway.get("timings_ms"), dict) else {},
+            "checkpoint_state": dict(diag.get("conversation_checkpoints") or {}) if isinstance(diag.get("conversation_checkpoints"), dict) else {},
+            "conversation_retrieval": dict(diag.get("conversation_retrieval") or {}) if isinstance(diag.get("conversation_retrieval"), dict) else {},
+            "provider_fast_path": bool((diag.get("context_pack") or {}).get("provider_fast_path")) if isinstance(diag.get("context_pack"), dict) else False,
+        },
         "policy": "NKB-11 is an observability projection over the exact Assistant turn. It does not search, rerank, hydrate, or alter authority decisions.",
     }
 
@@ -210,7 +244,7 @@ def knowledge_inspector_status_payload() -> dict[str, Any]:
         "schema_id": KNOWLEDGE_INSPECTOR_SCHEMA_ID,
         "phase": KNOWLEDGE_INSPECTOR_PHASE,
         "status": "ready",
-        "sections": ["decision", "query_analysis", "lanes", "fusion", "evidence", "context_packet", "prompt", "output"],
+        "sections": ["decision", "conversation_continuity", "query_analysis", "lanes", "fusion", "evidence", "context_packet", "prompt", "output", "performance"],
         "read_only": True,
         "policy": "Inspector renders stored turn diagnostics. It never performs a second retrieval or modifies knowledge authority.",
     }

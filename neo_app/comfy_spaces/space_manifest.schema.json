@@ -1,0 +1,676 @@
+{
+  "$defs": {
+    "SpaceAuthor": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "title": "SpaceAuthor",
+      "type": "object"
+    },
+    "SpaceCustomNodeRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "class_type": {
+          "title": "Class Type",
+          "type": "string"
+        },
+        "package": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Package"
+        },
+        "version_spec": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Spec"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "class_type"
+      ],
+      "title": "SpaceCustomNodeRequirement",
+      "type": "object"
+    },
+    "SpaceDependencyContract": {
+      "additionalProperties": false,
+      "properties": {
+        "custom_nodes": {
+          "items": {
+            "$ref": "#/$defs/SpaceCustomNodeRequirement"
+          },
+          "title": "Custom Nodes",
+          "type": "array"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/SpaceModelRequirement"
+          },
+          "title": "Models",
+          "type": "array"
+        }
+      },
+      "title": "SpaceDependencyContract",
+      "type": "object"
+    },
+    "SpaceInputDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "input_id": {
+          "title": "Input Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "integer",
+            "number",
+            "boolean",
+            "choice",
+            "json",
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "multiplicity": {
+          "default": "single",
+          "enum": [
+            "single",
+            "multiple"
+          ],
+          "title": "Multiplicity",
+          "type": "string"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "binding": {
+          "$ref": "#/$defs/SpaceNodeInputBinding"
+        },
+        "ui": {
+          "$ref": "#/$defs/SpaceUIHint"
+        }
+      },
+      "required": [
+        "input_id",
+        "kind",
+        "binding",
+        "ui"
+      ],
+      "title": "SpaceInputDefinition",
+      "type": "object"
+    },
+    "SpaceModelRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "model_type": {
+          "title": "Model Type",
+          "type": "string"
+        },
+        "configured_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Configured Name"
+        },
+        "source_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Node Id"
+        },
+        "source_field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Field"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "model_type"
+      ],
+      "title": "SpaceModelRequirement",
+      "type": "object"
+    },
+    "SpaceNodeInputBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_type": {
+          "const": "node_input",
+          "default": "node_input",
+          "title": "Binding Type",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "field"
+      ],
+      "title": "SpaceNodeInputBinding",
+      "type": "object"
+    },
+    "SpaceNodeOutputBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_type": {
+          "const": "node_output",
+          "default": "node_output",
+          "title": "Binding Type",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        },
+        "output_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Index"
+        }
+      },
+      "required": [
+        "node_id"
+      ],
+      "title": "SpaceNodeOutputBinding",
+      "type": "object"
+    },
+    "SpaceOutputDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "title": "Output Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "integer",
+            "number",
+            "boolean",
+            "choice",
+            "json",
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "binding": {
+          "$ref": "#/$defs/SpaceNodeOutputBinding"
+        },
+        "collection": {
+          "default": "first",
+          "enum": [
+            "first",
+            "all"
+          ],
+          "title": "Collection",
+          "type": "string"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "label": {
+          "default": "Result",
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "output_id",
+        "kind",
+        "binding"
+      ],
+      "title": "SpaceOutputDefinition",
+      "type": "object"
+    },
+    "SpacePresentation": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "default": "Workflow",
+          "title": "Category",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Icon"
+        },
+        "thumbnail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thumbnail"
+        },
+        "publication_mode": {
+          "default": "comfy_spaces_only",
+          "enum": [
+            "comfy_spaces_only",
+            "allow_cross_surface_reference"
+          ],
+          "title": "Publication Mode",
+          "type": "string"
+        },
+        "additional_surface_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Additional Surface Ids",
+          "type": "array"
+        }
+      },
+      "title": "SpacePresentation",
+      "type": "object"
+    },
+    "SpaceRuntimeContract": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_version": {
+          "const": "neo.comfy_space.runtime.v1",
+          "default": "neo.comfy_space.runtime.v1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "engine": {
+          "const": "comfyui",
+          "default": "comfyui",
+          "title": "Engine",
+          "type": "string"
+        },
+        "runtime_selection": {
+          "default": "compatible_profile",
+          "enum": [
+            "compatible_profile",
+            "user_selected"
+          ],
+          "title": "Runtime Selection",
+          "type": "string"
+        },
+        "preferred_profile_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preferred Profile Id"
+        },
+        "shared_queue": {
+          "const": true,
+          "default": true,
+          "title": "Shared Queue",
+          "type": "boolean"
+        },
+        "dependency_preflight_required": {
+          "const": true,
+          "default": true,
+          "title": "Dependency Preflight Required",
+          "type": "boolean"
+        }
+      },
+      "title": "SpaceRuntimeContract",
+      "type": "object"
+    },
+    "SpaceTrustContract": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_version": {
+          "const": "neo.comfy_space.trust.v1",
+          "default": "neo.comfy_space.trust.v1",
+          "title": "Contract Version",
+          "type": "string"
+        },
+        "declarative_only": {
+          "const": true,
+          "default": true,
+          "title": "Declarative Only",
+          "type": "boolean"
+        },
+        "neo_python_execution": {
+          "const": false,
+          "default": false,
+          "title": "Neo Python Execution",
+          "type": "boolean"
+        },
+        "neo_javascript_execution": {
+          "const": false,
+          "default": false,
+          "title": "Neo Javascript Execution",
+          "type": "boolean"
+        },
+        "automatic_dependency_install": {
+          "const": false,
+          "default": false,
+          "title": "Automatic Dependency Install",
+          "type": "boolean"
+        },
+        "workflow_may_invoke_installed_comfy_custom_nodes": {
+          "const": true,
+          "default": true,
+          "title": "Workflow May Invoke Installed Comfy Custom Nodes",
+          "type": "boolean"
+        },
+        "comfy_dependency_trust_is_separate": {
+          "const": true,
+          "default": true,
+          "title": "Comfy Dependency Trust Is Separate",
+          "type": "boolean"
+        }
+      },
+      "title": "SpaceTrustContract",
+      "type": "object"
+    },
+    "SpaceUIHint": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "help_text": {
+          "default": "",
+          "title": "Help Text",
+          "type": "string"
+        },
+        "group": {
+          "default": "Main",
+          "title": "Group",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "advanced": {
+          "default": false,
+          "title": "Advanced",
+          "type": "boolean"
+        },
+        "hidden": {
+          "default": false,
+          "title": "Hidden",
+          "type": "boolean"
+        },
+        "renderer_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Renderer Hint"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "SpaceUIHint",
+      "type": "object"
+    },
+    "SpaceWorkflowContract": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "comfy_api_json",
+          "default": "comfy_api_json",
+          "title": "Format",
+          "type": "string"
+        },
+        "path": {
+          "default": "workflow.json",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "immutable_template": {
+          "const": true,
+          "default": true,
+          "title": "Immutable Template",
+          "type": "boolean"
+        },
+        "mutation_policy": {
+          "const": "clone_then_bind",
+          "default": "clone_then_bind",
+          "title": "Mutation Policy",
+          "type": "string"
+        }
+      },
+      "title": "SpaceWorkflowContract",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.manifest.v1",
+      "default": "neo.comfy_space.manifest.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space",
+      "default": "comfy_space",
+      "title": "Kind",
+      "type": "string"
+    },
+    "surface_id": {
+      "const": "comfy_spaces",
+      "default": "comfy_spaces",
+      "title": "Surface Id",
+      "type": "string"
+    },
+    "space_id": {
+      "title": "Space Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "version": {
+      "default": "0.1.0",
+      "title": "Version",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "status": {
+      "default": "draft",
+      "enum": [
+        "draft",
+        "published",
+        "disabled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "author": {
+      "$ref": "#/$defs/SpaceAuthor"
+    },
+    "presentation": {
+      "$ref": "#/$defs/SpacePresentation"
+    },
+    "workflow": {
+      "$ref": "#/$defs/SpaceWorkflowContract"
+    },
+    "runtime": {
+      "$ref": "#/$defs/SpaceRuntimeContract"
+    },
+    "trust": {
+      "$ref": "#/$defs/SpaceTrustContract"
+    },
+    "inputs": {
+      "items": {
+        "$ref": "#/$defs/SpaceInputDefinition"
+      },
+      "title": "Inputs",
+      "type": "array"
+    },
+    "outputs": {
+      "items": {
+        "$ref": "#/$defs/SpaceOutputDefinition"
+      },
+      "title": "Outputs",
+      "type": "array"
+    },
+    "dependencies": {
+      "$ref": "#/$defs/SpaceDependencyContract"
+    }
+  },
+  "required": [
+    "space_id",
+    "name"
+  ],
+  "title": "Neo Comfy Space Manifest v1",
+  "type": "object",
+  "$id": "urn:neo:comfy-space:manifest:v1"
+}

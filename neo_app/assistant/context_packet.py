@@ -161,6 +161,14 @@ def _render_evidence(item: dict[str, Any]) -> str:
     positive = "yes" if item.get("supports_positive_claims", True) else "no"
     answerability = item.get("answerability_score")
     answerability_text = f" · Answerability: {answerability}" if answerability is not None else ""
+    if str(item.get("kind") or "") == "native_scope_packet" or str(item.get("retrieval_type") or "") == "native_deterministic_operator":
+        # Native scope packets already carry structured authority/epistemic state in
+        # the packet object and Inspector.  Provider-facing text should look like
+        # answer evidence, not a debug console that invites verbatim JSON echoes.
+        return (
+            f"{cite} Verified native evidence — {source}\n"
+            f"  {_clean(item.get('content'), limit=3000)}"
+        ).strip()
     return (
         f"{cite} {item.get('title') or 'Context'} — {source}\n"
         f"  Type: {meta}\n"
@@ -282,6 +290,8 @@ def render_context_packet(packet: dict[str, Any]) -> str:
     if evidence:
         for item in evidence:
             lines.append(_render_evidence(item))
+    elif planner.get("retrieval_required") is False:
+        lines.append("- Retrieval was intentionally bypassed because the current turn is self-contained. Answer the current user message directly; do not substitute unrelated scope or guide material.")
     else:
         lines.append("- No evidence item survived retrieval, authority checks, and packet budgeting for this turn.")
     lines.extend([
@@ -292,6 +302,7 @@ def render_context_packet(packet: dict[str, Any]) -> str:
         "- Citations in brackets refer to source-backed evidence selected by the Retrieval Planner.",
         "- Evidence marked unresolved_question or Supports affirmative claims: no can establish that a question/uncertainty exists, but cannot establish a positive answer to that question.",
         "- Prefer direct definitions, entity profiles, and declarative passages for factual answers. Synthesize one coherent answer rather than one answer per evidence item.",
+        "- Native evidence is internal proof, not a response template. Never expose packet/schema/operation IDs, epistemic/debug labels, or raw JSON in the user-facing answer unless the user explicitly asks for debug/Inspector data.",
     ])
     return _clean("\n".join(lines), limit=int(((packet.get("budget") or {}) if isinstance(packet.get("budget"), dict) else {}).get("max_chars") or _PROFILE_BUDGETS["smart"]))
 
@@ -309,6 +320,12 @@ def build_context_packet(
     gateway = gateway_result if isinstance(gateway_result, dict) else {}
     profile = _profile(retrieval_profile or gateway.get("profile"))
     planner = gateway.get("planner") if isinstance(gateway.get("planner"), dict) else {}
+    runtime_limits = gateway.get("runtime_limits") if isinstance(gateway.get("runtime_limits"), dict) else {}
+    try:
+        admin_context_cap = int(runtime_limits.get("max_context_chars") or _PROFILE_BUDGETS[profile])
+    except Exception:
+        admin_context_cap = _PROFILE_BUDGETS[profile]
+    effective_context_budget = max(1000, min(_PROFILE_BUDGETS[profile], admin_context_cap))
     raw_live_context = [dict(item) for item in (live_context or []) if isinstance(item, dict) and _clean(item.get("content"))]
     identity_compact = _compact_identity(identity or gateway.get("identity"))
     suppress_project_catalog_live_context = bool(
@@ -328,6 +345,8 @@ def build_context_packet(
         "planner": {
             "intent": str(planner.get("intent") or "general_recall"),
             "claim_type": str(planner.get("claim_type") or "general_fact"),
+            "retrieval_required": planner.get("retrieval_required") is not False,
+            "turn_relevance": dict(planner.get("turn_relevance") or {}) if isinstance(planner.get("turn_relevance"), dict) else {},
             "target_surface": str(planner.get("target_surface") or ""),
             "scope_class": str(planner.get("scope_class") or ""),
             "hard_sandbox": bool(planner.get("hard_sandbox")),
@@ -343,7 +362,11 @@ def build_context_packet(
         "direct_inputs": [],
         "candidate_evidence": _evidence_candidates(gateway, profile=profile),
         "evidence": [],
-        "budget": {"max_chars": _PROFILE_BUDGETS[profile]},
+        "budget": {
+            "max_chars": effective_context_budget,
+            "profile_max_chars": _PROFILE_BUDGETS[profile],
+            "admin_max_context_chars": admin_context_cap,
+        },
         "diagnostics": {
             "gateway_trace_id": str(gateway.get("gateway_trace_id") or ""),
             "planner_trace_id": str(gateway.get("planner_trace_id") or ""),
@@ -375,6 +398,14 @@ def finalize_context_packet(packet: dict[str, Any] | None, attachment_context: d
             "kind": "current_turn_document",
             "title": "Uploaded document context",
             "content": document_text,
+            "authority": {"evidence_role": "current_turn_user_input", "source_integrity": "present", "lifecycle": "active", "conflict": "none"},
+        })
+    image_metadata_text = _clean(attachment.get("image_metadata_context"), limit=7600)
+    if image_metadata_text:
+        direct.append({
+            "kind": "current_turn_image_metadata",
+            "title": "Uploaded image provenance and metadata",
+            "content": image_metadata_text,
             "authority": {"evidence_role": "current_turn_user_input", "source_integrity": "present", "lifecycle": "active", "conflict": "none"},
         })
     base["direct_inputs"] = direct

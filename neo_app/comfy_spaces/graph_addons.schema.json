@@ -1,0 +1,310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.graph_addon.v1",
+  "$defs": {
+    "SpaceGraphAddonControl": {
+      "additionalProperties": false,
+      "properties": {
+        "control_id": {
+          "title": "Control Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "number",
+            "integer",
+            "text",
+            "toggle",
+            "select",
+            "asset"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        },
+        "options": {
+          "items": {},
+          "title": "Options",
+          "type": "array"
+        },
+        "runtime_catalog": {
+          "default": false,
+          "title": "Runtime Catalog",
+          "type": "boolean"
+        },
+        "asset_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "image",
+                "mask",
+                "video",
+                "audio",
+                "file"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Asset Kind"
+        },
+        "multiline": {
+          "default": false,
+          "title": "Multiline",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "control_id",
+        "label",
+        "kind"
+      ],
+      "title": "SpaceGraphAddonControl",
+      "type": "object"
+    },
+    "SpaceGraphAddonModuleDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.graph_addon.v1",
+          "default": "neo.comfy_space.graph_addon.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "lane": {
+          "const": "module",
+          "default": "module",
+          "title": "Lane",
+          "type": "string"
+        },
+        "declarative_only": {
+          "const": true,
+          "default": true,
+          "title": "Declarative Only",
+          "type": "boolean"
+        },
+        "generated_python": {
+          "const": false,
+          "default": false,
+          "title": "Generated Python",
+          "type": "boolean"
+        },
+        "generated_javascript": {
+          "const": false,
+          "default": false,
+          "title": "Generated Javascript",
+          "type": "boolean"
+        },
+        "required_anchor_roles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Anchor Roles",
+          "type": "array"
+        },
+        "exclusive_anchor_roles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Exclusive Anchor Roles",
+          "type": "array"
+        },
+        "runtime_node_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Runtime Node Classes",
+          "type": "array"
+        },
+        "controls": {
+          "items": {
+            "$ref": "#/$defs/SpaceGraphAddonControl"
+          },
+          "title": "Controls",
+          "type": "array"
+        },
+        "compatible": {
+          "default": false,
+          "title": "Compatible",
+          "type": "boolean"
+        },
+        "compatibility_message": {
+          "default": "",
+          "title": "Compatibility Message",
+          "type": "string"
+        },
+        "resolved_runtime": {
+          "additionalProperties": true,
+          "title": "Resolved Runtime",
+          "type": "object"
+        }
+      },
+      "required": [
+        "module_id",
+        "version",
+        "label",
+        "description"
+      ],
+      "title": "SpaceGraphAddonModuleDefinition",
+      "type": "object"
+    },
+    "SpaceGraphAddonRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.graph_addon.v1",
+          "default": "neo.comfy_space.graph_addon.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "instance_id": {
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "lane": {
+          "enum": [
+            "module",
+            "raw_node"
+          ],
+          "title": "Lane",
+          "type": "string"
+        },
+        "module_id": {
+          "default": "",
+          "title": "Module Id",
+          "type": "string"
+        },
+        "module_version": {
+          "default": "",
+          "title": "Module Version",
+          "type": "string"
+        },
+        "anchor_ids": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Anchor Ids",
+          "type": "object"
+        },
+        "raw_node_class": {
+          "default": "",
+          "title": "Raw Node Class",
+          "type": "string"
+        },
+        "raw_anchor_id": {
+          "default": "",
+          "title": "Raw Anchor Id",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": true,
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "instance_id",
+        "lane"
+      ],
+      "title": "SpaceGraphAddonRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.graph_addon.v1",
+      "default": "neo.comfy_space.graph_addon.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "request": {
+      "$ref": "#/$defs/SpaceGraphAddonRequest"
+    },
+    "module": {
+      "$ref": "#/$defs/SpaceGraphAddonModuleDefinition"
+    }
+  },
+  "required": [
+    "request",
+    "module"
+  ],
+  "title": "SpaceGraphAddonSchemaBundle",
+  "type": "object"
+}

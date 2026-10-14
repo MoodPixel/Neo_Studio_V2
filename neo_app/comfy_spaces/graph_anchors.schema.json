@@ -1,0 +1,273 @@
+{
+  "$defs": {
+    "SpaceGraphAnchorDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_id": {
+          "title": "Anchor Id",
+          "type": "string"
+        },
+        "semantic_role": {
+          "enum": [
+            "MODEL",
+            "POSITIVE_CONDITIONING",
+            "NEGATIVE_CONDITIONING",
+            "CONDITIONING",
+            "LATENT",
+            "IMAGE",
+            "MASK",
+            "VAE",
+            "TEXT_ENCODER",
+            "VIDEO",
+            "AUDIO"
+          ],
+          "title": "Semantic Role",
+          "type": "string"
+        },
+        "attachment_mode": {
+          "enum": [
+            "insert_between",
+            "replace_input_source",
+            "consume_upstream_output",
+            "terminal_output"
+          ],
+          "title": "Attachment Mode",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SpaceGraphAnchorEndpoint"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpaceGraphAnchorEndpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evidence": {
+          "$ref": "#/$defs/SpaceGraphAnchorEvidence"
+        },
+        "confidence": {
+          "default": "high",
+          "enum": [
+            "high",
+            "medium"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "confirmed": {
+          "default": true,
+          "title": "Confirmed",
+          "type": "boolean"
+        },
+        "author_confirmation_required": {
+          "default": true,
+          "title": "Author Confirmation Required",
+          "type": "boolean"
+        },
+        "ambiguous_role": {
+          "default": false,
+          "title": "Ambiguous Role",
+          "type": "boolean"
+        },
+        "role_candidate_count": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Role Candidate Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "anchor_id",
+        "semantic_role",
+        "attachment_mode",
+        "source",
+        "evidence"
+      ],
+      "title": "SpaceGraphAnchorDefinition",
+      "type": "object"
+    },
+    "SpaceGraphAnchorEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_node_id": {
+          "title": "Canonical Node Id",
+          "type": "string"
+        },
+        "source_node_id": {
+          "title": "Source Node Id",
+          "type": "string"
+        },
+        "subgraph_path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Subgraph Path",
+          "type": "array"
+        },
+        "subgraph_depth": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Subgraph Depth",
+          "type": "integer"
+        },
+        "subgraph_definition_id": {
+          "default": "",
+          "title": "Subgraph Definition Id",
+          "type": "string"
+        },
+        "subgraph_definition_name": {
+          "default": "",
+          "title": "Subgraph Definition Name",
+          "type": "string"
+        },
+        "node_title": {
+          "default": "",
+          "title": "Node Title",
+          "type": "string"
+        },
+        "class_type": {
+          "title": "Class Type",
+          "type": "string"
+        },
+        "output_index": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Index"
+        },
+        "input_field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Field"
+        }
+      },
+      "required": [
+        "canonical_node_id",
+        "source_node_id",
+        "class_type"
+      ],
+      "title": "SpaceGraphAnchorEndpoint",
+      "type": "object"
+    },
+    "SpaceGraphAnchorEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "runtime_schema_used": {
+          "default": true,
+          "title": "Runtime Schema Used",
+          "type": "boolean"
+        },
+        "detection_method": {
+          "default": "runtime_socket_topology",
+          "title": "Detection Method",
+          "type": "string"
+        },
+        "source_socket_type": {
+          "default": "",
+          "title": "Source Socket Type",
+          "type": "string"
+        },
+        "target_socket_type": {
+          "default": "",
+          "title": "Target Socket Type",
+          "type": "string"
+        },
+        "socket_type": {
+          "title": "Socket Type",
+          "type": "string"
+        },
+        "socket_types_compatible": {
+          "default": true,
+          "title": "Socket Types Compatible",
+          "type": "boolean"
+        },
+        "runtime_profile_id": {
+          "default": "",
+          "title": "Runtime Profile Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "socket_type"
+      ],
+      "title": "SpaceGraphAnchorEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.graph_anchor.v1",
+      "default": "neo.comfy_space.graph_anchor.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space_graph_anchors",
+      "default": "comfy_space_graph_anchors",
+      "title": "Kind",
+      "type": "string"
+    },
+    "space_id": {
+      "title": "Space Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "declarative_only": {
+      "const": true,
+      "default": true,
+      "title": "Declarative Only",
+      "type": "boolean"
+    },
+    "topology_mutation_authority": {
+      "const": false,
+      "default": false,
+      "title": "Topology Mutation Authority",
+      "type": "boolean"
+    },
+    "execution_authority": {
+      "const": false,
+      "default": false,
+      "title": "Execution Authority",
+      "type": "boolean"
+    },
+    "anchors": {
+      "items": {
+        "$ref": "#/$defs/SpaceGraphAnchorDefinition"
+      },
+      "title": "Anchors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "space_id",
+    "version"
+  ],
+  "title": "Neo Comfy Space Graph Anchors v1",
+  "type": "object",
+  "$id": "neo.comfy_space.graph_anchor.v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

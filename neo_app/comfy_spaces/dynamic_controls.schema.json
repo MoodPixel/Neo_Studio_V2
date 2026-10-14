@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.dynamic_controls.v1",
+  "title": "Neo Comfy Space Dynamic Controls",
+  "$defs": {
+    "ComfySpaceDynamicControls": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.dynamic_controls.v1",
+          "default": "neo.comfy_space.dynamic_controls.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "comfy_space_dynamic_controls",
+          "default": "comfy_space_dynamic_controls",
+          "title": "Kind",
+          "type": "string"
+        },
+        "space_id": {
+          "title": "Space Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "declarative_only": {
+          "const": true,
+          "default": true,
+          "title": "Declarative Only",
+          "type": "boolean"
+        },
+        "execution_authority": {
+          "const": false,
+          "default": false,
+          "title": "Execution Authority",
+          "type": "boolean"
+        },
+        "binding_authority": {
+          "const": false,
+          "default": false,
+          "title": "Binding Authority",
+          "type": "boolean"
+        },
+        "generated_neo_javascript": {
+          "const": false,
+          "default": false,
+          "title": "Generated Neo Javascript",
+          "type": "boolean"
+        },
+        "behaviors": {
+          "items": {
+            "$ref": "#/$defs/SpaceDynamicBehavior"
+          },
+          "title": "Behaviors",
+          "type": "array"
+        },
+        "collections": {
+          "items": {
+            "$ref": "#/$defs/SpaceDynamicCollection"
+          },
+          "title": "Collections",
+          "type": "array"
+        }
+      },
+      "required": [
+        "space_id",
+        "version"
+      ],
+      "title": "ComfySpaceDynamicControls",
+      "type": "object"
+    },
+    "SpaceDynamicBehavior": {
+      "additionalProperties": false,
+      "properties": {
+        "behavior_id": {
+          "title": "Behavior Id",
+          "type": "string"
+        },
+        "target_type": {
+          "enum": [
+            "input",
+            "section"
+          ],
+          "title": "Target Type",
+          "type": "string"
+        },
+        "target_id": {
+          "title": "Target Id",
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "visible",
+            "enabled"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "condition": {
+          "$ref": "#/$defs/SpaceDynamicCondition"
+        }
+      },
+      "required": [
+        "behavior_id",
+        "target_type",
+        "target_id",
+        "effect",
+        "condition"
+      ],
+      "title": "SpaceDynamicBehavior",
+      "type": "object"
+    },
+    "SpaceDynamicCollection": {
+      "additionalProperties": false,
+      "properties": {
+        "collection_id": {
+          "title": "Collection Id",
+          "type": "string"
+        },
+        "input_id": {
+          "title": "Input Id",
+          "type": "string"
+        },
+        "mode": {
+          "default": "repeater",
+          "enum": [
+            "repeater",
+            "reference_list"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "label": {
+          "default": "Items",
+          "title": "Label",
+          "type": "string"
+        },
+        "item_label": {
+          "default": "Item",
+          "title": "Item Label",
+          "type": "string"
+        },
+        "min_items": {
+          "default": 0,
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Min Items",
+          "type": "integer"
+        },
+        "max_items": {
+          "default": 8,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Max Items",
+          "type": "integer"
+        },
+        "allow_reorder": {
+          "default": true,
+          "title": "Allow Reorder",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "collection_id",
+        "input_id"
+      ],
+      "title": "SpaceDynamicCollection",
+      "type": "object"
+    },
+    "SpaceDynamicCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "default": "all",
+          "enum": [
+            "all",
+            "any"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "predicates": {
+          "items": {
+            "$ref": "#/$defs/SpaceDynamicPredicate"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Predicates",
+          "type": "array"
+        },
+        "negate": {
+          "default": false,
+          "title": "Negate",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "predicates"
+      ],
+      "title": "SpaceDynamicCondition",
+      "type": "object"
+    },
+    "SpaceDynamicPredicate": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "enum": [
+            "input",
+            "stage_enabled",
+            "addon_present",
+            "variant_active"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "ref": {
+          "default": "",
+          "title": "Ref",
+          "type": "string"
+        },
+        "operator": {
+          "default": "truthy",
+          "enum": [
+            "equals",
+            "not_equals",
+            "in",
+            "not_in",
+            "truthy",
+            "falsy",
+            "exists",
+            "gt",
+            "gte",
+            "lt",
+            "lte"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "SpaceDynamicPredicate",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.dynamic_controls.v1",
+      "default": "neo.comfy_space.dynamic_controls.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "dynamic_controls": {
+      "$ref": "#/$defs/ComfySpaceDynamicControls"
+    }
+  },
+  "required": [
+    "dynamic_controls"
+  ],
+  "type": "object"
+}

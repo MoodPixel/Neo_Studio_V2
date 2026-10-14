@@ -1,0 +1,971 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.builder_draft.v1",
+  "title": "Neo Comfy Space Builder Draft",
+  "$defs": {
+    "ComfySpaceBuilderDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.builder_draft.v1",
+          "default": "neo.comfy_space.builder_draft.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kind": {
+          "const": "comfy_space_builder_draft",
+          "default": "comfy_space_builder_draft",
+          "title": "Kind",
+          "type": "string"
+        },
+        "draft_id": {
+          "title": "Draft Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "string"
+        },
+        "revision": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        },
+        "human_review_required": {
+          "const": true,
+          "default": true,
+          "title": "Human Review Required",
+          "type": "boolean"
+        },
+        "identity": {
+          "$ref": "#/$defs/SpaceBuilderIdentity"
+        },
+        "provenance": {
+          "$ref": "#/$defs/SpaceBuilderProvenance"
+        },
+        "submit_label": {
+          "default": "Create",
+          "title": "Submit Label",
+          "type": "string"
+        },
+        "results_title": {
+          "default": "Results",
+          "title": "Results Title",
+          "type": "string"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/SpaceBuilderSectionDraft"
+          },
+          "title": "Sections",
+          "type": "array"
+        },
+        "anchors": {
+          "items": {
+            "$ref": "#/$defs/SpaceBuilderAnchorDraft"
+          },
+          "title": "Anchors",
+          "type": "array"
+        },
+        "stages": {
+          "items": {
+            "$ref": "#/$defs/SpaceBuilderStageDraft"
+          },
+          "title": "Stages",
+          "type": "array"
+        },
+        "dynamic_behaviors": {
+          "items": {
+            "$ref": "#/$defs/SpaceDynamicBehavior"
+          },
+          "title": "Dynamic Behaviors",
+          "type": "array"
+        },
+        "dynamic_collections": {
+          "items": {
+            "$ref": "#/$defs/SpaceDynamicCollection"
+          },
+          "title": "Dynamic Collections",
+          "type": "array"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/SpaceBuilderInputDraft"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/SpaceBuilderOutputDraft"
+          },
+          "title": "Outputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "draft_id",
+        "created_at",
+        "updated_at",
+        "identity",
+        "provenance"
+      ],
+      "title": "ComfySpaceBuilderDraft",
+      "type": "object"
+    },
+    "SpaceAuthor": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "title": "SpaceAuthor",
+      "type": "object"
+    },
+    "SpaceBuilderAnchorDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_id": {
+          "title": "Anchor Id",
+          "type": "string"
+        },
+        "semantic_role": {
+          "enum": [
+            "MODEL",
+            "POSITIVE_CONDITIONING",
+            "NEGATIVE_CONDITIONING",
+            "CONDITIONING",
+            "LATENT",
+            "IMAGE",
+            "MASK",
+            "VAE",
+            "TEXT_ENCODER",
+            "VIDEO",
+            "AUDIO"
+          ],
+          "title": "Semantic Role",
+          "type": "string"
+        },
+        "confirmed": {
+          "default": false,
+          "title": "Confirmed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "anchor_id",
+        "semantic_role"
+      ],
+      "title": "SpaceBuilderAnchorDraft",
+      "type": "object"
+    },
+    "SpaceBuilderIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "space_id": {
+          "title": "Space Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "default": "0.1.0",
+          "title": "Version",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "author": {
+          "$ref": "#/$defs/SpaceAuthor"
+        },
+        "presentation": {
+          "$ref": "#/$defs/SpacePresentation"
+        }
+      },
+      "required": [
+        "space_id",
+        "name"
+      ],
+      "title": "SpaceBuilderIdentity",
+      "type": "object"
+    },
+    "SpaceBuilderInputDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "input_id": {
+          "title": "Input Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "help_text": {
+          "default": "",
+          "title": "Help Text",
+          "type": "string"
+        },
+        "section_id": {
+          "default": "main",
+          "title": "Section Id",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "advanced": {
+          "default": false,
+          "title": "Advanced",
+          "type": "boolean"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "multiplicity": {
+          "default": "single",
+          "enum": [
+            "single",
+            "multiple"
+          ],
+          "title": "Multiplicity",
+          "type": "string"
+        },
+        "default_mode": {
+          "default": "template",
+          "enum": [
+            "template",
+            "none",
+            "custom"
+          ],
+          "title": "Default Mode",
+          "type": "string"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "control_override": {
+          "anyOf": [
+            {
+              "enum": [
+                "text_input",
+                "text_area",
+                "integer_input",
+                "number_input",
+                "slider",
+                "seed_input",
+                "toggle",
+                "select",
+                "search_select",
+                "model_select",
+                "json_editor",
+                "image_upload",
+                "mask_upload",
+                "video_upload",
+                "audio_upload",
+                "file_upload"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Control Override"
+        },
+        "constraints_override": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpaceTypeConstraint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "options_override": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpaceOptionContract"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "candidate_id",
+        "input_id",
+        "label"
+      ],
+      "title": "SpaceBuilderInputDraft",
+      "type": "object"
+    },
+    "SpaceBuilderOutputDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "output_id": {
+          "title": "Output Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "collection": {
+          "default": "first",
+          "enum": [
+            "first",
+            "all"
+          ],
+          "title": "Collection",
+          "type": "string"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "renderer_override": {
+          "anyOf": [
+            {
+              "enum": [
+                "text_viewer",
+                "numeric_value",
+                "boolean_value",
+                "choice_value",
+                "json_viewer",
+                "image_preview",
+                "mask_preview",
+                "video_player",
+                "audio_player",
+                "file_download"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Renderer Override"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "output_id",
+        "label"
+      ],
+      "title": "SpaceBuilderOutputDraft",
+      "type": "object"
+    },
+    "SpaceBuilderProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "import_id": {
+          "title": "Import Id",
+          "type": "string"
+        },
+        "source_name": {
+          "default": "workflow.json",
+          "title": "Source Name",
+          "type": "string"
+        },
+        "source_sha256": {
+          "default": "",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "import_canonical_workflow_sha256": {
+          "title": "Import Canonical Workflow Sha256",
+          "type": "string"
+        },
+        "frozen_workflow_sha256": {
+          "title": "Frozen Workflow Sha256",
+          "type": "string"
+        },
+        "analysis_sha256": {
+          "title": "Analysis Sha256",
+          "type": "string"
+        },
+        "analysis_schema_version": {
+          "const": "neo.comfy_space.analysis.v1",
+          "default": "neo.comfy_space.analysis.v1",
+          "title": "Analysis Schema Version",
+          "type": "string"
+        },
+        "runtime_profile_id": {
+          "default": "",
+          "title": "Runtime Profile Id",
+          "type": "string"
+        },
+        "object_info_used": {
+          "default": false,
+          "title": "Object Info Used",
+          "type": "boolean"
+        },
+        "frozen_import": {
+          "const": true,
+          "default": true,
+          "title": "Frozen Import",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "import_id",
+        "import_canonical_workflow_sha256",
+        "frozen_workflow_sha256",
+        "analysis_sha256"
+      ],
+      "title": "SpaceBuilderProvenance",
+      "type": "object"
+    },
+    "SpaceBuilderSectionDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "section_id": {
+          "title": "Section Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "advanced": {
+          "default": false,
+          "title": "Advanced",
+          "type": "boolean"
+        },
+        "collapsible": {
+          "default": false,
+          "title": "Collapsible",
+          "type": "boolean"
+        },
+        "default_collapsed": {
+          "default": false,
+          "title": "Default Collapsed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "section_id",
+        "title"
+      ],
+      "title": "SpaceBuilderSectionDraft",
+      "type": "object"
+    },
+    "SpaceBuilderStageDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "stage_id": {
+          "title": "Stage Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "required_stage_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Stage Ids",
+          "type": "array"
+        },
+        "target_output_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Output Ids",
+          "type": "array"
+        },
+        "intermediate_output_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Intermediate Output Ids",
+          "type": "array"
+        },
+        "enabled_by_default": {
+          "default": true,
+          "title": "Enabled By Default",
+          "type": "boolean"
+        },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "can_run_alone": {
+          "default": false,
+          "title": "Can Run Alone",
+          "type": "boolean"
+        },
+        "resource_policy": {
+          "default": "automatic",
+          "enum": [
+            "automatic",
+            "keep_loaded",
+            "free_memory",
+            "unload_models"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage_id",
+        "label"
+      ],
+      "title": "SpaceBuilderStageDraft",
+      "type": "object"
+    },
+    "SpaceDynamicBehavior": {
+      "additionalProperties": false,
+      "properties": {
+        "behavior_id": {
+          "title": "Behavior Id",
+          "type": "string"
+        },
+        "target_type": {
+          "enum": [
+            "input",
+            "section"
+          ],
+          "title": "Target Type",
+          "type": "string"
+        },
+        "target_id": {
+          "title": "Target Id",
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "visible",
+            "enabled"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "condition": {
+          "$ref": "#/$defs/SpaceDynamicCondition"
+        }
+      },
+      "required": [
+        "behavior_id",
+        "target_type",
+        "target_id",
+        "effect",
+        "condition"
+      ],
+      "title": "SpaceDynamicBehavior",
+      "type": "object"
+    },
+    "SpaceDynamicCollection": {
+      "additionalProperties": false,
+      "properties": {
+        "collection_id": {
+          "title": "Collection Id",
+          "type": "string"
+        },
+        "input_id": {
+          "title": "Input Id",
+          "type": "string"
+        },
+        "mode": {
+          "default": "repeater",
+          "enum": [
+            "repeater",
+            "reference_list"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "label": {
+          "default": "Items",
+          "title": "Label",
+          "type": "string"
+        },
+        "item_label": {
+          "default": "Item",
+          "title": "Item Label",
+          "type": "string"
+        },
+        "min_items": {
+          "default": 0,
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Min Items",
+          "type": "integer"
+        },
+        "max_items": {
+          "default": 8,
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Max Items",
+          "type": "integer"
+        },
+        "allow_reorder": {
+          "default": true,
+          "title": "Allow Reorder",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "collection_id",
+        "input_id"
+      ],
+      "title": "SpaceDynamicCollection",
+      "type": "object"
+    },
+    "SpaceDynamicCondition": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "default": "all",
+          "enum": [
+            "all",
+            "any"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "predicates": {
+          "items": {
+            "$ref": "#/$defs/SpaceDynamicPredicate"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Predicates",
+          "type": "array"
+        },
+        "negate": {
+          "default": false,
+          "title": "Negate",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "predicates"
+      ],
+      "title": "SpaceDynamicCondition",
+      "type": "object"
+    },
+    "SpaceDynamicPredicate": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "enum": [
+            "input",
+            "stage_enabled",
+            "addon_present",
+            "variant_active"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "ref": {
+          "default": "",
+          "title": "Ref",
+          "type": "string"
+        },
+        "operator": {
+          "default": "truthy",
+          "enum": [
+            "equals",
+            "not_equals",
+            "in",
+            "not_in",
+            "truthy",
+            "falsy",
+            "exists",
+            "gt",
+            "gte",
+            "lt",
+            "lte"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "SpaceDynamicPredicate",
+      "type": "object"
+    },
+    "SpaceOptionContract": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "default": "none",
+          "enum": [
+            "none",
+            "inline_catalog",
+            "runtime_catalog"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "preview": {
+          "items": {},
+          "title": "Preview",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "searchable": {
+          "default": false,
+          "title": "Searchable",
+          "type": "boolean"
+        }
+      },
+      "title": "SpaceOptionContract",
+      "type": "object"
+    },
+    "SpacePresentation": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "default": "Workflow",
+          "title": "Category",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "icon": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Icon"
+        },
+        "thumbnail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Thumbnail"
+        },
+        "publication_mode": {
+          "default": "comfy_spaces_only",
+          "enum": [
+            "comfy_spaces_only",
+            "allow_cross_surface_reference"
+          ],
+          "title": "Publication Mode",
+          "type": "string"
+        },
+        "additional_surface_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Additional Surface Ids",
+          "type": "array"
+        }
+      },
+      "title": "SpacePresentation",
+      "type": "object"
+    },
+    "SpaceTypeConstraint": {
+      "additionalProperties": false,
+      "properties": {
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        },
+        "default": {
+          "default": null,
+          "title": "Default"
+        },
+        "multiline": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Multiline"
+        },
+        "tooltip": {
+          "default": "",
+          "title": "Tooltip",
+          "type": "string"
+        }
+      },
+      "title": "SpaceTypeConstraint",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Schema-only bundle used to publish one coherent JSON Schema document.",
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.builder_draft.v1",
+      "default": "neo.comfy_space.builder_draft.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "draft": {
+      "$ref": "#/$defs/ComfySpaceBuilderDraft"
+    }
+  },
+  "required": [
+    "draft"
+  ],
+  "type": "object"
+}

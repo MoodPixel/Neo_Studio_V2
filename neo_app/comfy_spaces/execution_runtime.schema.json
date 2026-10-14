@@ -1,0 +1,696 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.execution_runtime.v1",
+  "title": "Neo Comfy Space Execution Runtime v1",
+  "$defs": {
+    "SpaceExecutionIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "package",
+            "runtime",
+            "dependencies",
+            "assets",
+            "binding",
+            "graph_addons",
+            "stages",
+            "variants",
+            "resource_lease",
+            "queue",
+            "running",
+            "outputs",
+            "complete",
+            "cancel"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Node Id"
+        },
+        "input_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Id"
+        },
+        "output_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Id"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "stage"
+      ],
+      "title": "SpaceExecutionIssue",
+      "type": "object"
+    },
+    "SpaceExecutionOutputRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "title": "Output Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "integer",
+            "number",
+            "boolean",
+            "choice",
+            "json",
+            "image",
+            "mask",
+            "video",
+            "audio",
+            "file"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "collection": {
+          "default": "first",
+          "enum": [
+            "first",
+            "all"
+          ],
+          "title": "Collection",
+          "type": "string"
+        },
+        "source_node_id": {
+          "title": "Source Node Id",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        },
+        "collected_asset_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Collected Asset Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "output_id",
+        "kind",
+        "label",
+        "source_node_id"
+      ],
+      "title": "SpaceExecutionOutputRecord",
+      "type": "object"
+    },
+    "SpaceExecutionPreflightReport": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.execution_runtime.v1",
+          "default": "neo.comfy_space.execution_runtime.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "ready_for_queue": {
+          "title": "Ready For Queue",
+          "type": "boolean"
+        },
+        "space_id": {
+          "title": "Space Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "runtime_profile_id": {
+          "title": "Runtime Profile Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "default": "",
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "package_valid": {
+          "default": false,
+          "title": "Package Valid",
+          "type": "boolean"
+        },
+        "runtime_reachable": {
+          "default": false,
+          "title": "Runtime Reachable",
+          "type": "boolean"
+        },
+        "object_info_available": {
+          "default": false,
+          "title": "Object Info Available",
+          "type": "boolean"
+        },
+        "dependency_preflight_ready": {
+          "default": false,
+          "title": "Dependency Preflight Ready",
+          "type": "boolean"
+        },
+        "asset_resolution_ready": {
+          "default": false,
+          "title": "Asset Resolution Ready",
+          "type": "boolean"
+        },
+        "binding_ready": {
+          "default": false,
+          "title": "Binding Ready",
+          "type": "boolean"
+        },
+        "graph_addons_ready": {
+          "default": true,
+          "title": "Graph Addons Ready",
+          "type": "boolean"
+        },
+        "graph_addon_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Graph Addon Count",
+          "type": "integer"
+        },
+        "graph_addons": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Graph Addons",
+          "type": "array"
+        },
+        "graph_addon_added_node_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Graph Addon Added Node Count",
+          "type": "integer"
+        },
+        "variant_id": {
+          "default": "",
+          "title": "Variant Id",
+          "type": "string"
+        },
+        "variant_modified": {
+          "default": false,
+          "title": "Variant Modified",
+          "type": "boolean"
+        },
+        "stage_plan": {
+          "additionalProperties": true,
+          "title": "Stage Plan",
+          "type": "object"
+        },
+        "model_reconciliation_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Model Reconciliation Count",
+          "type": "integer"
+        },
+        "runtime_model_reconciliations": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Runtime Model Reconciliations",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/SpaceExecutionIssue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/SpaceExecutionIssue"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "execution_performed": {
+          "const": false,
+          "default": false,
+          "title": "Execution Performed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok",
+        "ready_for_queue",
+        "space_id",
+        "version",
+        "runtime_profile_id"
+      ],
+      "title": "SpaceExecutionPreflightReport",
+      "type": "object"
+    },
+    "SpaceExecutionRunResult": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.execution_runtime.v1",
+          "default": "neo.comfy_space.execution_runtime.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancel_requested",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "space_id": {
+          "title": "Space Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "runtime_profile_id": {
+          "title": "Runtime Profile Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "prompt_id": {
+          "default": "",
+          "title": "Prompt Id",
+          "type": "string"
+        },
+        "client_id": {
+          "default": "",
+          "title": "Client Id",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/SpaceExecutionOutputRecord"
+          },
+          "title": "Outputs",
+          "type": "array"
+        },
+        "results": {
+          "additionalProperties": true,
+          "title": "Results",
+          "type": "object"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/SpaceExecutionIssue"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/SpaceExecutionIssue"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "graph_addons": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Graph Addons",
+          "type": "array"
+        },
+        "graph_addon_added_nodes": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Graph Addon Added Nodes",
+          "type": "array"
+        },
+        "variant_id": {
+          "default": "",
+          "title": "Variant Id",
+          "type": "string"
+        },
+        "variant_modified": {
+          "default": false,
+          "title": "Variant Modified",
+          "type": "boolean"
+        },
+        "stage_plan": {
+          "additionalProperties": true,
+          "title": "Stage Plan",
+          "type": "object"
+        },
+        "continue_from_run_id": {
+          "default": "",
+          "title": "Continue From Run Id",
+          "type": "string"
+        },
+        "backend_completed": {
+          "default": false,
+          "title": "Backend Completed",
+          "type": "boolean"
+        },
+        "output_collection_complete": {
+          "default": false,
+          "title": "Output Collection Complete",
+          "type": "boolean"
+        },
+        "progress": {
+          "$ref": "#/$defs/SpaceRunProgressSnapshot"
+        },
+        "recent_progress_events": {
+          "items": {
+            "$ref": "#/$defs/SpaceRunProgressEvent"
+          },
+          "title": "Recent Progress Events",
+          "type": "array"
+        },
+        "public_runner_mounted": {
+          "const": false,
+          "default": false,
+          "title": "Public Runner Mounted",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok",
+        "run_id",
+        "status",
+        "space_id",
+        "version",
+        "runtime_profile_id",
+        "provider_id"
+      ],
+      "title": "SpaceExecutionRunResult",
+      "type": "object"
+    },
+    "SpaceRunProgressEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "event_type": {
+          "title": "Event Type",
+          "type": "string"
+        },
+        "at": {
+          "title": "At",
+          "type": "string"
+        },
+        "phase": {
+          "title": "Phase",
+          "type": "string"
+        },
+        "percent": {
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Percent",
+          "type": "number"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "current_node_id": {
+          "default": "",
+          "title": "Current Node Id",
+          "type": "string"
+        },
+        "source": {
+          "default": "neo_runtime",
+          "title": "Source",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object"
+        }
+      },
+      "required": [
+        "sequence",
+        "event_type",
+        "at",
+        "phase",
+        "percent"
+      ],
+      "title": "SpaceRunProgressEvent",
+      "type": "object"
+    },
+    "SpaceRunProgressSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.run_progress.v1",
+          "default": "neo.comfy_space.run_progress.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sequence": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "phase": {
+          "default": "preparing",
+          "enum": [
+            "preparing",
+            "queued",
+            "running",
+            "finalizing",
+            "cancel_requested",
+            "completed",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "percent": {
+          "default": 0.0,
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Percent",
+          "type": "number"
+        },
+        "percent_mode": {
+          "default": "phase",
+          "enum": [
+            "phase",
+            "graph_estimate",
+            "node_step",
+            "terminal"
+          ],
+          "title": "Percent Mode",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "title": "Message",
+          "type": "string"
+        },
+        "event_type": {
+          "default": "",
+          "title": "Event Type",
+          "type": "string"
+        },
+        "source": {
+          "default": "neo_runtime",
+          "title": "Source",
+          "type": "string"
+        },
+        "updated_at": {
+          "default": "",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "current_node_id": {
+          "default": "",
+          "title": "Current Node Id",
+          "type": "string"
+        },
+        "current_display_node_id": {
+          "default": "",
+          "title": "Current Display Node Id",
+          "type": "string"
+        },
+        "current_node_class": {
+          "default": "",
+          "title": "Current Node Class",
+          "type": "string"
+        },
+        "current_node_title": {
+          "default": "",
+          "title": "Current Node Title",
+          "type": "string"
+        },
+        "current_node_index": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Current Node Index",
+          "type": "integer"
+        },
+        "node_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Node Count",
+          "type": "integer"
+        },
+        "node_step": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Node Step",
+          "type": "integer"
+        },
+        "node_step_max": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Node Step Max",
+          "type": "integer"
+        },
+        "completed_node_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Completed Node Ids",
+          "type": "array"
+        },
+        "cached_node_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Cached Node Ids",
+          "type": "array"
+        },
+        "queue_remaining": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Queue Remaining"
+        },
+        "websocket_connected": {
+          "default": false,
+          "title": "Websocket Connected",
+          "type": "boolean"
+        },
+        "monitor_state": {
+          "default": "idle",
+          "title": "Monitor State",
+          "type": "string"
+        },
+        "recoverable": {
+          "default": true,
+          "title": "Recoverable",
+          "type": "boolean"
+        }
+      },
+      "title": "SpaceRunProgressSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.execution_runtime.v1",
+      "default": "neo.comfy_space.execution_runtime.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "preflight": {
+      "$ref": "#/$defs/SpaceExecutionPreflightReport"
+    },
+    "run_result": {
+      "$ref": "#/$defs/SpaceExecutionRunResult"
+    }
+  },
+  "required": [
+    "preflight",
+    "run_result"
+  ],
+  "type": "object"
+}

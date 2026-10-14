@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import mimetypes
@@ -13,8 +14,9 @@ from uuid import uuid4
 from fastapi import UploadFile
 
 from neo_app.assistant.contracts import compact_json_payload, normalize_surface_id, trim_text
-from neo_app.assistant.attachments import MAX_DOCUMENT_UPLOAD_BYTES, extract_document_text
+from neo_app.assistant.attachments import MAX_DOCUMENT_UPLOAD_BYTES, MAX_MEDIA_UPLOAD_BYTES, extract_document_text
 from neo_app.knowledge.project_documents import extract_project_document
+from neo_app.knowledge.media_source import MEDIA_SUFFIXES, prepare_media_source
 from neo_app.context_identity import resolve_canonical_identity, is_builtin_scope
 from neo_app.memory.project_brain_ingestion import get_project_brain_ingestion_service
 from neo_app.memory.job_service import get_memory_job_service
@@ -762,6 +764,10 @@ async def save_project_file_upload(file: UploadFile, *, project_id: str = "gener
     identity = _project_identity(project_id, surface)
     root = ensure_project_brain_dirs(project_id) / "uploads"
     destination = _safe_upload_path(root, file.filename or "upload")
+    incoming_suffix = Path(file.filename or destination.name).suffix.lower()
+    incoming_mime = str(file.content_type or "").lower()
+    is_media_upload = incoming_suffix in MEDIA_SUFFIXES or incoming_mime.startswith("audio/") or incoming_mime.startswith("video/")
+    upload_limit = MAX_MEDIA_UPLOAD_BYTES if is_media_upload else MAX_DOCUMENT_UPLOAD_BYTES
     written = 0
     try:
         with destination.open("wb") as handle:
@@ -770,8 +776,8 @@ async def save_project_file_upload(file: UploadFile, *, project_id: str = "gener
                 if not chunk:
                     break
                 written += len(chunk)
-                if written > MAX_DOCUMENT_UPLOAD_BYTES:
-                    raise ValueError(f"Project file exceeds {MAX_DOCUMENT_UPLOAD_BYTES // (1024 * 1024)} MB upload limit")
+                if written > upload_limit:
+                    raise ValueError(f"Project file exceeds {upload_limit // (1024 * 1024)} MB upload limit")
                 handle.write(chunk)
     except Exception:
         try:
@@ -817,8 +823,15 @@ async def save_project_file_upload(file: UploadFile, *, project_id: str = "gener
 
     structured: dict[str, Any] = {}
     extracted_text = ""
+    is_media = suffix in MEDIA_SUFFIXES or mime.startswith("audio/") or mime.startswith("video/")
     extraction: dict[str, Any] = {"status": "not_applicable" if mime.startswith("image/") else "stored_only"}
-    if not mime.startswith("image/"):
+    if is_media:
+        try:
+            structured = await asyncio.to_thread(prepare_media_source, destination)
+            extraction = {k: v for k, v in structured.items() if k != "blocks"}
+        except Exception as exc:
+            extracted_text, extraction = "", {"status": "stored_only", "reason": f"project_media_transcription_failed: {exc}"}
+    elif not mime.startswith("image/"):
         try:
             structured = extract_project_document(destination, suffix)
             extraction = {k: v for k, v in structured.items() if k != "blocks"}
@@ -845,7 +858,8 @@ async def save_project_file_upload(file: UploadFile, *, project_id: str = "gener
         "filename": file.filename or destination.name,
         "stored_path": str(destination.relative_to(ROOT_DIR)) if destination.is_relative_to(ROOT_DIR) else str(destination),
         "mime_type": mime,
-        "kind": "image" if mime.startswith("image/") else "document",
+        "kind": "image" if mime.startswith("image/") else ("media" if is_media else "document"),
+        "media_kind": str(((structured.get("metadata") or {}) if isinstance(structured.get("metadata"), dict) else {}).get("media_kind") or "") if is_media else "",
         "size_bytes": destination.stat().st_size,
         "content_hash": file_content_hash,
         "extraction": extraction,

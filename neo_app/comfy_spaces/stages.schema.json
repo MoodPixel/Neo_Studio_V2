@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.stages.v1",
+  "title": "Neo Comfy Space Stages v1",
+  "$defs": {
+    "SpaceStageDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "stage_id": {
+          "title": "Stage Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "order": {
+          "default": 100,
+          "title": "Order",
+          "type": "integer"
+        },
+        "required_stage_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Stage Ids",
+          "type": "array"
+        },
+        "target_output_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Output Ids",
+          "type": "array"
+        },
+        "intermediate_output_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Intermediate Output Ids",
+          "type": "array"
+        },
+        "enabled_by_default": {
+          "default": true,
+          "title": "Enabled By Default",
+          "type": "boolean"
+        },
+        "optional": {
+          "default": false,
+          "title": "Optional",
+          "type": "boolean"
+        },
+        "can_run_alone": {
+          "default": false,
+          "title": "Can Run Alone",
+          "type": "boolean"
+        },
+        "skip_behavior": {
+          "const": "do_not_execute",
+          "default": "do_not_execute",
+          "title": "Skip Behavior",
+          "type": "string"
+        },
+        "resource_policy": {
+          "default": "automatic",
+          "enum": [
+            "automatic",
+            "keep_loaded",
+            "free_memory",
+            "unload_models"
+          ],
+          "title": "Resource Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage_id",
+        "label"
+      ],
+      "title": "SpaceStageDefinition",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.stages.v1",
+      "default": "neo.comfy_space.stages.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space_stages",
+      "default": "comfy_space_stages",
+      "title": "Kind",
+      "type": "string"
+    },
+    "space_id": {
+      "title": "Space Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "execution_authority": {
+      "const": false,
+      "default": false,
+      "title": "Execution Authority",
+      "type": "boolean"
+    },
+    "stages": {
+      "items": {
+        "$ref": "#/$defs/SpaceStageDefinition"
+      },
+      "title": "Stages",
+      "type": "array"
+    }
+  },
+  "required": [
+    "space_id",
+    "version"
+  ],
+  "type": "object"
+}

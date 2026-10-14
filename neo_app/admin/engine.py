@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 import json
 
+from .semantic_profile import semantic_config_fingerprint
+
 from .ownership import (
     ADMIN_OWNERSHIP_CONTRACT,
     CANONICAL_MEMORY_NAMESPACES,
@@ -25,9 +27,10 @@ RETRIEVAL_DEFAULTS_PATH = ENGINE_DATA_DIR / "retrieval_defaults.json"
 INDEXING_STATE_PATH = ENGINE_DATA_DIR / "indexing_state.json"
 RUNTIME_DEFAULTS_PATH = ENGINE_DATA_DIR / "runtime_defaults.json"
 HEALTH_SNAPSHOT_PATH = ENGINE_DATA_DIR / "health_snapshot.json"
+SEMANTIC_QUALIFICATION_PATH = ENGINE_DATA_DIR / "semantic_qualification.json"
 
 ENGINE_SCHEMA_ID = "neo.admin.engine.v1"
-ENGINE_VERSION = "0.5.0-admin-ownership-phase2"
+ENGINE_VERSION = "0.6.0-aci5-semantic-qualification"
 
 
 def _now() -> str:
@@ -187,6 +190,14 @@ def engine_defaults() -> dict[str, dict[str, Any]]:
             "active_base_url": "",
             "active_api_key_env": "",
             "request_timeout": 60,
+            "active_model_revision": "",
+            "pooling": "model_defined",
+            "normalize_embeddings": True,
+            "query_prompt_name": "",
+            "document_prompt_name": "",
+            "query_instruction": "",
+            "document_instruction": "",
+            "trust_remote_code": True,
             "profiles": [],
             "supported_provider_ids": ["sentence_transformers", "openai_compatible_embeddings", "local_embedding_model", "local_hash_embeddings"],
             "default_dimension": None,
@@ -202,6 +213,9 @@ def engine_defaults() -> dict[str, dict[str, Any]]:
             "active_base_url": "",
             "active_api_key_env": "",
             "request_timeout": 60,
+            "active_model_revision": "",
+            "max_length": 2048,
+            "trust_remote_code": True,
             "profiles": [],
             "supported_provider_ids": ["cross_encoder", "bge_reranker", "qwen3_reranker", "local_reranker", "openai_compatible_reranker", "lexical_overlap", "none"],
             "default_top_n": 8,
@@ -243,6 +257,17 @@ def engine_defaults() -> dict[str, dict[str, Any]]:
             "deprecated_generation_keys": list(MEMORY_ENGINE_GENERATION_KEYS),
             "note": "Compatibility bridge only. Generation sampling is owned by backend/task profiles and is no longer editable from Memory Engine.",
         },
+        "semantic_qualification": {
+            "schema_id": "neo.admin.semantic_qualification.v1",
+            "version": "1.0.0-aci5",
+            "status": "never_run",
+            "qualified_at": None,
+            "config_fingerprint": "",
+            "embedding": {"status": "not_qualified"},
+            "reranker": {"status": "not_qualified"},
+            "warnings": [],
+            "blockers": ["semantic_engine_not_qualified"],
+        },
         "health_snapshot": {
             "status": "ready",
             "checked_at": stamp,
@@ -269,6 +294,7 @@ def ensure_admin_engine_foundation() -> dict[str, Any]:
         "retrieval_defaults": _ensure_file(RETRIEVAL_DEFAULTS_PATH, defaults["retrieval_defaults"]),
         "indexing_state": _ensure_file(INDEXING_STATE_PATH, defaults["indexing_state"]),
         "runtime_defaults": _ensure_file(RUNTIME_DEFAULTS_PATH, defaults["runtime_defaults"]),
+        "semantic_qualification": _ensure_file(SEMANTIC_QUALIFICATION_PATH, defaults["semantic_qualification"]),
         "health_snapshot": _ensure_file(HEALTH_SNAPSHOT_PATH, {**defaults["health_snapshot"], "checked_at": _now()}),
     }
     return files
@@ -277,11 +303,19 @@ def ensure_admin_engine_foundation() -> dict[str, Any]:
 def admin_engine_state_payload() -> dict[str, Any]:
     files = ensure_admin_engine_foundation()
     health = dict(files["health_snapshot"])
+    current_config_fingerprint = semantic_config_fingerprint(files)
+    qualification = dict(files.get("semantic_qualification") or {})
+    qualification_current = bool(qualification.get("config_fingerprint")) and qualification.get("config_fingerprint") == current_config_fingerprint
+    embedding_qualified = qualification_current and str((qualification.get("embedding") or {}).get("status") or "") == "passed"
+    reranker_status = str((qualification.get("reranker") or {}).get("status") or "")
+    reranker_qualified = qualification_current and reranker_status in {"passed", "disabled", "degraded"}
     health.update({
         "checked_at": _now(),
         "text_bridge_ready": files["text_bridge"].get("status") == "ready",
-        "embeddings_ready": bool(files["embedding_profiles"].get("active_profile_id") or files["embedding_profiles"].get("active_model_path") or files["embedding_profiles"].get("active_model_name")),
-        "reranker_ready": bool(files["reranker_profiles"].get("active_profile_id") or files["reranker_profiles"].get("active_model_path") or files["reranker_profiles"].get("active_model_name")) or files["reranker_profiles"].get("active_provider_id") == "none",
+        "embeddings_ready": embedding_qualified,
+        "reranker_ready": reranker_qualified,
+        "semantic_qualification_current": qualification_current,
+        "semantic_qualified": bool(embedding_qualified and reranker_qualified),
         "vector_store_ready": bool(files["vector_store"].get("root") or files["vector_store"].get("persist_path")),
         "indexing_ready": files["indexing_state"].get("status") in {"ready", "foundation"},
     })
@@ -298,6 +332,7 @@ def admin_engine_state_payload() -> dict[str, Any]:
         "retrieval_defaults": str(RETRIEVAL_DEFAULTS_PATH.relative_to(ROOT_DIR)),
         "indexing_state": str(INDEXING_STATE_PATH.relative_to(ROOT_DIR)),
         "runtime_defaults": str(RUNTIME_DEFAULTS_PATH.relative_to(ROOT_DIR)),
+        "semantic_qualification": str(SEMANTIC_QUALIFICATION_PATH.relative_to(ROOT_DIR)),
         "health_snapshot": str(HEALTH_SNAPSHOT_PATH.relative_to(ROOT_DIR)),
     }
     readiness = {
@@ -309,6 +344,8 @@ def admin_engine_state_payload() -> dict[str, Any]:
         "indexing_ready": health["indexing_ready"],
         "retrieval_defaults_ready": files["retrieval_defaults"].get("status") in {"foundation", "ready"},
         "runtime_defaults_ready": files["runtime_defaults"].get("status") in {"foundation", "ready"},
+        "semantic_qualification_current": qualification_current,
+        "semantic_qualified": bool(embedding_qualified and reranker_qualified),
     }
     try:
         from neo_app.admin.index_jobs import index_job_queue_state_payload
@@ -342,6 +379,8 @@ def admin_engine_state_payload() -> dict[str, Any]:
         "index_jobs": index_jobs,
         "memory_jobs": memory_jobs,
         "runtime_defaults": files["runtime_defaults"],
+        "semantic_qualification": qualification,
+        "semantic_config_fingerprint": current_config_fingerprint,
         "health_snapshot": health,
         "active_features": [
             "external sentence-transformers embedding execution when installed/configured",
@@ -349,13 +388,13 @@ def admin_engine_state_payload() -> dict[str, Any]:
             "external cross-encoder reranker execution when installed/configured",
             "OpenAI-compatible reranker endpoint execution when configured",
             "Unified persistent memory background jobs with progress/cancel/retry",
-            "SQLite vector index writes",
-            "safe local hash embedding fallback",
-            "safe lexical reranker fallback",
-            "Chroma/vector collection export/import",
+            "SQLite vector index writes with embedding-profile fingerprints",
+            "explicit semantic qualification with no-fallback probes",
+            "lexical/FTS fallback reported as non-semantic degraded mode",
+            "Chroma/vector collection compatibility checks and reindex gating",
         ],
         "deferred_features": [
-            "GPU/model health benchmark panel",
+            "long-running comparative model benchmark panel",
         ],
         "ownership": ADMIN_OWNERSHIP_CONTRACT["memory_engine"],
         "compatibility": {
@@ -416,17 +455,17 @@ def update_model_paths(payload: dict[str, Any] | None) -> dict[str, Any]:
     incoming = payload or {}
 
     embeddings = dict(files["embedding_profiles"])
-    for key in ("active_profile_id", "active_provider_id", "active_model_path", "active_model_name", "active_base_url", "active_api_key_env", "request_timeout", "default_dimension"):
+    for key in ("active_profile_id", "active_provider_id", "active_model_path", "active_model_name", "active_base_url", "active_api_key_env", "request_timeout", "default_dimension", "active_model_revision", "pooling", "normalize_embeddings", "query_prompt_name", "document_prompt_name", "query_instruction", "document_instruction", "trust_remote_code"):
         if f"embedding_{key}" in incoming:
             embeddings[key] = incoming[f"embedding_{key}"]
         elif key in incoming.get("embeddings", {}):
             embeddings[key] = incoming["embeddings"][key]
-    embeddings["status"] = "ready" if (embeddings.get("active_model_path") or embeddings.get("active_model_name") or embeddings.get("active_profile_id") or embeddings.get("active_base_url") or embeddings.get("active_provider_id") == "local_hash_embeddings") else "placeholder"
+    embeddings["status"] = "configured" if (embeddings.get("active_model_path") or embeddings.get("active_model_name") or embeddings.get("active_profile_id") or embeddings.get("active_base_url") or embeddings.get("active_provider_id") == "local_hash_embeddings") else "placeholder"
     embeddings["updated_at"] = _now()
     _write_json(EMBEDDING_PROFILES_PATH, embeddings)
 
     reranker = dict(files["reranker_profiles"])
-    for key in ("active_profile_id", "active_provider_id", "active_model_path", "active_model_name", "active_base_url", "active_api_key_env", "request_timeout", "default_top_n"):
+    for key in ("active_profile_id", "active_provider_id", "active_model_path", "active_model_name", "active_base_url", "active_api_key_env", "request_timeout", "default_top_n", "active_model_revision", "max_length", "trust_remote_code"):
         if f"reranker_{key}" in incoming:
             reranker[key] = incoming[f"reranker_{key}"]
         elif key in incoming.get("reranker", {}):
@@ -439,7 +478,7 @@ def update_model_paths(payload: dict[str, Any] | None) -> dict[str, Any]:
         reranker["last_provider_persistence_note"] = provider_note
     else:
         reranker.pop("last_provider_persistence_note", None)
-    reranker["status"] = "disabled" if reranker.get("active_provider_id") == "none" else ("ready" if (reranker.get("active_model_path") or reranker.get("active_model_name") or reranker.get("active_profile_id") or reranker.get("active_base_url") or reranker.get("active_provider_id") == "lexical_overlap") else "placeholder")
+    reranker["status"] = "disabled" if reranker.get("active_provider_id") == "none" else ("configured" if (reranker.get("active_model_path") or reranker.get("active_model_name") or reranker.get("active_profile_id") or reranker.get("active_base_url") or reranker.get("active_provider_id") == "lexical_overlap") else "placeholder")
     reranker["updated_at"] = _now()
     _write_json(RERANKER_PROFILES_PATH, reranker)
 

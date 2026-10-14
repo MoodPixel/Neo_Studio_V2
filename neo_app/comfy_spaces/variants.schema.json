@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "neo.comfy_space.variant.v1",
+  "title": "Neo Comfy Space Variant v1",
+  "$defs": {
+    "SpaceGraphAddonRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "neo.comfy_space.graph_addon.v1",
+          "default": "neo.comfy_space.graph_addon.v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "instance_id": {
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "lane": {
+          "enum": [
+            "module",
+            "raw_node"
+          ],
+          "title": "Lane",
+          "type": "string"
+        },
+        "module_id": {
+          "default": "",
+          "title": "Module Id",
+          "type": "string"
+        },
+        "module_version": {
+          "default": "",
+          "title": "Module Version",
+          "type": "string"
+        },
+        "anchor_ids": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Anchor Ids",
+          "type": "object"
+        },
+        "raw_node_class": {
+          "default": "",
+          "title": "Raw Node Class",
+          "type": "string"
+        },
+        "raw_anchor_id": {
+          "default": "",
+          "title": "Raw Anchor Id",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": true,
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "instance_id",
+        "lane"
+      ],
+      "title": "SpaceGraphAddonRequest",
+      "type": "object"
+    },
+    "SpaceVariantPresentation": {
+      "additionalProperties": false,
+      "properties": {
+        "badge_label": {
+          "default": "",
+          "title": "Badge Label",
+          "type": "string"
+        },
+        "description_override": {
+          "default": "",
+          "title": "Description Override",
+          "type": "string"
+        }
+      },
+      "title": "SpaceVariantPresentation",
+      "type": "object"
+    },
+    "SpaceVariantStageDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled_stage_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Enabled Stage Ids",
+          "type": "array"
+        },
+        "preferred_run_mode": {
+          "default": "all",
+          "enum": [
+            "all",
+            "stage"
+          ],
+          "title": "Preferred Run Mode",
+          "type": "string"
+        },
+        "preferred_stage_id": {
+          "default": "",
+          "title": "Preferred Stage Id",
+          "type": "string"
+        }
+      },
+      "title": "SpaceVariantStageDefaults",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "neo.comfy_space.variant.v1",
+      "default": "neo.comfy_space.variant.v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "comfy_space_variant",
+      "default": "comfy_space_variant",
+      "title": "Kind",
+      "type": "string"
+    },
+    "variant_id": {
+      "title": "Variant Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "base_space_id": {
+      "title": "Base Space Id",
+      "type": "string"
+    },
+    "base_version": {
+      "title": "Base Version",
+      "type": "string"
+    },
+    "base_publication_fingerprint": {
+      "title": "Base Publication Fingerprint",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    },
+    "graph_addons": {
+      "items": {
+        "$ref": "#/$defs/SpaceGraphAddonRequest"
+      },
+      "title": "Graph Addons",
+      "type": "array"
+    },
+    "stage_defaults": {
+      "$ref": "#/$defs/SpaceVariantStageDefaults"
+    },
+    "presentation": {
+      "$ref": "#/$defs/SpaceVariantPresentation"
+    },
+    "saved_values": {
+      "additionalProperties": true,
+      "title": "Saved Values",
+      "type": "object"
+    }
+  },
+  "required": [
+    "variant_id",
+    "name",
+    "base_space_id",
+    "base_version",
+    "base_publication_fingerprint",
+    "created_at",
+    "updated_at"
+  ],
+  "type": "object"
+}
