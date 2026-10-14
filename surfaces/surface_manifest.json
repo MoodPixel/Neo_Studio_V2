@@ -1,0 +1,1027 @@
+{
+  "schema_version": "2.0.0",
+  "surfaces": [
+    {
+      "surface_id": "image",
+      "display_name": "Image",
+      "description": "Generate, edit, upscale, reuse, and manage image outputs through backend-neutral jobs.",
+      "status": "active",
+      "provider_types": [
+        "image_generation",
+        "image_editing"
+      ],
+      "extension_targets": [
+        "workflow_extension",
+        "ui_panel_extension",
+        "output_extension",
+        "assistant_tool_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "image",
+          "project",
+          "extension"
+        ],
+        "record_events": [
+          "surface.opened",
+          "subtab.opened",
+          "job.created",
+          "job.completed",
+          "job.failed",
+          "extension.mounted"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "generate",
+          "display_name": "Generate",
+          "description": "Base text-to-image workspace for prompt, model, parameters, extensions, and results.",
+          "slots": [
+            "image.generate.backend",
+            "image.generate.model",
+            "image.generate.prompt",
+            "image.generate.params",
+            "image.generate.extensions",
+            "image.generate.run",
+            "image.generate.results"
+          ]
+        },
+        {
+          "subtab_id": "img2img",
+          "display_name": "Img2Img",
+          "description": "Source-image guided generation workspace.",
+          "slots": [
+            "image.img2img.backend",
+            "image.img2img.source",
+            "image.img2img.prompt",
+            "image.img2img.params",
+            "image.img2img.extensions",
+            "image.img2img.results"
+          ]
+        },
+        {
+          "subtab_id": "inpaint",
+          "display_name": "Inpaint",
+          "description": "Masked image repair and replacement workspace.",
+          "slots": [
+            "image.inpaint.source",
+            "image.inpaint.mask",
+            "image.inpaint.prompt",
+            "image.inpaint.extensions",
+            "image.inpaint.results"
+          ]
+        },
+        {
+          "subtab_id": "outpaint",
+          "display_name": "Outpaint",
+          "description": "Canvas expansion workspace for local/API outpaint providers and extensions.",
+          "slots": [
+            "image.outpaint.source",
+            "image.outpaint.canvas",
+            "image.outpaint.extensions",
+            "image.outpaint.results"
+          ]
+        },
+        {
+          "subtab_id": "upscale",
+          "display_name": "Upscale",
+          "description": "Resolution enhancement and finishing workspace.",
+          "slots": [
+            "image.upscale.source",
+            "image.upscale.params",
+            "image.upscale.extensions",
+            "image.upscale.results"
+          ]
+        },
+        {
+          "subtab_id": "edit",
+          "display_name": "Edit",
+          "description": "Instruction/image editing workspace for compatible local and cloud providers.",
+          "slots": [
+            "image.edit.source",
+            "image.edit.instruction",
+            "image.edit.extensions",
+            "image.edit.results"
+          ]
+        },
+        {
+          "subtab_id": "batch",
+          "display_name": "Batch",
+          "description": "Batch prompt, source, or variant processing workspace.",
+          "slots": [
+            "image.batch.inputs",
+            "image.batch.queue",
+            "image.batch.extensions",
+            "image.batch.results"
+          ]
+        },
+        {
+          "subtab_id": "history",
+          "display_name": "History",
+          "description": "Image generation history, metadata replay, and reuse controls.",
+          "slots": [
+            "image.history.filters",
+            "image.history.results",
+            "image.history.reuse"
+          ]
+        }
+      ]
+    },
+    {
+      "surface_id": "prompt_captioning",
+      "display_name": "Prompt & Captioning",
+      "description": "Prompt building, captioning, tag cleanup, and reusable prompt assets.",
+      "status": "active",
+      "provider_types": [
+        "captioning",
+        "local_llm",
+        "cloud_llm"
+      ],
+      "extension_targets": [
+        "ui_panel_extension",
+        "assistant_tool_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "prompt_captioning",
+          "project"
+        ],
+        "record_events": [
+          "surface.opened",
+          "asset.saved",
+          "caption.generated"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "prompt_builder",
+          "display_name": "Prompt Studio",
+          "description": "Compose, refine, save, copy, and hand off prompts.",
+          "slots": [
+            "prompt.builder.inputs",
+            "prompt.builder.assist",
+            "prompt.builder.results"
+          ]
+        },
+        {
+          "subtab_id": "captioning",
+          "display_name": "Caption Studio",
+          "description": "Caption images and extract reusable prompt details.",
+          "slots": [
+            "prompt.captioning.source",
+            "prompt.captioning.provider",
+            "prompt.captioning.results"
+          ]
+        },
+        {
+          "subtab_id": "character_builder",
+          "display_name": "Character Builder",
+          "description": "Build reusable character prompt fragments for image prompts and captions.",
+          "slots": [
+            "prompt.assist.character.profile",
+            "prompt.assist.character.preview",
+            "prompt.assist.character.handoff"
+          ]
+        },
+        {
+          "subtab_id": "keyword_browser",
+          "display_name": "Keyword Browser",
+          "description": "Browse and organize reusable prompt keywords by category.",
+          "slots": [
+            "prompt.assist.keywords.search",
+            "prompt.assist.keywords.categories",
+            "prompt.assist.keywords.insert"
+          ]
+        },
+        {
+          "subtab_id": "caption_browser",
+          "display_name": "Caption Browser",
+          "description": "Browse saved captions and prepare caption-to-prompt reuse.",
+          "slots": [
+            "prompt.assist.captions.search",
+            "prompt.assist.captions.preview",
+            "prompt.assist.captions.handoff"
+          ]
+        },
+        {
+          "subtab_id": "saved_prompts",
+          "display_name": "Saved Prompts",
+          "description": "Review, search, load, duplicate, and delete saved prompt records.",
+          "slots": [
+            "prompt.library.search",
+            "prompt.library.records",
+            "prompt.library.actions"
+          ]
+        },
+        {
+          "subtab_id": "batch_captioning",
+          "display_name": "Batch Captioning",
+          "description": "Prepare batch image captioning runs from folders and review results.",
+          "slots": [
+            "prompt.batch.inputs",
+            "prompt.batch.queue",
+            "prompt.batch.results"
+          ]
+        },
+        {
+          "subtab_id": "inspector",
+          "display_name": "Inspector",
+          "description": "Expert diagnostics for Prompt & Captioning contracts and metadata.",
+          "slots": [
+            "prompt.inspector.payload",
+            "prompt.inspector.capabilities",
+            "prompt.inspector.metadata"
+          ]
+        }
+      ]
+    },
+    {
+      "surface_id": "video",
+      "display_name": "Video",
+      "description": "Provider-aware Video workspace with canonical WAN/LTX routing, context-specific Generation/Assets/Reference/Finish/Results composition, built-in and external extension lanes, finishing, and Neo-owned result reuse.",
+      "status": "active",
+      "provider_types": [
+        "video_generation",
+        "video_processing"
+      ],
+      "extension_targets": [
+        "workflow_extension",
+        "ui_panel_extension",
+        "output_extension",
+        "video_finish_extension",
+        "built_in_video_extension",
+        "external_video_node_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "video",
+          "project",
+          "extension"
+        ],
+        "record_events": [
+          "surface.opened",
+          "video.contract.loaded",
+          "video.output_paths.checked",
+          "job.completed",
+          "job.failed",
+          "video.workspace_app.opened",
+          "video.workflow_mode.changed",
+          "video.family.changed",
+          "video.loader.changed",
+          "video.shell_field.changed",
+          "video.route_matrix.loaded",
+          "video.route_matrix.validated",
+          "video.route.changed",
+          "video.route.incompatible",
+          "video.backend_probe.checked",
+          "video.wan22_txt2vid.compiled",
+          "video.wan22_txt2vid.generate_requested",
+          "video.wan22_img2vid.compiled",
+          "video.wan22_img2vid.generate_requested",
+          "video.ltx23_txt2vid.compiled",
+          "video.ltx23_txt2vid.generate_requested",
+          "video.ltx23_img2vid.compiled",
+          "video.ltx23_img2vid.generate_requested",
+          "video.ltx23_first_last_frame.compiled",
+          "video.ltx23_first_last_frame.generate_requested",
+          "video.first_frame.uploaded",
+          "video.last_frame.uploaded",
+          "video.first_last_frame.sources_cleared",
+          "video.source_image.uploaded",
+          "video.source_image.cleared",
+          "video.results.loaded",
+          "video.result.selected",
+          "video.result.refresh_requested",
+          "video.result.replay_copied",
+          "video.output_record.created",
+          "video.output_inspector.loaded",
+          "video.output_inspector.recipe_loaded"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "generation",
+          "display_name": "Generation",
+          "description": "Create Video jobs with the active provider, canonical route, prompt/source inputs, route parameters, built-in tools, and compatible external extensions.",
+          "slots": [
+            "video.generation.backend",
+            "video.generation.prompt",
+            "video.generation.preview",
+            "video.generation.source",
+            "video.generation.parameters",
+            "video.generation.builtins",
+            "video.generation.audio_video",
+            "video.generation.depth_motion_control",
+            "video.generation.prompt_motion_schedule",
+            "video.generation.size_timing_presets",
+            "video.generation.external_extensions",
+            "video.generation.contract",
+            "video.generation.route_matrix",
+            "video.generation.compiler",
+            "video.generation.vram_profile_advisor"
+          ]
+        },
+        {
+          "subtab_id": "assets",
+          "display_name": "Assets",
+          "description": "Prepare and review source images, source videos, first/last frames, MultiScene inputs, and reusable Video assets without rendering generation parameters.",
+          "slots": [
+            "video.assets.inventory",
+            "video.assets.source",
+            "video.assets.references",
+            "video.assets.frames",
+            "video.assets.lora_stack",
+            "video.assets.external_extensions"
+          ]
+        },
+        {
+          "subtab_id": "reference",
+          "display_name": "Reference",
+          "description": "Prepare route-specific image, video, depth, and motion reference inputs without duplicating Generation prompt or parameter controls.",
+          "slots": [
+            "video.reference.context",
+            "video.reference.image",
+            "video.reference.video",
+            "video.reference.motion",
+            "video.reference.depth",
+            "video.reference.builtins",
+            "video.reference.depth_motion_control",
+            "video.reference.external_extensions"
+          ]
+        },
+        {
+          "subtab_id": "finish",
+          "display_name": "Finish",
+          "description": "Post-process Neo-owned Video outputs with interpolation, upscale, repair/cleanup, finish presets, and compatible finish extensions independent from the active generation family.",
+          "slots": [
+            "video.finish.presets",
+            "video.finish.interpolate",
+            "video.finish.upscale",
+            "video.finish.repair",
+            "video.finish.finish_interpolation",
+            "video.finish.finish_upscale",
+            "video.finish.finish_repair",
+            "video.finish.external_extensions",
+            "video.finish.export"
+          ]
+        },
+        {
+          "subtab_id": "results",
+          "display_name": "Results",
+          "description": "Review Video generation history and inspect the selected Neo-owned output through playback, recipe, sources, extensions, lineage, replay validation, and expert metadata.",
+          "slots": [
+            "video.results.ledger",
+            "video.results.output_inspector",
+            "video.results.inspector.playback",
+            "video.results.inspector.generation",
+            "video.results.inspector.prompts",
+            "video.results.inspector.parameters",
+            "video.results.inspector.sources",
+            "video.results.inspector.extensions",
+            "video.results.inspector.lineage",
+            "video.results.inspector.replay",
+            "video.results.inspector.expert",
+            "video.results.memory_export",
+            "video.results.output_recorder",
+            "video.results.external_extensions"
+          ]
+        }
+      ]
+    },
+    {
+      "surface_id": "comfy_spaces",
+      "display_name": "Comfy Spaces",
+      "description": "Run published ComfyUI workflows as native Neo mini-apps with declarative controls, media-neutral assets, optional per-run Graph Add-ons, shared execution, and live progress.",
+      "status": "active",
+      "provider_types": [],
+      "extension_targets": [],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "comfy_spaces",
+          "project"
+        ],
+        "record_events": [
+          "surface.opened",
+          "space.opened",
+          "space.run.started",
+          "space.run.completed",
+          "space.run.cancelled"
+        ]
+      },
+      "subtabs": []
+    },
+    {
+      "surface_id": "voice",
+      "display_name": "Voice",
+      "description": "Provider-aware Voice workspace with VO-R2 common settings, VO-R3 routing, VO-R4 TTS, VO-R5 Results, VO-R6 Reference/Clone, VO-R7 reusable Voice Profile Assets, VO-R8 provider controls, VO-R9 Finish, VO-R10 Dialogue / Multi-speaker, and VO-R11 bounded Batch orchestration.",
+      "status": "active",
+      "provider_types": [
+        "tts",
+        "stt",
+        "audio_processing"
+      ],
+      "extension_targets": [
+        "workflow_extension",
+        "ui_panel_extension",
+        "output_extension",
+        "assistant_tool_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "voice",
+          "project",
+          "extension"
+        ],
+        "record_events": [
+          "surface.opened",
+          "voice.workspace_app.opened",
+          "voice.preview.prepared",
+          "voice.render.completed",
+          "voice.profile.saved",
+          "voice.common_settings.changed",
+          "voice.common_settings.reset",
+          "voice.provider_routing.refreshed",
+          "voice.backend_profile.changed",
+          "voice.generation.submitted",
+          "voice.generation.polled",
+          "voice.generation.completed_poll",
+          "voice.result.selected",
+          "voice.result.replayed_to_draft",
+          "voice.result.open_folder",
+          "voice.profile_asset.selected",
+          "voice.profile_asset.created",
+          "voice.profile_asset.updated",
+          "voice.profile_asset.applied",
+          "voice.profile_asset.deleted",
+          "voice.provider_control.changed",
+          "voice.finish.completed",
+          "voice.finish.split.completed",
+          "voice.finish.merge.completed",
+          "voice.finish.source.selected",
+          "voice.dialogue.parsed",
+          "voice.dialogue.mapping.changed",
+          "voice.dialogue.submitted",
+          "voice.dialogue.polled",
+          "voice.dialogue.completed",
+          "voice.batch.imported",
+          "voice.batch.run",
+          "voice.batch.polled",
+          "voice.batch.item.retried",
+          "voice.batch.completed"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "generation",
+          "display_name": "Generation",
+          "description": "Generate single-speaker TTS with durable VO-R4 job tracking, capability-gated Dialogue / Multi-speaker, or bounded VO-R11 Batch jobs through one selected Voice Backend Profile using current durable child runtimes and Neo-owned output persistence.",
+          "slots": [
+            "voice.generation.backend",
+            "voice.generation.script",
+            "voice.generation.selection",
+            "voice.generation.parameters",
+            "voice.generation.preview",
+            "voice.generation.run",
+            "voice.generation.outputs",
+            "voice.generation.dialogue",
+            "voice.generation.speaker_mapping",
+            "voice.generation.dialogue_run",
+            "voice.generation.batch"
+          ]
+        },
+        {
+          "subtab_id": "assets",
+          "display_name": "Assets",
+          "description": "Create, inspect, safely apply, update, and delete reusable VO-R7 Voice Profile Assets scoped to the selected backend while preserving portable cross-backend settings.",
+          "slots": [
+            "voice.assets.profile_assets",
+            "voice.assets.profile_inspector",
+            "voice.assets.compatibility",
+            "voice.assets.references"
+          ]
+        },
+        {
+          "subtab_id": "reference",
+          "display_name": "Reference",
+          "description": "Stage Neo-owned reference audio, confirm authorization, inspect QC, select reusable reference assets, and run capability-gated VO-R6 voice cloning through the active Voice profile.",
+          "slots": [
+            "voice.reference.upload",
+            "voice.reference.ledger",
+            "voice.reference.qc",
+            "voice.reference.capabilities",
+            "voice.reference.clone"
+          ]
+        },
+        {
+          "subtab_id": "finish",
+          "display_name": "Finish",
+          "description": "Post-process completed Neo-owned Voice results with capability-gated local normalize, silence trim, cleanup, loudness, WAV/MP3 conversion, split, merge, and non-destructive child-output lineage.",
+          "slots": [
+            "voice.finish.source",
+            "voice.finish.capabilities",
+            "voice.finish.process",
+            "voice.finish.split",
+            "voice.finish.merge",
+            "voice.finish.history",
+            "voice.finish.output_actions"
+          ]
+        },
+        {
+          "subtab_id": "results",
+          "display_name": "Results",
+          "description": "Review current TTS, reference-clone, Dialogue, Finish, and Batch-child audio jobs through the shared-registry ledger with playback, lineage, download/open-folder actions, and safe replay-to-draft.",
+          "slots": [
+            "voice.results.ledger",
+            "voice.results.playback",
+            "voice.results.inspector",
+            "voice.results.replay",
+            "voice.results.output_actions"
+          ]
+        }
+      ]
+    },
+    {
+      "surface_id": "roleplay",
+      "display_name": "Roleplay",
+      "description": "Forge, Scene, Stories, and Studio workspace for roleplay projects, canon, memory, runtime, collaboration, and package workflows.",
+      "status": "active",
+      "provider_types": [
+        "local_llm",
+        "cloud_llm",
+        "memory_retrieval",
+        "text_backend"
+      ],
+      "extension_targets": [
+        "ui_panel_extension",
+        "memory_extension",
+        "assistant_tool_extension",
+        "text_backend_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "roleplay",
+          "roleplay.project",
+          "roleplay.scene",
+          "roleplay.story",
+          "roleplay.character",
+          "roleplay.canon",
+          "roleplay.memory",
+          "roleplay.runtime"
+        ],
+        "record_events": [
+          "surface.opened",
+          "roleplay.surface.opened",
+          "roleplay.tab.changed"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "forge",
+          "display_name": "Forge",
+          "description": "Builder for roleplay records, entities, canon inputs, links, and inspection.",
+          "slots": [
+            "roleplay.forge.builder_rail",
+            "roleplay.forge.builder",
+            "roleplay.forge.records",
+            "roleplay.forge.inspector"
+          ]
+        },
+        {
+          "subtab_id": "scene",
+          "display_name": "Scene",
+          "description": "Scene setup and live scene chat with runtime bundles, memory retrieval, and streaming generation.",
+          "slots": [
+            "roleplay.scene.setup",
+            "roleplay.scene.chat"
+          ]
+        },
+        {
+          "subtab_id": "stories",
+          "display_name": "Stories",
+          "description": "Story workspace for storylines, archives, continuity, provenance, checkpoints, branches, and restore.",
+          "slots": [
+            "roleplay.stories.workspace",
+            "roleplay.stories.storyline",
+            "roleplay.stories.archive",
+            "roleplay.stories.inspector"
+          ]
+        },
+        {
+          "subtab_id": "studio",
+          "display_name": "Studio",
+          "description": "Roleplay project, source, libraries, compile, runtime, package, and inspector workspace.",
+          "slots": [
+            "roleplay.studio.guide",
+            "roleplay.studio.project",
+            "roleplay.studio.source",
+            "roleplay.studio.assist",
+            "roleplay.studio.advanced",
+            "roleplay.studio.libraries",
+            "roleplay.studio.compile",
+            "roleplay.studio.runtime",
+            "roleplay.studio.engine",
+            "roleplay.studio.inspector"
+          ]
+        }
+      ]
+    },
+    {
+      "surface_id": "assistant",
+      "display_name": "Assistant",
+      "description": "Universal Neo Assistant with Scope-prioritized memory, cross-surface recall, and inspectable context.",
+      "status": "active",
+      "provider_types": [
+        "local_llm",
+        "cloud_llm",
+        "memory_retrieval"
+      ],
+      "extension_targets": [
+        "assistant_tool_extension",
+        "memory_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "assistant",
+          "project"
+        ],
+        "record_events": [
+          "surface.opened",
+          "chat.created",
+          "context.retrieved"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "chat",
+          "display_name": "Chat",
+          "description": "Scope-aware universal Assistant chat workspace.",
+          "slots": [
+            "assistant.chat.rail",
+            "assistant.chat.thread",
+            "assistant.chat.context"
+          ]
+        },
+        {
+          "subtab_id": "projects",
+          "display_name": "Scopes",
+          "description": "Manage Assistant Scopes, linked delivery-project identity, and Project Brain memory-building controls.",
+          "slots": [
+            "assistant.scopes.list",
+            "assistant.scopes.editor",
+            "assistant.scopes.project_brain"
+          ]
+        },
+        {
+          "subtab_id": "memory",
+          "display_name": "Memory",
+          "description": "User-facing Memory Lens for scope memory, durable memory, recent retrievals, review state, and background activity.",
+          "slots": [
+            "assistant.memory.lens",
+            "assistant.memory.retrievals",
+            "assistant.memory.review_state"
+          ]
+        },
+        {
+          "subtab_id": "context",
+          "display_name": "Context",
+          "description": "Save deliberate Scope Knowledge and inspect the context pack/retrieval proof used for Assistant replies.",
+          "slots": [
+            "assistant.context.preview",
+            "assistant.context.diagnostics"
+          ]
+        },
+        {
+          "subtab_id": "tools",
+          "display_name": "Tools",
+          "description": "Safe Assistant tools and cross-surface handoff actions.",
+          "slots": [
+            "assistant.tools.safe_actions",
+            "assistant.tools.catalog"
+          ]
+        },
+        {
+          "subtab_id": "guide",
+          "display_name": "Guide",
+          "description": "Assistant guidance for current and future Neo surfaces.",
+          "slots": [
+            "assistant.guide.surfaces",
+            "assistant.guide.workflows"
+          ]
+        },
+        {
+          "subtab_id": "validation",
+          "display_name": "Validation",
+          "description": "Assistant route, storage, and capability health checks.",
+          "slots": [
+            "assistant.validation.routes",
+            "assistant.validation.storage"
+          ]
+        },
+        {
+          "subtab_id": "inspector",
+          "display_name": "Inspector",
+          "description": "Technical proof for Assistant runtime, compiled prompts, retrieval, memory jobs, and diagnostics.",
+          "slots": [
+            "assistant.inspector.session",
+            "assistant.inspector.bootstrap"
+          ]
+        }
+      ]
+    },
+    {
+      "surface_id": "music",
+      "display_name": "Music",
+      "description": "Future music and audio generation workspace placeholder. Music workflows are planned for a later Neo Studio V2 update.",
+      "status": "planned",
+      "provider_types": [
+        "music_generation",
+        "audio_generation"
+      ],
+      "extension_targets": [
+        "ui_panel_extension",
+        "workflow_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "music",
+          "project"
+        ],
+        "record_events": [
+          "surface.opened"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "planned",
+          "display_name": "Planned",
+          "description": "Music workflows are not active in this preview release.",
+          "slots": [
+            "music.planned.placeholder"
+          ]
+        }
+      ]
+    },
+    {
+      "surface_id": "board",
+      "display_name": "Board",
+      "description": "Future visual planning board for outputs, notes, prompts, and reusable assets.",
+      "status": "planned",
+      "provider_types": [
+        "asset_management"
+      ],
+      "extension_targets": [
+        "ui_panel_extension",
+        "asset_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "board",
+          "project"
+        ],
+        "record_events": [
+          "surface.opened",
+          "asset.pinned",
+          "asset.sent_to_surface"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "workspace",
+          "display_name": "Workspace",
+          "description": "Pinned assets and planning area.",
+          "slots": [
+            "board.workspace.assets",
+            "board.workspace.notes"
+          ]
+        },
+        {
+          "subtab_id": "library",
+          "display_name": "Library",
+          "description": "Reusable project assets.",
+          "slots": [
+            "board.library.filters",
+            "board.library.assets"
+          ]
+        }
+      ]
+    },
+    {
+      "surface_id": "admin",
+      "display_name": "Admin",
+      "description": "Central control center for system configuration, memory governance, retrieval infrastructure, Delivery Projects, orchestration diagnostics, libraries, storage, health, and logs across Neo Studio V2.",
+      "status": "active",
+      "provider_types": [
+        "admin"
+      ],
+      "extension_targets": [
+        "ui_panel_extension"
+      ],
+      "memory_policy": {
+        "namespaces": [
+          "global",
+          "admin",
+          "admin.engine"
+        ],
+        "record_events": [
+          "surface.opened",
+          "setting.changed",
+          "extension.enabled",
+          "extension.disabled",
+          "admin.engine.checked",
+          "admin.engine.runtime_defaults.updated",
+          "admin.engine.retrieval_defaults.updated"
+        ]
+      },
+      "subtabs": [
+        {
+          "subtab_id": "overview",
+          "display_name": "Dashboard",
+          "description": "Compact control-center summary for readiness, attention items, and safe refresh actions.",
+          "slots": [
+            "admin.dashboard.status",
+            "admin.dashboard.attention",
+            "admin.dashboard.actions"
+          ]
+        },
+        {
+          "subtab_id": "backends",
+          "display_name": "Backends",
+          "description": "Global backend/provider control across Image, Prompting, Roleplay, Assistant, Voice, Music, Video, and Board.",
+          "slots": [
+            "admin.backends.providers",
+            "admin.backends.profiles",
+            "admin.backends.surface_map"
+          ]
+        },
+        {
+          "subtab_id": "models",
+          "display_name": "Models",
+          "description": "Model Guide, model paths, installed scan status, source discovery, download planning, model packs, and workspace requirements.",
+          "slots": [
+            "admin.models.catalog",
+            "admin.models.paths",
+            "admin.models.installed",
+            "admin.models.sources",
+            "admin.models.downloads",
+            "admin.models.packs",
+            "admin.models.workspaces"
+          ]
+        },
+        {
+          "subtab_id": "comfy_spaces",
+          "display_name": "Comfy Spaces",
+          "description": "Build native Neo-style interfaces over normal ComfyUI workflow JSON or API exports. Authoring, shared-renderer preview, fail-closed publishing, and package diagnostics remain here; published Spaces run from the top-level Comfy Spaces workspace.",
+          "slots": [
+            "admin.comfy_spaces.import",
+            "admin.comfy_spaces.drafts",
+            "admin.comfy_spaces.inspect",
+            "admin.comfy_spaces.controls",
+            "admin.comfy_spaces.outputs",
+            "admin.comfy_spaces.presentation",
+            "admin.comfy_spaces.preview",
+            "admin.comfy_spaces.publish"
+          ]
+        },
+        {
+          "subtab_id": "extensions",
+          "display_name": "Extensions",
+          "description": "Global extension registry, compatibility, install state, and surface-scoped extension managers.",
+          "slots": [
+            "admin.extensions.registry",
+            "admin.extensions.install",
+            "admin.extensions.compatibility",
+            "admin.extensions.surface_map"
+          ]
+        },
+        {
+          "subtab_id": "memory",
+          "display_name": "Memory",
+          "description": "Memory governance: inspector, Search + Citations, policies, durable review, conflicts/canon, consolidation, retention, and lifecycle diagnostics.",
+          "slots": [
+            "admin.memory.status",
+            "admin.memory.inspector",
+            "admin.memory.policies",
+            "admin.memory.durable_review",
+            "admin.memory.conflicts",
+            "admin.memory.retention"
+          ]
+        },
+        {
+          "subtab_id": "engine",
+          "display_name": "Memory Engine",
+          "description": "Memory Engine infrastructure: sources, bridge, embeddings, reranker, vector store, retrieval profiles, indexing, unified background jobs, and diagnostics. Generation sampling belongs to Backends; memory governance belongs to Memory.",
+          "slots": [
+            "admin.engine.overview",
+            "admin.engine.sources",
+            "admin.engine.text_bridge",
+            "admin.engine.embeddings",
+            "admin.engine.reranker",
+            "admin.engine.vector_store",
+            "admin.engine.retrieval",
+            "admin.engine.indexing",
+            "admin.engine.inspector",
+            "admin.engine.index_jobs",
+            "admin.engine.diagnostics",
+            "admin.engine.background_jobs"
+          ]
+        },
+        {
+          "subtab_id": "projects",
+          "display_name": "Delivery Projects",
+          "description": "Delivery Projects: client/work records, linked assets, briefs, timeline, milestones, deliverables, reviews, approvals, packages, and read-only linked-memory context. Assistant Scopes are separate; Project Brain ingestion stays on the Assistant/shared memory pipeline.",
+          "slots": [
+            "admin.projects.delivery_workspace",
+            "admin.projects.asset_tray",
+            "admin.projects.briefs",
+            "admin.projects.timeline",
+            "admin.projects.delivery",
+            "admin.projects.review_approval",
+            "admin.projects.packages",
+            "admin.projects.linked_memory"
+          ]
+        },
+        {
+          "subtab_id": "assistant_operator",
+          "display_name": "Assistant / Operator",
+          "description": "Assistant/Operator orchestration diagnostics, read-only Scope visibility, Control Center traces, tools/permissions, execution ledger, Voice input, and Internet/API permissions. Normal Scope activation/editing stays in Assistant.",
+          "slots": [
+            "admin.assistant.scope_readout",
+            "admin.assistant.trace_review",
+            "admin.operator.tools",
+            "admin.operator.permissions",
+            "admin.operator.execution_ledger"
+          ]
+        },
+        {
+          "subtab_id": "diagnostics",
+          "display_name": "Diagnostics",
+          "description": "Expert-only diagnostics for surface architecture, UI readiness, memory observability, audits, and low-level system maps.",
+          "slots": [
+            "admin.diagnostics.surface_architecture",
+            "admin.diagnostics.ui_readiness",
+            "admin.diagnostics.memory_observability",
+            "admin.diagnostics.audits"
+          ]
+        },
+        {
+          "subtab_id": "libraries",
+          "display_name": "Libraries",
+          "description": "Shared creator libraries, prompt libraries, roleplay libraries, asset roots, and namespace routing.",
+          "slots": [
+            "admin.libraries.paths",
+            "admin.libraries.namespaces",
+            "admin.libraries.surface_map"
+          ]
+        },
+        {
+          "subtab_id": "storage",
+          "display_name": "Storage",
+          "description": "Project, output, cache, log, and extension storage paths.",
+          "slots": [
+            "admin.storage.paths",
+            "admin.storage.policy"
+          ]
+        },
+        {
+          "subtab_id": "health",
+          "display_name": "Health",
+          "description": "System readiness checks for providers, extensions, memory, records, storage, and engine state.",
+          "slots": [
+            "admin.health.checks",
+            "admin.health.actions"
+          ]
+        },
+        {
+          "subtab_id": "logs",
+          "display_name": "Logs",
+          "description": "Runtime log overview and maintenance status.",
+          "slots": [
+            "admin.logs.files",
+            "admin.logs.retention"
+          ]
+        }
+      ],
+      "ux_contract": {
+        "schema_id": "neo.admin.ux_consolidation.phase12.v1",
+        "phase": 12,
+        "policy": "Admin governs/configures shared machinery without duplicating normal Assistant or surface-owned workflow controls.",
+        "compatibility_aliases": {
+          "memory_engine": "engine",
+          "delivery_projects": "projects",
+          "project_workspace": "projects",
+          "assistant": "assistant_operator",
+          "operator": "assistant_operator"
+        }
+      }
+    }
+  ]
+}
