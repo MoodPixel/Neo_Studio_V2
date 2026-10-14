@@ -1,6 +1,6 @@
 # Neo Studio V2
 
-**Neo Studio V2** is a local-first AI creative workspace for **Image, Video, Voice, Prompt & Captioning, Roleplay, and Assistant workflows** in one interface.
+**Neo Studio V2** is a local-first AI creative workspace for **Image, Video, Comfy Spaces, Voice, Prompt & Captioning, Roleplay, and Assistant workflows** in one interface.
 
 It is built for creators who want to use their own local AI backends and models without jumping between separate tools for every part of a workflow.
 
@@ -51,6 +51,15 @@ Neo Studio does **not** bundle third-party AI models, ComfyUI, Forge Neo, Kobold
 - ComfyUI-backed video generation and finishing with route-aware source workflows.
 - Current work includes LTX and WAN-oriented generation routes, Img2Vid, first/last-frame, multiscene, extend, Vid2Vid, depth/motion control, interpolation, upscale, and repair when the required local models/nodes are installed.
 
+### 🧩 Comfy Spaces
+
+- Run published ComfyUI workflows as native Neo mini-apps from the top-level **Comfy Spaces** workspace.
+- Each Space opens directly to its own reviewed controls and results instead of showing Image-specific Model Family / Main Model Type / Workflow Mode selectors or generic UI Presets. The runner uses Neo-native dark controls, media/file dropzones, and a top-aligned Results panel rather than browser-default form styling.
+- Supports mixed text, image, mask, video, audio, and file workflows through Neo-managed assets, with **Validate / Generate / Stop / Progress**, navigation-safe long-running status, current-stage feedback, cancellation, and recent runs. Model, LoRA, sampler, scheduler, and other combo controls are populated from the selected ComfyUI runtime's live catalog instead of behaving like free-text placeholders.
+- Space authors use **Admin → Comfy Spaces** to import normal ComfyUI workflow JSON — including supported nested Comfy subgraphs — review runtime-backed graph attachment points, auto-group controls by role/node/subgraph, shape the interface, preview it without execution, and publish immutable Space versions.
+- After adding custom nodes to ComfyUI, restart that ComfyUI instance and use **Refresh Installed Nodes** in the Space Import screen to check loaded node types and missing workflow requirements. Neo reads node definitions directly from ComfyUI rather than asking you to write schemas manually.
+- When a published Space has author-confirmed attachment points, the runner can optionally add **per-run Graph Add-ons** without republishing the Space. The initial reviewed module is ControlNet; an advanced lane also exposes only runtime-proven single-transform Comfy nodes. These changes exist only on the execution clone and never rewrite the published workflow. Published Spaces can also expose author-defined execution stages, letting users run the configured pipeline, run one stage boundary, or continue from a completed predecessor run while Comfy reuses valid cache. Published Space versions can be **exported as `.neospace` files** and imported into another Neo installation, with package integrity validation and no model weights or custom-node code included. The runner also supports **value-only Space Presets** for saving and reapplying non-media input settings without changing graph add-ons or stages. The same runner can save **Space Variants** pinned to the exact published version, remembering Graph Add-ons, stage defaults, and optional non-media values without copying the workflow; media uploads are selected again per run. Authors can also add **conditional/dynamic controls** so inputs or whole sections appear/enable only when values, stages, add-ons, or Variant state match, plus repeatable JSON lists and multi-reference media lists—all without custom per-Space JavaScript. Published Spaces now also keep **Dependency Health** per configured Comfy runtime, so Neo can show ready/blocked/stale status, missing nodes/models, stage readiness, and Graph Add-on readiness before a run; Generate still performs a fresh live runtime check. Published Spaces also keep immutable version history: authors can compare a replacement Comfy workflow against a published version, review compatible/missing migrations before publishing a new version, and explicitly roll the active Space back to an older immutable version without overwriting package history.
+
 ### 🎙️ Voice
 
 - Functional local TTS workspace through **Neo Voice Engine**.
@@ -59,7 +68,7 @@ Neo Studio does **not** bundle third-party AI models, ComfyUI, Forge Neo, Kobold
 
 ### ✍️ Prompt & Captioning
 
-- Prompt building, captioning, prompt libraries, reusable presets, batch captioning, and edit/video prompt helpers. Prompt Studio supports the optional **Qwen Image 2.1 PE T2I Prompt Enhancer**, while Caption Studio adds the image-aware **Qwen Image 2.1 PE Edit Prompt Enhancer** with up to 10 ordered references. The Qwen Image 2.1 Image prompt panel also has a review-first **Enhance with Qwen 2.1 PE** shortcut that reuses the same engine instead of duplicating it. All routes reuse any compatible connected ComfyUI runtime when their specialist node/models are installed, including an already-connected **Prompt & Captioning ComfyUI LLM/VLM** profile; you do not need to configure the same Comfy server twice. The T2I enhancer path now has physical runtime evidence on the Windows/NVIDIA host, while the Edit enhancer remains implemented and repository-qualified pending its final physical multi-reference pass.
+- Prompt building, captioning, prompt libraries, reusable presets, batch captioning, and edit/video prompt helpers. Prompt Studio supports the optional **Qwen Image 2.1 PE T2I Prompt Enhancer**, while Caption Studio adds the image-aware **Qwen Image 2.1 PE I2I / Edit Prompt Enhancer** with up to 10 ordered references. The Edit enhancer is now easier to find in Caption Studio even before switching tasks, and the full controls open under **Build Edit Prompt**. The Qwen Image 2.1 Image prompt panel also has a review-first **Enhance with Qwen 2.1 PE** shortcut that reuses the same engine instead of duplicating it. All routes reuse any compatible connected ComfyUI runtime when their specialist node/models are installed, including an already-connected **Prompt & Captioning ComfyUI LLM/VLM** profile; you do not need to configure the same Comfy server twice. PE-I2I can be compute-heavy on local GPUs, so Neo now keeps long Edit-enhancer requests alive longer and shows the shared Comfy runtime phase while they run.
 
 ### 🎭 Roleplay
 
@@ -67,11 +76,12 @@ Neo Studio does **not** bundle third-party AI models, ComfyUI, Forge Neo, Kobold
 
 ### 🤖 Assistant
 
-- Scope-aware local Assistant with project context, attachments, guide-aware knowledge, memory capture, and handoff between Neo workspaces.
+- Scope-aware local Assistant with persistent Project knowledge, source-grounded retrieval, document/audio/video-audio attachments, guide-aware help, memory capture, cross-workspace context, and a Knowledge Inspector that shows why project/source evidence was selected.
 
 ### ⚙️ Admin
 
-- Backend profiles, provider connections, launch/configuration tools, model guidance, extensions, custom nodes, runtime logs, and system settings.
+- Backend profiles, provider connections, launch/configuration tools, model guidance, extensions, custom nodes, runtime logs, system settings, and the **Comfy Space Builder**.
+- The Builder imports normal ComfyUI workflow JSON (API exports also work), understands supported nested Comfy subgraphs, checks the selected ComfyUI runtime when available, keeps every detected input reviewable, suggests sensible exposed controls, proposes typed graph attachment points for author review, can organize controls by semantic role/source node/source subgraph, previews the Neo-style interface without running Comfy, and publishes validated immutable Space versions for the top-level **Comfy Spaces** workspace. For existing Spaces, the Builder can compare replacement workflows, preserve only uniquely compatible controls/anchors/stages, require migration review, and expose explicit version rollback. Publishing does **not** run Comfy or install dependencies.
 
 ---
 
@@ -83,9 +93,11 @@ Neo Studio V2 has grown well beyond a simple launcher around third-party backend
 - **Qwen Image 2.1 support:** dedicated `qwen_image_21` family with Safetensors/components and transformer-GGUF routes, Txt2Img, unified Img2Img/Edit, Inpaint, experimental Outpaint, model-only LoRA, High-Res Lab, explicit **Auto / RGB / RGBA** output-channel control, and capability-aware **Qwen Image 2.1 Cache** controls.
 - **Krea 2 family growth:** separate Krea 2 RAW and Krea 2 Turbo families, Krea-native editing paths, Krea Identity Edit, and Krea-specific control workflows such as Depth, Composition / Silhouette, OpenPose / Ostris, and Canny / NK2E where the required routes and nodes are installed.
 - **Voice workspace is fully real now:** Neo Voice Engine runs isolated Voice worker environments outside the main repo, with validated local Chatterbox and Qwen3-TTS CustomVoice management, reusable Voice assets, Dialogue, Batch, Results, and Finish tools.
-- **Admin now owns more of the day-to-day setup:** backend profiles, model install status, extension management, Node Manager, runtime diagnostics, and provider capability checks are first-class product surfaces.
-- **Prompt enhancement is now a first-class specialist workflow:** Qwen Image 2.1 PE T2I is physically validated, the shared QPE engine can be called from Prompt Studio, Caption Studio, and the Image tab, and Neo can reuse either a compatible Image Comfy runtime or an already-connected Prompt & Captioning Comfy runtime instead of forcing duplicate Comfy profiles.
+- **Comfy Spaces is now a real top-level workspace:** published ComfyUI workflows appear as native Neo mini-apps with their own declarative controls/results, Neo-native fields and upload dropzones, live searchable Comfy model/LoRA catalogs plus sampler/scheduler combo choices, a top-aligned Results panel, compact runtime choice, Validate/Generate/Stop controls, live long-running progress, reconnect/recovery, cancellation feedback, favorites/search, and recent runs. Spaces open directly to their own interface rather than inheriting the Image workspace's generic routing selectors or UI Presets. Builder Preview remains non-executing. Published Spaces with confirmed graph anchors can also use optional **per-run Graph Add-ons** such as the reviewed ControlNet module; advanced raw-node choices are limited to safe single typed transforms discovered from the selected runtime, and the published workflow stays unchanged. Stage-aware Spaces can expose **Run All / Run Stage / Continue** pipeline controls with explicit dependencies and optional resource-release policies between stage runs. The runner can also save **Space Variants** pinned to the exact published Space version, remembering Graph Add-ons, stage defaults, and optional non-media values without copying or rewriting the workflow; uploaded media is selected again per run. Published Spaces may also use declarative **conditional/dynamic controls** and bounded repeaters/reference lists, while execution and graph behavior remain owned by the existing stage/add-on contracts. **Dependency Health** persists per-runtime compatibility evidence, flags stale/changed runtimes, and explains missing nodes/models/stage/add-on readiness without auto-installing anything or replacing the live Generate-time preflight. Immutable Space version history now supports reviewed workflow replacement and active-version rollback while keeping every published version intact.
+- **Admin now owns more of the day-to-day setup:** backend profiles, model install status, extension management, Node Manager, runtime diagnostics, provider capability checks, and the **Comfy Space Builder** are first-class product surfaces. The Builder imports normal ComfyUI workflow JSON (or API exports), uses the selected runtime's node/model/socket information when available, keeps every detected control reviewable, applies node-aware exposure suggestions, proposes author-confirmed graph attachment points, can auto-group controls by role/node/subgraph, shapes presentation/results, previews through the same shared renderer used by the real runner, and publishes validated immutable Space versions, including reviewed replacement-workflow migration and explicit rollback for existing Spaces.
+- **Prompt enhancement is now a first-class specialist workflow:** Qwen Image 2.1 PE can be called from Prompt Studio, Caption Studio, and the Image tab through one shared engine. Neo can reuse either a compatible Image Comfy runtime or an already-connected Prompt & Captioning Comfy runtime, and long-running PE-I2I/Edit rewrites now expose live runtime phase/elapsed status instead of looking frozen.
 - **Public-facing workflow transparency:** route status, capability gating, Output Inspector, replay records, portable PNG metadata, and preserved runtime lineage make Neo much easier to troubleshoot and reuse.
+- **Assistant source intelligence is now retrieval-first:** persistent Project files and chat-scoped attachments share Neo's source contract. Structured documents can use Docling + RapidOCR, while audio and video audio tracks can be transcribed through Neo's Voice ASR authority into timestamped evidence; relevant fragments are retrieved through bounded context paths and Knowledge Inspector exposes the evidence path used for the latest turn.
 
 ## 🖼️ Workspace Screenshots
 
@@ -403,11 +415,12 @@ Then start Neo Studio normally with `run_neo_studio.bat`.
 |---|---|---|
 | **Image** | Generate, edit, refine, inspect, replay, reference, and finish images. | Active |
 | **Video** | Generate and finish local video workflows. | Active / expanding |
+| **Comfy Spaces** | Open published ComfyUI workflows as native Neo mini-apps with dynamic controls/results, mixed-media assets, generation controls, live progress, recovery, and recent runs. | Active |
 | **Voice** | TTS, clone, Dialogue, Batch, reusable Voice assets, Results and Finish. | Active |
 | **Prompt & Captioning** | Prompt generation, libraries, captioning, batch tools, and optional Qwen Image 2.1 prompt enhancement. | Active |
 | **Roleplay** | Character/world creation, scenes, stories and memory-aware writing. | Active |
-| **Assistant** | Scope-aware local Assistant and project context. | Active |
-| **Admin** | Backends, models, extensions, custom nodes, runtime and settings. | Active |
+| **Assistant** | Scope-aware local Assistant, persistent Project knowledge, grounded retrieval, memory, and Knowledge Inspector. | Active |
+| **Admin** | Backends, models, extensions, custom nodes, runtime/settings, and Comfy Space authoring/preview/publishing. Published Spaces are run from the top-level Comfy Spaces workspace. | Active |
 | **Music** | Music/audio generation workspace. | Planned |
 | **Board** | Visual planning/organization workspace. | Planned |
 
@@ -434,6 +447,8 @@ Then start Neo Studio normally with `run_neo_studio.bat`.
 ```bat
 setup_neo_studio_venv.bat
 ```
+
+The setup installs both official root dependency sets — `requirements.txt` and `requirements-memory.txt` — into Neo's root `.venv`. Semantic memory and unified document/source intelligence do not require a separate ACI/benchmark environment.
 
 4. Start Neo Studio:
 
@@ -791,7 +806,7 @@ Some important Neo features use **current ComfyUI core nodes**, not separate thi
 ### Custom-node setup notes
 
 - **Qwen Image 2.1 Prompt Enhancer:** install `ComfyUI-Qwen-Image-2.1-Prompt-Enhancer` in `ComfyUI/custom_nodes/`, then install the PE checkpoint(s) you plan to use under `ComfyUI/models/text_encoders/`. The T2I route uses `qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors`; the image-aware Edit route uses `qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors`. Neo also requires the current bundled `neo_prompt_captioning` bridge because it supplies the structured QPE result terminal and Neo image-input bridge. Restart ComfyUI after installing/updating the node or bridge, then run **Connect/Test** on the compatible Comfy profile you want QPE to use. Neo can reuse either an Image ComfyUI/Portable profile or an already-connected Prompt & Captioning ComfyUI LLM/VLM profile that points to the same Comfy server. You only need the PE checkpoint for the enhancer task you intend to run; install both if you want both T2I and Edit enhancement.
-- **QPE runtime status:** the T2I enhancer path has physical runtime evidence using `qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors` on the Windows/NVIDIA host. The image-aware Edit enhancer is implemented, discovered, replay-capable, and handoff-ready, but its final physical multi-reference qualification is still the remaining runtime check before it can be called fully physically closed.
+- **QPE runtime status:** the T2I enhancer path has physical runtime evidence using `qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors`. The image-aware Edit enhancer also reaches the real PE-I2I model and reference path, but it is much slower on some local GPUs; one-image rewrites can take 10+ minutes. Neo now treats these as long-running requests, shows runtime progress state, and waits longer before declaring the request timed out. Final Edit output/performance qualification is still ongoing.
 - **ComfyUI-llama-cpp_vlm:** installing the folder alone is not enough. Install its Python requirements with the same Python environment that runs ComfyUI, restart ComfyUI, then reconnect/test the backend in Neo. GGUF LLM/VLM files belong under `ComfyUI/models/LLM`; VLMs also need their matching `mmproj` file.
 - **Krea 2 Control (Depth):** `comfyui-krea2-controlnet` loads its Control LoRA from `ComfyUI/models/loras`. It does not generate depth/canny/pose maps itself; use normal Comfy nodes or `comfyui_controlnet_aux` for the control map.
 - **Krea 2 Control (Composition / Silhouette):** `comfyui-krea2-controlnetPlus` adds the Krea2 Control Plus loader/image-encode/apply nodes and is required before Neo can expose the Composition / Silhouette intent.
@@ -874,24 +889,24 @@ ComfyUI/custom_nodes/neo_scene_director
 
 ## 🧠 Memory / Embedding / Reranker Setup
 
-Assistant and Roleplay memory/retrieval features may use local embedding and reranker models.
+Assistant and Roleplay retrieval can use local embedding and reranker models. These models help Neo **find and prioritize relevant context**; they do not replace the Assistant LLM or become the source of truth for your Project/memory data.
 
-Recommended models:
+Neo's semantic model choices are intended to be user-configurable. A strong reference pair is:
 
 | Model | Purpose |
 |---|---|
-| `BAAI/bge-small-en-v1.5` | Lightweight embedding model |
-| `BAAI/bge-m3` | Stronger multilingual/general embedding model |
-| `Qwen/Qwen3-Reranker-4B` | Reranking retrieved memory/context |
+| `Qwen/Qwen3-Embedding-0.6B` | Local semantic embeddings |
+| `Qwen/Qwen3-Reranker-0.6B` | Second-stage reranking |
+
+**Sentence Transformers is the runtime/framework, not the model itself.** You can use other compatible embedding or reranker models when they better fit your hardware or language/domain needs.
 
 ### Download example
 
 Install the Hugging Face CLI first, then download models to a local folder:
 
 ```bat
-hf download BAAI/bge-small-en-v1.5 --local-dir "ADD YOUR PATH\bge-small-en-v1.5"
-hf download BAAI/bge-m3 --local-dir "ADD YOUR PATH\bge-m3"
-hf download Qwen/Qwen3-Reranker-4B --local-dir "ADD YOUR PATH\Qwen3-Reranker-4B"
+hf download Qwen/Qwen3-Embedding-0.6B --local-dir "ADD YOUR PATH\Qwen3-Embedding-0.6B"
+hf download Qwen/Qwen3-Reranker-0.6B --local-dir "ADD YOUR PATH\Qwen3-Reranker-0.6B"
 ```
 
 You can choose any local folder path. Do **not** use hardcoded paths from another machine.
@@ -901,12 +916,27 @@ You can choose any local folder path. Do **not** use hardcoded paths from anothe
 1. Open **Admin**.
 2. Go to **Memory Engine**.
 3. Open **Embeddings and Reranker**.
-4. Set the embedding model path.
-5. Set the reranker model path.
+4. Select/configure the embedding runtime and model path/ID available in your build.
+5. Select/configure the reranker runtime and model path/ID.
 6. Save the engine settings.
-7. Restart or reload memory-aware surfaces if needed.
+7. Click **Qualify semantic engine**. Neo runs real embedding/reranker inference; configured paths alone do not count as ready.
+8. If Neo reports **Reindex required**, rebuild semantic projections created by the previous embedding profile before relying on semantic search.
 
----
+> A provider label such as `Sentence Transformers` or a saved model path does not prove that a real semantic model is active. ACI-5 distinguishes `ready`, `degraded`, `qualification_required`, `reindex_required`, and `blocked`. SQLite/FTS retrieval remains available when semantic inference is unavailable; deterministic hash vectors never count as qualified semantic readiness.
+
+## 🎧 Assistant Audio / Media Transcription
+
+Assistant and Project media can reuse Neo's local Voice transcription authority. Configure it under **Admin → Assistant / Operator → Voice Input**. The production ACI-4 path uses `faster-whisper` by default when available and converts transcript segments into timestamped `NeoSourceDocument` evidence.
+
+Recommended setup is a local faster-whisper model directory or an already-cached compatible model ID. Neo passes faster-whisper in local-files-only mode during this path, so a media upload does not silently download missing model weights. Language may be left blank for auto-detection; device and compute type can be selected to match the machine.
+
+For video files, ACI-4 indexes the **audio track only**. It records this limitation explicitly and does not claim that video frames were inspected.
+
+### Chroma and canonical memory
+
+Neo keeps canonical memory/source authority separate from the semantic vector index. Chroma is a rebuildable projection. ACI-5 binds every non-empty semantic collection to the qualified embedding profile fingerprint and dimension; legacy or mismatched collections are refused with `reindex_required` rather than mixed with queries from another vector space.
+
+The fingerprint covers the embedding runtime/provider/model/revision plus dimension, normalization/pooling, and query/document prompt or instruction settings. Changing only the reranker normally does not require rebuilding stored embeddings. Changing the embedding vector-space profile does.
 
 ## 📁 Runtime Data and Project Files
 
@@ -1107,6 +1137,8 @@ Recommended starting points:
 | Prompting & Captioning | `guides/04_PROMPT_CAPTIONING/prompt_captioning_overview.md` |
 | Voice overview | `guides/05_VOICE/voice_overview.md` |
 | Assistant Project Brain | `guides/06_ASSISTANT/project_brain.md` |
+| Conversation Continuity Index | `guides/06_ASSISTANT/conversation_continuity_index.md` |
+| Unified Source Preparation | `guides/06_ASSISTANT/unified_source_preparation.md` |
 
 Neo Assistant can use these guides as built-in stable knowledge when answering scope-aware questions.
 
@@ -1134,6 +1166,8 @@ Neo Studio is built as a **system**, not just a single tool.
 - Some surfaces are still under active development.
 - UI/UX improvements and documentation are ongoing.
 - Not optimized for low-end systems.
+- Assistant retrieval/answer quality depends on the connected local text, embedding, and reranker models; large Project libraries can also require more indexing time and storage.
+- Ordinary Assistant document and transcribed-media uploads use the same `NeoSourceDocument` preparation contract as persistent Project files, but remain chat-scoped ephemeral knowledge. Audio and the audio track of videos can become timestamped transcript evidence when local ASR is configured; ACI-4 does not treat video frames as visually inspected evidence. Retrieved fragments use session-local SQLite FTS5 plus the Admin-selected embedding/reranker when available, and attachments are never promoted into durable Memory or Project Brain automatically.
 
 ---
 
@@ -1152,7 +1186,7 @@ Neo Studio will continue evolving into a unified local creative system, expandin
 - additional Voice model families and speech workflows;
 - project delivery systems;
 - visual board workflows;
-- stronger Assistant project memory and automation.
+- deeper Assistant cross-workspace coordination, Project Knowledge UX, retrieval quality tuning, and automation.
 
 ---
 
@@ -1190,3 +1224,32 @@ Support is optional, but always appreciated 💙
 [shot-assistant-02]: https://github.com/user-attachments/assets/18f24148-65f6-46f1-b01c-0bf29540ba7f
 [shot-assistant-03]: https://github.com/user-attachments/assets/a830ef2d-ab93-462d-88f0-35af2ff5efb9
 [shot-admin-01]: https://github.com/user-attachments/assets/24ef7dd2-4acc-4552-a23a-99bab3bb96db
+
+### Core User Profile + temporal preferences
+
+ACI-6 adds a bounded Core User Profile derived from **approved canonical durable facts**. It does not create a second profile database and does not turn ordinary chat into permanent memory. Reviewed preference changes use temporal validity (`valid_from` / `valid_to`) so the current preference is distinct from auditable historical preferences.
+
+View profile proof/history under **Admin → Memory → User Profile** or the user-facing **Assistant → Memory** lens. Hard Project Sandboxes exclude General profile context unless explicitly opted in, and current chat instructions always override older profile facts.
+
+## ACI-7 long-chat continuity and faster foreground retrieval
+
+Neo Assistant now keeps older conversation continuity through source-linked hierarchical checkpoints while preserving raw chat messages as canonical history. Conversation history is relevance-gated independently from retrieval: self-contained preferences and standalone factual lookups do not inherit unrelated old checkpoints, ordinary deictic follow-ups use a bounded recent window, and explicit recall/continuation can use checkpoints plus recent turns.
+
+Foreground questions no longer bulk-index missing semantic vectors **or reparse already-ingested Project files merely to hydrate a citation**. Project evidence is served from its stored canonical projection and the original source is checked with a cheap revision/content-hash integrity proof; changed sources are marked stale for re-ingestion instead of running Docling inside the user's request. Missing embeddings are queued as background catch-up work while FTS/current compatible vectors remain available immediately.
+
+Retrieval now obeys the Admin foreground bounds (`query_top_k`, `rerank_top_n`, `max_context_chars`). Assistant lanes gather candidates without local reranking, the Gateway performs at most one bounded final rerank, and Qwen3 reranking uses small memory-safe batches. If reranking is unavailable, Neo preserves the fused FTS/top-K shortlist for authority adjudication rather than pretending semantic reranking ran or silently shrinking evidence.
+
+**Assistant → Inspector** exposes per-stage timing, including Neo's total time before the backend and the provider generation time, which makes slow Project/built-in-scope turns diagnosable without guessing.
+
+### ACI-7.2 same-chat continuity index
+
+Long Assistant chats now keep a derived, session-local continuity index beside the canonical chat record. New messages are indexed incrementally into SQLite FTS5, source-linked checkpoints are searchable in the same chat, and a private Chroma projection may be updated later by the qualified semantic engine. Semantic catch-up is queued only after the Assistant closes a turn so the embedding model does not contend with foreground provider generation.
+
+Conversation continuity is routed by dependency rather than chat length:
+
+- standalone/self-contained turns use the current turn only;
+- immediate deictic follow-ups may use a bounded recent raw window;
+- a specific older-topic recall searches only the current chat and injects the matching old messages/checkpoints;
+- broad continuation requests such as “where did we leave off?” may use hierarchical checkpoints plus recent turns.
+
+The chat index is a disposable projection, not durable Memory. Canonical chat messages remain authoritative, indexes are isolated by session, semantic retrieval is skipped when exact FTS/topic anchors are already sufficient, and deleting/clearing a chat removes its conversation index and private Chroma collection. This implements the same prepare-once/retrieve-later invariant used by persistent source knowledge without promoting casual chat content into `neo_memory_facts`.

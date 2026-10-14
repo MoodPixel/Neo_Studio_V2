@@ -12,3 +12,6 @@ numpy>=1.26.0
 opencv-python>=4.9.0
 PyYAML>=6.0.0
 ultralytics>=8.2.0
+
+# Lightweight PDF extraction and compatibility fallback
+pypdf>=5.0.0

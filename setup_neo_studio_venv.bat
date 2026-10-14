@@ -84,7 +84,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [5/5] Installing memory / semantic backend requirements...
+echo [5/5] Installing memory, semantic retrieval, and source-intelligence requirements...
 if not exist "%PROJECT_ROOT%\requirements-memory.txt" (
     echo [ERROR] requirements-memory.txt was not found in the project root.
     pause
@@ -94,7 +94,7 @@ python -m pip install -r "%PROJECT_ROOT%\requirements-memory.txt"
 if errorlevel 1 (
     echo [ERROR] Failed to install requirements-memory.txt.
     echo.
-    echo PyTorch and semantic-memory packages can be large and platform-specific.
+    echo PyTorch, semantic-memory, and document-intelligence packages can be large and platform-specific.
     echo Install the matching PyTorch build for your system if needed, then rerun setup.
     pause
     exit /b 1

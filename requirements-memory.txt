@@ -1,7 +1,23 @@
-# Neo Studio V2 semantic memory / local retrieval stack
+# Neo Studio V2 memory, retrieval, and source-intelligence stack
+# Installed into Neo's root .venv by setup_neo_studio_venv.bat.
+
+# Semantic retrieval / vector mirror
 chromadb>=0.5.0
-sentence-transformers>=3.0.0
+sentence-transformers>=5.4.0
 transformers>=4.51.0
 accelerate>=0.33.0
 safetensors>=0.4.5
 torch>=2.3.0
+
+# Local speech/media transcription (ACI-4 production path)
+# Reuses Neo Voice transcription authority for Assistant/Project media evidence.
+faster-whisper>=1.1,<2
+
+# Unified source preparation (ACI-2 production path)
+# Docling is the advanced structured-document parser; RapidOCR handles scanned PDFs.
+docling[rapidocr]>=2.130,<3
+
+# Lightweight parser fallbacks retained by the capability router.
+python-docx>=1.1.0
+python-pptx>=1.0.0
+openpyxl>=3.1.0
